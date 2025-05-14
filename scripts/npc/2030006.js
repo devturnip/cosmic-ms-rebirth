@@ -129,7 +129,7 @@ function action(mode, type, selection) {
             var questionOptions = questionData[0];
             questionAnswer = questionData[1];
 
-            cm.sendSimple(questionHead + questionEntry + "\r\n\r\n#b" + questionOptions + "#k");
+            cm.sendSimple(questionHead + questionEntry + "\r\n\r\n#b" + questionOptions + "#k" + "\r\n\r\nAnswer: " + questionTree[question][1][questionAnswer]);
         } else if (status >= 2 && status <= 5) {
             if (!evaluateAnswer(selection)) {
                 cm.sendNext("You have failed the question.");
@@ -145,7 +145,7 @@ function action(mode, type, selection) {
             var questionOptions = questionData[0];
             questionAnswer = questionData[1];
 
-            cm.sendSimple(questionHead + questionEntry + "\r\n\r\n#b" + questionOptions + "#k");
+            cm.sendSimple(questionHead + questionEntry + "\r\n\r\n#b" + questionOptions + "#k" + "\r\n\r\nAnswer: " + questionTree[question][1][questionAnswer]);
         } else if (status == 6) {
             if (!evaluateAnswer(selection)) {
                 cm.sendNext("You have failed the question.");
