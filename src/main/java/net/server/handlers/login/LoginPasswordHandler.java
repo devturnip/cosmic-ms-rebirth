@@ -63,7 +63,7 @@ public final class LoginPasswordHandler implements PacketHandler {
     public final void handlePacket(InPacket p, Client c) {
         String remoteHost = c.getRemoteAddress();
         if (remoteHost.contentEquals("null")) {
-            c.sendPacket(PacketCreator.getLoginFailed(14));          // thanks Alchemist for noting remoteHost could be null
+            c.sendPacket(PacketCreator.getLoginFailed(14)); // thanks Alchemist for noting remoteHost could be null
             return;
         }
 
@@ -71,19 +71,22 @@ public final class LoginPasswordHandler implements PacketHandler {
         String pwd = p.readString();
         c.setAccountName(login);
 
-        p.skip(6);   // localhost masked the initial part with zeroes...
+        p.skip(6); // localhost masked the initial part with zeroes...
         byte[] hwidNibbles = p.readBytes(4);
         Hwid hwid = new Hwid(HexTool.toCompactHexString(hwidNibbles));
         int loginok = c.login(login, pwd, hwid);
 
-
         if (YamlConfig.config.server.AUTOMATIC_REGISTER && loginok == 5) {
             try (Connection con = DatabaseConnection.getConnection();
-                 PreparedStatement ps = con.prepareStatement("INSERT INTO accounts (name, password, birthday, tempban) VALUES (?, ?, ?, ?);", Statement.RETURN_GENERATED_KEYS)) { //Jayd: Added birthday, tempban
+                    PreparedStatement ps = con.prepareStatement(
+                            "INSERT INTO accounts (name, password, birthday, tempban, nxCredit) VALUES (?, ?, ?, ?, ?);",
+                            Statement.RETURN_GENERATED_KEYS)) { // Jayd: Added birthday, tempban
                 ps.setString(1, login);
-                ps.setString(2, YamlConfig.config.server.BCRYPT_MIGRATION ? BCrypt.hashpw(pwd, BCrypt.gensalt(12)) : hashpwSHA512(pwd));
+                ps.setString(2, YamlConfig.config.server.BCRYPT_MIGRATION ? BCrypt.hashpw(pwd, BCrypt.gensalt(12))
+                        : hashpwSHA512(pwd));
                 ps.setDate(3, Date.valueOf(DefaultDates.getBirthday()));
                 ps.setTimestamp(4, Timestamp.valueOf(DefaultDates.getTempban()));
+                ps.setInt(5, 1000000);
                 ps.executeUpdate();
 
                 try (ResultSet rs = ps.getGeneratedKeys()) {
@@ -98,9 +101,10 @@ public final class LoginPasswordHandler implements PacketHandler {
             }
         }
 
-        if (YamlConfig.config.server.BCRYPT_MIGRATION && (loginok <= -10)) { // -10 means migration to bcrypt, -23 means TOS wasn't accepted
+        if (YamlConfig.config.server.BCRYPT_MIGRATION && (loginok <= -10)) { // -10 means migration to bcrypt, -23 means
+                                                                             // TOS wasn't accepted
             try (Connection con = DatabaseConnection.getConnection();
-                 PreparedStatement ps = con.prepareStatement("UPDATE accounts SET password = ? WHERE name = ?;")) {
+                    PreparedStatement ps = con.prepareStatement("UPDATE accounts SET password = ? WHERE name = ?;")) {
                 ps.setString(1, BCrypt.hashpw(pwd, BCrypt.gensalt(12)));
                 ps.setString(2, login);
                 ps.executeUpdate();
@@ -123,7 +127,7 @@ public final class LoginPasswordHandler implements PacketHandler {
             }
         }
         if (loginok == 3) {
-            c.sendPacket(PacketCreator.getPermBan(c.getGReason()));//crashes but idc :D
+            c.sendPacket(PacketCreator.getPermBan(c.getGReason()));// crashes but idc :D
             return;
         } else if (loginok != 0) {
             c.sendPacket(PacketCreator.getLoginFailed(loginok));
@@ -138,7 +142,7 @@ public final class LoginPasswordHandler implements PacketHandler {
     }
 
     private static void login(Client c) {
-        c.sendPacket(PacketCreator.getAuthSuccess(c));//why the fk did I do c.getAccountName()?
+        c.sendPacket(PacketCreator.getAuthSuccess(c));// why the fk did I do c.getAccountName()?
         Server.getInstance().registerLoginState(c);
     }
 }
