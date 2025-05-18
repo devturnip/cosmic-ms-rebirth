@@ -22284,6 +22284,10 @@
         <string name="name" value="MISSING NAME"/>
         <string name="desc" value="MISSING INFO"/>
       </imgdir>
+      <imgdir name="1452074">
+        <string name="name" value="Tony bow"/>
+        <string name="desc" value="A bow by tony."/>
+      </imgdir>
     </imgdir>
     <imgdir name="Dragon">
       <imgdir name="1942000">
