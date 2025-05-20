@@ -1,11 +1,3 @@
-/* @Author Ronan
- * @Author Vcoc
-        Name: Steward
-        Map(s): Foyer
-        Info: Commands
-        Script: commands.js
-*/
-
 var status;
 const MapIDNameSearch = Java.type('tools.mapletools.MapIDNameSearch');
 
@@ -33,12 +25,24 @@ function action(mode, type, selection) {
 
         } else if (status == 1) {
             let search = cm.getText();
-            print("search: " + search);
             const searchResults = MapIDNameSearch.getMapIDsByName(search);
-            print("search results: " + searchResults);
 
-            cm.dispose()
-        } else {
+            if (searchResults.length <= 0) {
+                cm.sendPrev("No results found#k")
+            } else {
+                let sendStr = "";
+                for (let i = 0; i<searchResults.length; i++) {
+                    sendStr += "#L" + searchResults[i].getLeft() + "##b " + searchResults[i].getRight();
+                    sendStr += "#k#l\r\n";
+                }
+                cm.sendSimple(sendStr)
+            }
+        } else if (status === 2) {
+            cm.warp(selection)
+            cm.dispose();
+        } 
+        
+        else {
             cm.dispose();
         }
     }

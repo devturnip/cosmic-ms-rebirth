@@ -375,7 +375,7 @@ public class CommandsExecutor {
         addCommand("mobhp", MobHpCommand.class);
         addCommand("shop", ShopCommand.class);
         addCommand("goto", GotoCommand.class); // all players can use goto
-        addCommand("fwarp", FuzzyWarpCommand.class);
+        addCommand("iwarp", FuzzyWarpCommand.class);
 
         commandsNameDesc.add(levelCommandsCursor);
     }
