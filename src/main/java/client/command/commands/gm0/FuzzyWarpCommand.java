@@ -13,9 +13,7 @@ import provider.DataProvider;
 import provider.DataProviderFactory;
 import provider.DataTool;
 import provider.wz.WZFiles;
-import server.maps.FieldLimit;
-import server.maps.MapleMap;
-import server.maps.MiniDungeonInfo;
+import tools.mapletools.MapIDNameSearch;
 
 public class FuzzyWarpCommand extends Command {
     private static Data mapStringData;
@@ -23,8 +21,7 @@ public class FuzzyWarpCommand extends Command {
     {
         setDescription("Warp using names, applies search and lets player choose.");
 
-        DataProvider dataProvider = DataProviderFactory.getDataProvider(WZFiles.STRING);
-        mapStringData = dataProvider.getData("Map.img");
+        mapStringData = MapIDNameSearch.getAllMapData();
     }
 
     @Override
@@ -63,7 +60,7 @@ public class FuzzyWarpCommand extends Command {
                                 .append(streetName).append(" - ").append(mapName).append("\r\n");
                     }
                     index += 1;
-                } 
+                }
             }
             if (sb.length() == 0) {
                 sb.append("#bNo ").append(params[0].toLowerCase()).append("s found.\r\n");
@@ -74,8 +71,10 @@ public class FuzzyWarpCommand extends Command {
 
             // c.getAbstractPlayerInteraction().npcTalk(NpcId.MAPLE_ADMINISTRATOR,
             // sb.toString());
-            sb.append("#k#l");
-            c.getAbstractPlayerInteraction().npcAsk(NpcId.MAPLE_ADMINISTRATOR, sb.toString(), (byte) 0);
+            // sb.append("#k#l");
+            // c.getAbstractPlayerInteraction().npcAsk(NpcId.MAPLE_ADMINISTRATOR,
+            //         sb.toString(), (byte) 0);
+            c.getAbstractPlayerInteraction().openNpc(NpcId.MAPLE_ADMINISTRATOR, "fwarp");
 
         } catch (Exception e) {
             e.printStackTrace();

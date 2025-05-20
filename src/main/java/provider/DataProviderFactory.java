@@ -34,4 +34,8 @@ public class DataProviderFactory {
     public static DataProvider getDataProvider(WZFiles in) {
         return getWZ(in.getFile());
     }
+    
+    public static DataProvider getDataProviderString() {
+        return getWZ(WZFiles.STRING.getFile());
+    }
 }

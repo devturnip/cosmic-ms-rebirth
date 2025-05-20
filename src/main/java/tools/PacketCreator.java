@@ -3514,8 +3514,6 @@ public class PacketCreator {
         p.writeByte(speaker);
         p.writeString(talk);
         p.writeBytes(HexTool.toBytes(endBytes));
-        log.info("Talk: {}", talk);
-        log.info("Packet {}", p.getBytes());
         return p;
     }
 
