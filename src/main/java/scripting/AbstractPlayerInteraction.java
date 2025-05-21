@@ -1195,6 +1195,10 @@ public class AbstractPlayerInteraction {
         c.sendPacket(PacketCreator.getNPCTalk(npcid, (byte) 0, message, "00 00", (byte) 0));
     }
 
+    public void npcAsk(int npcid, String message, byte speaker) {
+        c.sendPacket(PacketCreator.getNPCTalk(npcid, (byte) 4, message, "", speaker));
+    }
+
     public long getCurrentTime() {
         return Server.getInstance().getCurrentTime();
     }

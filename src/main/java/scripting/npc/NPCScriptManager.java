@@ -72,6 +72,10 @@ public class NPCScriptManager extends AbstractScriptManager {
         return start(c, npc, -1, fileName, chr);
     }
 
+    public boolean start(Client c, int npc, String fileName, Character chr, String search) {
+        return start(c, npc, -1, fileName, chr);
+    }
+
     public boolean start(Client c, int npc, int oid, String fileName, Character chr) {
         return start(c, npc, oid, fileName, chr, false, "cm");
     }
