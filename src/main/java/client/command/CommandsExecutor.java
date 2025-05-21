@@ -51,6 +51,7 @@ import client.command.commands.gm0.ToggleExpCommand;
 import client.command.commands.gm0.UptimeCommand;
 import client.command.commands.gm0.ShopCommand;
 import client.command.commands.gm0.FuzzyWarpCommand;
+import client.command.commands.gm0.PotShopCommand;
 import client.command.commands.gm1.BossHpCommand;
 import client.command.commands.gm1.BuffMeCommand;
 import client.command.commands.gm1.GotoCommand;
@@ -374,6 +375,7 @@ public class CommandsExecutor {
         addCommand("bosshp", BossHpCommand.class);
         addCommand("mobhp", MobHpCommand.class);
         addCommand("shop", ShopCommand.class);
+        addCommand("potshop", PotShopCommand.class);
         addCommand("goto", GotoCommand.class); // all players can use goto
         addCommand("iwarp", FuzzyWarpCommand.class);
 

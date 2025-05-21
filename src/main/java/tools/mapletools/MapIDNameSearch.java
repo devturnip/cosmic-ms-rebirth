@@ -22,6 +22,11 @@ public class MapIDNameSearch {
     public static ArrayList<Pair<Integer, String>> getMapIDsByName(String search) {
         ArrayList<Pair<Integer, String>> searchResults = new ArrayList<>();
         String mapName, streetName;
+        
+        if (search.length() == 0) {
+            return searchResults;
+        }
+        
         for (Data searchDataDir : mapStringData.getChildren()) {
             for (Data searchData : searchDataDir.getChildren()) {
                 mapName = DataTool.getString(searchData.getChildByPath("mapName"), "NO-NAME");

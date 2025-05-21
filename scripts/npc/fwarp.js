@@ -21,10 +21,11 @@ function action(mode, type, selection) {
         }
 
         if (status == 0) {
-            cm.sendGetText("Type in the name of the map you are looking for");
+            cm.sendGetText("Type in the name of the map you are looking for.");
 
         } else if (status == 1) {
             let search = cm.getText();
+            
             const searchResults = MapIDNameSearch.getMapIDsByName(search);
 
             if (searchResults.length <= 0) {
