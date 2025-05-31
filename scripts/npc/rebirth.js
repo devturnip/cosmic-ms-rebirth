@@ -74,6 +74,9 @@ function action(mode, type, selection) {
     else if (status === 4 && type === 1) {
         cm.getChar().executeRebornAsId(jobId);
         cm.sendOk("You have now been reborn. That's a total of #r" + cm.getChar().getReborns() + "#k rebirths");
+        // TODO reset 2nd job quests 
+        // 100010 2nd job thief quest - 2nd job npc: 1072003.js & 1072007.js (why are there 2 scripts?)
+        // cm.resetQuest(100010);
         cm.dispose();
     }
 }
