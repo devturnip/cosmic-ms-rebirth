@@ -80,6 +80,8 @@ function action(mode, type, selection) {
         cm.resetQuest(100004); //warrior
         cm.resetQuest(100007); //mage'
         cm.resetQuest(100001); //bowman
+        cm.resetQuest(2191); //pirate 1090000.js
+        cm.resetQuest(2192); //pirate 1090000.js
         cm.dispose();
     }
 }
