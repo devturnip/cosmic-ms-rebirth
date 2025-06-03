@@ -11,7 +11,7 @@ import constants.id.NpcId;
 public class SkillSetCommand extends Command {
     private static final Logger log = LoggerFactory.getLogger(CommandsExecutor.class);
     {
-        setDescription("Test Command");
+        setDescription("Lets you access your learnt active skills from all jobs for keyboard remap.");
     }
 
     @Override
