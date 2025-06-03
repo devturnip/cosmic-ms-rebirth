@@ -1335,6 +1335,14 @@ public class Character extends AbstractCharacterObject {
         }
     }
 
+    public void changeKeybinding(int key, int type, int action) {
+         if (type != 0) {
+            keymap.put(Integer.valueOf(key), new KeyBinding(type, action));
+        } else {
+            keymap.remove(Integer.valueOf(key));
+        }
+    }
+
     public void changeQuickslotKeybinding(byte[] aQuickslotKeyMapped) {
         this.m_pQuickslotKeyMapped = new QuickslotBinding(aQuickslotKeyMapped);
     }
