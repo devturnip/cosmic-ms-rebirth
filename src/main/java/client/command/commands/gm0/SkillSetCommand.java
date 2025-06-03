@@ -8,7 +8,7 @@ import client.command.Command;
 import client.command.CommandsExecutor;
 import constants.id.NpcId;
 
-public class TestCommand extends Command {
+public class SkillSetCommand extends Command {
     private static final Logger log = LoggerFactory.getLogger(CommandsExecutor.class);
     {
         setDescription("Test Command");

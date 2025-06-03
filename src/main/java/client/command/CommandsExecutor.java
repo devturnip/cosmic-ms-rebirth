@@ -52,7 +52,7 @@ import client.command.commands.gm0.UptimeCommand;
 import client.command.commands.gm0.ShopCommand;
 import client.command.commands.gm0.FuzzyWarpCommand;
 import client.command.commands.gm0.PotShopCommand;
-import client.command.commands.gm0.TestCommand;
+import client.command.commands.gm0.SkillSetCommand;
 import client.command.commands.gm1.BossHpCommand;
 import client.command.commands.gm1.BuffMeCommand;
 import client.command.commands.gm1.GotoCommand;
@@ -379,7 +379,7 @@ public class CommandsExecutor {
         addCommand("potshop", PotShopCommand.class);
         addCommand("goto", GotoCommand.class); // all players can use goto
         addCommand("iwarp", FuzzyWarpCommand.class);
-        addCommand("skills", TestCommand.class);
+        addCommand("skills", SkillSetCommand.class);
 
         commandsNameDesc.add(levelCommandsCursor);
     }
