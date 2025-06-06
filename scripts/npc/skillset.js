@@ -13,7 +13,6 @@ function action(mode, type, selection) {
     }
     if (status == 0) {
         const playerSkills = Array.from(cm.getPlayer().getSkills());
-        print("playerSkills: ", playerSkills);
 
         let strbuilder = "#dThese are your learnt skills. You can click on them to bind it to your keyboard.\r\n";
         let count = 0;
@@ -35,7 +34,6 @@ function action(mode, type, selection) {
                 strbuilder += "\r\n";
             }
         }
-        print("count:", count);
         if (count > 0) {
             cm.sendSimple(strbuilder);
         } else {
