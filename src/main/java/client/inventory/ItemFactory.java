@@ -117,9 +117,28 @@ public enum ItemFactory {
         equip.setItemLevel(rs.getByte("itemlevel"));
         equip.setExpiration(rs.getLong("expiration"));
         equip.setGiftFrom(rs.getString("giftFrom"));
-        equip.setRingId(rs.getInt("ringid"));
+        // ringid is sourced from `inventoryequipment` through a LEFT JOIN (see the
+        // `inventoryitems LEFT JOIN inventoryequipment` queries below). When an EQUIP
+        // row has no companion inventoryequipment row the joined ringid is SQL NULL
+        // and rs.getInt() coerces that to 0. -1 is the "no ring" sentinel (Equip
+        // defaults ringid to -1); 0 is a legitimate ring/cashItem id and is read
+        // downstream as "has a ring" (getRingId() > -1), so a stray 0 sends
+        // Ring.loadFromDb(0), gets null back and NPEs the login / cash-shop path.
+        equip.setRingId(noRingIfNull(rs.getInt("ringid"), rs.wasNull()));
 
         return equip;
+    }
+
+    /**
+     * The {@code ringid} column arrives through a LEFT JOIN, so an EQUIP row whose
+     * {@code inventoryequipment} companion is missing yields SQL NULL and
+     * {@link ResultSet#getInt} coerces it to {@code 0}. {@code 0} is read downstream as
+     * "has a ring" ({@code getRingId() > -1}), so it sends {@code Ring.loadFromDb(0)} to a
+     * null and NPEs the login / cash-shop path; {@code -1} is the "no ring" sentinel
+     * {@link Equip} already defaults to. Normalize NULL back to that sentinel.
+     */
+    static int noRingIfNull(int ringId, boolean wasNull) {
+        return wasNull ? -1 : ringId;
     }
 
     public static List<Pair<Item, Integer>> loadEquippedItems(int id, boolean isAccount, boolean login) throws SQLException {
