@@ -51,7 +51,17 @@ public final class AgentPersonaStore {
         if (name == null || name.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(personas().get(name));
+        Map<String, AgentPersona> current = personas();
+        AgentPersona exact = current.get(name);
+        if (exact != null) {
+            return Optional.of(exact);
+        }
+        for (Map.Entry<String, AgentPersona> entry : current.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(name)) {
+                return Optional.of(entry.getValue());
+            }
+        }
+        return Optional.empty();
     }
 
     /** Discards the cached personas and re-reads the configured file immediately. */
@@ -75,7 +85,7 @@ public final class AgentPersonaStore {
         return current;
     }
 
-    private static Map<String, AgentPersona> load(String path) {
+    static Map<String, AgentPersona> load(String path) {
         if (path == null || path.isBlank()) {
             log.warn("No agent personas file configured (LLM_AGENT_PERSONAS_FILE is blank); no personas loaded");
             return Map.of();

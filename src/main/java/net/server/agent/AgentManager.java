@@ -294,20 +294,43 @@ public class AgentManager {
     }
 
     public void onPartyUpdate(Party party, String description) {
-        if (party == null) {
+        if (sessionsByCharacterId.isEmpty() || party == null) {
             return;
         }
         for (PartyCharacter member : party.getMembers()) {
             AgentSession session = sessionsByCharacterId.get(member.getId());
-            if (session == null) {
+            if (session != null) {
+                session.enqueue(new AgentEvent.PartyUpdate(description));
+            }
+        }
+    }
+
+    /**
+     * Recomputes automatic follow targets from the agents' current party state. Invoked after
+     * a party operation has been applied, so it sees the post-mutation leader and roster.
+     */
+    public void refreshAutoFollow() {
+        if (sessionsByCharacterId.isEmpty()) {
+            return;
+        }
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.isManualFollow()) {
                 continue;
             }
-            session.enqueue(new AgentEvent.PartyUpdate(description));
-            if ("DISBAND".equalsIgnoreCase(description)) {
+            Character p = session.getPlayer();
+            if (p == null) {
+                continue;
+            }
+            Party party = p.getParty();
+            if (party == null || party.getMemberById(p.getId()) == null) {
                 session.clearFollow();
+                continue;
+            }
+            int leaderId = party.getLeaderId();
+            if (leaderId != p.getId()) {
+                session.setFollowTarget(leaderId);
             } else {
-                int leaderId = party.getLeaderId();
-                session.setFollowTarget(leaderId != member.getId() ? leaderId : -1);
+                session.clearFollow();
             }
         }
     }
@@ -320,7 +343,7 @@ public class AgentManager {
      */
     public boolean registerForPartySearch(AgentSession session, int minLevel, int maxLevel, int jobs) {
         Character player = session.getPlayer();
-        if (player == null) {
+        if (player == null || player.getMap() == null || player.getLevel() < 10) {
             return false;
         }
         World world = Server.getInstance().getWorld(player.getWorld());
@@ -343,8 +366,12 @@ public class AgentManager {
         if (session == null || session.getPlayer() == null) {
             return false;
         }
-        int level = session.getPlayer().getLevel();
-        return registerForPartySearch(session, Math.max(1, level - 10), level + 10, Integer.MAX_VALUE);
+        Character player = session.getPlayer();
+        if (player.getWorld() != worldId || player.getMap() == null || player.getLevel() < 10) {
+            return false;
+        }
+        int level = player.getLevel();
+        return registerForPartySearch(session, Math.max(10, level - 10), level + 10, Integer.MAX_VALUE);
     }
 
     /** Points an agent's follow target at a player in the given world. */
@@ -358,7 +385,7 @@ public class AgentManager {
         if (target == null) {
             return false;
         }
-        session.setFollowTarget(target.getId());
+        session.setManualFollow(target.getId());
         return true;
     }
 

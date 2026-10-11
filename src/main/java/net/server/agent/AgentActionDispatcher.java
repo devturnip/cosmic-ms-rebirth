@@ -1,5 +1,6 @@
 package net.server.agent;
 
+import client.Character;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
@@ -8,6 +9,8 @@ import net.packet.InPacket;
 import net.packet.OutPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import server.maps.MapItem;
+import server.maps.MapObject;
 import tools.PacketCreator;
 
 import java.awt.Point;
@@ -29,7 +32,9 @@ public class AgentActionDispatcher {
         if (action instanceof AgentAction.Idle) {
             return;
         }
-        if (!session.allowAction()) {
+        // Remember is bookkeeping only; it must never consume a packet/action budget token.
+        boolean freeAction = action instanceof AgentAction.Remember;
+        if (!freeAction && !session.allowAction()) {
             log.debug("Agent {} exceeded its action rate limit; dropping {}", session.getName(), action);
             return;
         }
@@ -123,7 +128,27 @@ public class AgentActionDispatcher {
     }
 
     private void pickupItem(AgentSession session, int objectId) {
-        Point pos = session.getPlayer() == null ? new Point(0, 0) : session.getPlayer().getPosition();
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        MapObject ob = chr.getMap().getMapObject(objectId);
+        if (!(ob instanceof MapItem mapItem)) {
+            return;
+        }
+        Point pos = chr.getPosition();
+        Point obPos = ob.getPosition();
+        if (pos == null || obPos == null) {
+            return;
+        }
+        // Mirror the range ItemPickupHandler enforces, and only take drops we own or free drops.
+        if (Math.abs(pos.x - obPos.x) > 800 || Math.abs(pos.y - obPos.y) > 600) {
+            return;
+        }
+        int ownerId = mapItem.getOwnerId();
+        if (ownerId != 0 && ownerId != chr.getId()) {
+            return;
+        }
         send(session, RecvOpcode.ITEM_PICKUP, p -> {
             p.writeInt(0); // timestamp
             p.writeByte(0);

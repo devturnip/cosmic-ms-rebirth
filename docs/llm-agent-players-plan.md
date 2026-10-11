@@ -37,20 +37,25 @@ Delivered:
 - [x] Chat/party/whisper/party-invite hooks route events to agents.
 - [x] `/agent spawn|despawn|list|say` GM command (rank 5).
 - [x] Config keys in `ServerConfig` + `config.yaml`; `AgentManager` start/stop in `Server`.
-- [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize.
+- [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize,
+  movement packet encoding, persona store (JSON/YAML), loot behaviour.
+- [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
+  party-update and map-change perception events.
+- [x] M3 (partial): monster/item/NPC perception, clamped synthetic movement, item pickup.
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
-  spawn off the Netty event loop; content filter defaults on.
+  spawn off the Netty event loop; content filter defaults on; clamped movement;
+  concurrency-safe rate limiter; pickup range/ownership validation; post-mutation follow.
 
 Not yet implemented (M2 remainder + M3):
 
-- [ ] Movement / follow / pathing (synthetic `MOVE_PLAYER`) and warp-with-party.
-- [ ] Combat assist: attack, buff, heal, potion, loot, respawn.
-- [ ] Proactive behaviour (M4 — explicitly deferred; agents are strictly reactive).
-- [ ] `PartySearchCoordinator` registration for in-game matchmaking.
-- [ ] Additional perception event hooks (damage/death/buff/map-change are stubbed only for
-  map change; `AgentEvent.MapChanged` is defined but not yet emitted from a map-transition hook).
-- [ ] Admin opt-out / player-facing notice beyond the name prefix.
+- [ ] Combat assist: attack (close/ranged/magic), buff, heal, potion use, respawn.
+- [ ] Real pathing (portals/footholds); movement is a clamped straight-line step.
+- [ ] Warp-with-party / cross-map follow.
+- [ ] LLM-driven movement policy beyond `move_to`/follow.
+- [ ] Proactive behaviour (M4 — deferred; note `/agent search` does enable party-search
+  auto-invites, which is a form of matchmaking).
+- [ ] Player-facing opt-out / bot notice beyond the name prefix.
 
 ---
 

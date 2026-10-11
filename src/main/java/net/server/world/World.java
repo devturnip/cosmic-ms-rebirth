@@ -1060,6 +1060,7 @@ public class World {
                 log.warn("Unhandled updateParty operation: {}", operation.name());
         }
         updateParty(party, operation, target);
+        AgentManager.getInstance().refreshAutoFollow();
     }
 
     public void removeMapPartyMembers(int partyid) {

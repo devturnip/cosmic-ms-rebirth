@@ -74,6 +74,9 @@ public final class AgentPerception {
 
         final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq(), Arrays.asList(MapObjectType.PLAYER));
         for (MapObject object : objects) {
+            if (result.size() >= MAX_OBSERVED) {
+                break;
+            }
             if (!(object instanceof Character other) || other.getId() == agent.getId()) {
                 continue;
             }

@@ -45,6 +45,7 @@ public class AgentSession {
     private volatile long lastDecisionAt;
     private volatile List<AgentAction> lastActions = List.of();
     private volatile int followTargetId = -1;
+    private volatile boolean manualFollow = false;
     private final AtomicInteger actionsThisSecond = new AtomicInteger();
     private volatile long actionWindowStart = System.currentTimeMillis();
 
@@ -120,7 +121,7 @@ public class AgentSession {
      *
      * @return whether another action may be performed in the current one-second window
      */
-    public boolean allowAction() {
+    public synchronized boolean allowAction() {
         long now = System.currentTimeMillis();
         if (now - actionWindowStart >= 1000) {
             actionWindowStart = now;
@@ -133,12 +134,24 @@ public class AgentSession {
         return followTargetId;
     }
 
+    /** Sets the follow target managed by party automation (does not override a manual follow). */
     public void setFollowTarget(int characterId) {
         this.followTargetId = characterId;
     }
 
+    /** Sets an explicit follow target that party automation will not override. */
+    public void setManualFollow(int characterId) {
+        this.manualFollow = true;
+        this.followTargetId = characterId;
+    }
+
+    public boolean isManualFollow() {
+        return manualFollow;
+    }
+
     public void clearFollow() {
         this.followTargetId = -1;
+        this.manualFollow = false;
     }
 
     /**
@@ -235,6 +248,9 @@ public class AgentSession {
         Character target = p.getMap().getCharacterById(targetId);
         if (target == null || target.getMapId() != p.getMapId()) {
             return;
+        }
+        if (!allowAction()) {
+            return; // follow steps share the agent's action budget
         }
         AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
     }
