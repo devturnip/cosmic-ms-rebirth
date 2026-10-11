@@ -478,3 +478,8 @@ server:
     LLM_AGENT_MAX_ACTIONS_PER_SEC: 4     #Per-agent action rate limit (chat/move/etc per second).
     LLM_AGENT_REQUIRE_PREFIX: false     #When true, refuse to spawn agent characters whose name lacks LLM_AGENT_NAME_PREFIX.
     LLM_AGENT_FOLLOW: true              #Allow agents to follow their party leader.
+    LLM_AGENT_AUTO_SUSTAIN: false       #Use HP/MP potions automatically when low.
+    LLM_AGENT_AUTO_COMBAT: false        #Attack the nearest monster automatically.
+    LLM_AGENT_HP_POTION_PERCENT: 50     #Auto-use an HP potion below this HP percentage.
+    LLM_AGENT_MP_POTION_PERCENT: 30     #Auto-use an MP potion below this MP percentage.
+    LLM_AGENT_ATTACK_RANGE_SQ: 150000.0 #Squared attack range for auto-combat (~387px).

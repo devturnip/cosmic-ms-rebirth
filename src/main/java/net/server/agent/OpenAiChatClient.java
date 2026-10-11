@@ -153,6 +153,9 @@ public class OpenAiChatClient {
                 new Param("y", "integer", "Target y coordinate.", true)));
         tools.add(function(mapper, "pickup_item", "Pick up a dropped item by its map object id.",
                 new Param("object_id", "integer", "The map object id of the item to pick up.", true)));
+        tools.add(function(mapper, "attack", "Perform a basic melee attack on a nearby monster.",
+                new Param("target_object_id", "integer", "The map object id of the monster to attack.", true)));
+        tools.add(function(mapper, "respawn", "Respawn at the return point after dying.", new Param[0]));
         tools.add(function(mapper, "remember", "Persist a durable fact about a player or event.",
                 new Param("fact", "string", "The fact to remember.", true)));
         tools.add(function(mapper, "idle", "Do nothing this cycle.", new Param[0]));

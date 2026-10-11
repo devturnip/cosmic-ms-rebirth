@@ -43,6 +43,18 @@ public sealed interface AgentAction {
     record PickupItem(int objectId) implements AgentAction {
     }
 
+    /** Use a consumable from the USE inventory (e.g. a potion) by item id. */
+    record UseItem(int itemId) implements AgentAction {
+    }
+
+    /** Respawn at the map's return point after death. */
+    record Respawn() implements AgentAction {
+    }
+
+    /** Perform a basic melee attack on a monster by its map object id. */
+    record Attack(int targetObjectId) implements AgentAction {
+    }
+
     /** Persist a durable memory fact. */
     record Remember(String fact) implements AgentAction {
     }

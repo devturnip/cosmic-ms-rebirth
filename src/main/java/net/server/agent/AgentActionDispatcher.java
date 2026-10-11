@@ -49,6 +49,9 @@ public class AgentActionDispatcher {
             case AgentAction.LeaveParty ignored -> leaveParty(session);
             case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
             case AgentAction.PickupItem pickup -> pickupItem(session, pickup.objectId());
+            case AgentAction.UseItem use -> AgentCombat.useItem(session, use.itemId());
+            case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
+            case AgentAction.Attack attack -> AgentCombat.attack(session, attack.targetObjectId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());
             case AgentAction.Idle ignored -> {
             }

@@ -91,6 +91,29 @@ public final class AgentConfig {
         return YamlConfig.config.server.LLM_AGENT_FOLLOW;
     }
 
+    public static boolean autoSustain() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_SUSTAIN;
+    }
+
+    public static boolean autoCombat() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_COMBAT;
+    }
+
+    public static int hpPotionPercent() {
+        int value = YamlConfig.config.server.LLM_AGENT_HP_POTION_PERCENT;
+        return value > 0 && value <= 100 ? value : 50;
+    }
+
+    public static int mpPotionPercent() {
+        int value = YamlConfig.config.server.LLM_AGENT_MP_POTION_PERCENT;
+        return value > 0 && value <= 100 ? value : 30;
+    }
+
+    public static double attackRangeSq() {
+        double value = YamlConfig.config.server.LLM_AGENT_ATTACK_RANGE_SQ;
+        return value > 0 ? value : 150000.0;
+    }
+
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }

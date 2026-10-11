@@ -256,6 +256,11 @@ public class LlmAgentBrain implements AgentBrain {
                 JsonNode objectId = args.path("object_id");
                 yield objectId.canConvertToInt() ? new AgentAction.PickupItem(objectId.asInt()) : null;
             }
+            case "attack" -> {
+                JsonNode target = args.path("target_object_id");
+                yield target.canConvertToInt() ? new AgentAction.Attack(target.asInt()) : null;
+            }
+            case "respawn" -> new AgentAction.Respawn();
             case "remember" -> {
                 String fact = text(args, "fact");
                 yield fact == null ? null : new AgentAction.Remember(fact);

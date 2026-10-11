@@ -324,4 +324,9 @@ public class ServerConfig {
     public int LLM_AGENT_MAX_ACTIONS_PER_SEC = 4;
     public boolean LLM_AGENT_REQUIRE_PREFIX;
     public boolean LLM_AGENT_FOLLOW = true;
+    public boolean LLM_AGENT_AUTO_SUSTAIN;
+    public boolean LLM_AGENT_AUTO_COMBAT;
+    public int LLM_AGENT_HP_POTION_PERCENT = 50;
+    public int LLM_AGENT_MP_POTION_PERCENT = 30;
+    public double LLM_AGENT_ATTACK_RANGE_SQ = 150000.0;
 }

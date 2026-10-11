@@ -162,8 +162,8 @@ public class AgentSession {
         if (!active.get()) {
             return;
         }
-        if (followTargetId >= 0 && AgentConfig.followEnabled()) {
-            actionExecutor.execute(this::followStep);
+        if (followTargetId >= 0 || AgentConfig.autoSustain() || AgentConfig.autoCombat()) {
+            actionExecutor.execute(this::behaviorStep);
         }
         if (inbox.isEmpty()) {
             return;
@@ -232,6 +232,35 @@ public class AgentSession {
             } catch (Throwable t) {
                 log.warn("Agent {} failed to perform {}", getName(), action, t);
             }
+        }
+    }
+
+    /**
+     * Runs the server-side gameplay behaviours each tick: respawn when dead, follow, potion
+     * self-sustain and auto-combat. All of these run on the action executor.
+     */
+    private void behaviorStep() {
+        if (!active.get()) {
+            return;
+        }
+        Character p = player;
+        if (p == null) {
+            return;
+        }
+        if (!p.isAlive()) {
+            if (AgentConfig.autoSustain() || AgentConfig.autoCombat()) {
+                AgentCombat.respawn(this);
+            }
+            return;
+        }
+        if (followTargetId >= 0 && AgentConfig.followEnabled()) {
+            followStep();
+        }
+        if (AgentConfig.autoSustain()) {
+            AgentCombat.sustain(this);
+        }
+        if (AgentConfig.autoCombat()) {
+            AgentCombat.attackNearest(this);
         }
     }
 
