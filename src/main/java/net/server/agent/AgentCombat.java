@@ -1,11 +1,14 @@
 package net.server.agent;
 
+import client.BuffStat;
 import client.Character;
 import client.Skill;
 import client.SkillFactory;
 import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
+import client.inventory.WeaponType;
+import constants.inventory.ItemConstants;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
@@ -49,6 +52,14 @@ public final class AgentCombat {
             14111006, // Poison Bomb: ranged
             5201002,  // Grenade: ranged
             5101004, 15101003 // Corkscrew Blow: ranged
+    );
+
+    /** Ranged skills whose parseDamage branch reads an extra 4-byte block. */
+    private static final Set<Integer> RANGED_EXTRA_SKILLS = Set.of(
+            3121004,  // Hurricane
+            3221001,  // Piercing Arrow
+            5221004,  // Rapid Fire
+            13111002  // KoC Hurricane
     );
     private AgentCombat() {
     }
@@ -226,8 +237,14 @@ public final class AgentCombat {
             return; // too far; the handler would flag a distance hack
         }
         // A skill-0 packet must go through CLOSE_RANGE_ATTACK: MagicDamageHandler dereferences
-        // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id.
-        session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, safeDamage(chr)));
+        // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id. Ranged jobs
+        // use the ranged packet instead.
+        int damage = safeDamage(chr);
+        if (canUseRangedAttack(chr)) {
+            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(0, targetObjectId, damage));
+        } else {
+            session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, damage));
+        }
     }
 
     /** Attacks a monster with a learned damaging skill (melee or magic). */
@@ -243,8 +260,12 @@ public final class AgentCombat {
         if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return;
         }
-        session.dispatchInbound(attackOpcode(chr, skillId),
-                buildAttackPacket(skillId, targetObjectId, skillDamage(chr, skillId)));
+        int damage = skillDamage(chr, skillId);
+        if (canUseRangedAttack(chr)) {
+            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, targetObjectId, damage));
+        } else {
+            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, targetObjectId, damage));
+        }
     }
 
     /** Attacks with the given skill if usable, otherwise falls back to a basic attack. */
@@ -332,6 +353,77 @@ public final class AgentCombat {
         Skill skill = SkillFactory.getSkill(skillId);
         StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
         return effect != null && effect.getMatk() > 0 ? RecvOpcode.MAGIC_ATTACK : RecvOpcode.CLOSE_RANGE_ATTACK;
+    }
+
+    /** Whether the agent has a ranged weapon equipped and usable ammunition. */
+    static boolean canUseRangedAttack(Character chr) {
+        return isRangedWeapon(chr) && hasAmmo(chr);
+    }
+
+    static boolean isRangedWeapon(Character chr) {
+        Inventory equipped = chr.getInventory(InventoryType.EQUIPPED);
+        if (equipped == null) {
+            return false;
+        }
+        Item weapon = equipped.getItem((short) -11);
+        if (weapon == null) {
+            return false;
+        }
+        WeaponType type = ItemInformationProvider.getInstance().getWeaponType(weapon.getItemId());
+        return type == WeaponType.BOW || type == WeaponType.CROSSBOW
+                || type == WeaponType.GUN || type == WeaponType.CLAW;
+    }
+
+    static boolean hasAmmo(Character chr) {
+        if (chr.getBuffedValue(BuffStat.SOULARROW) != null || chr.getBuffedValue(BuffStat.SHADOW_CLAW) != null) {
+            return true; // these buffs consume no ammunition
+        }
+        Inventory use = chr.getInventory(InventoryType.USE);
+        if (use == null) {
+            return false;
+        }
+        for (Item item : use.list()) {
+            if (item == null || item.getQuantity() <= 0) {
+                continue;
+            }
+            int id = item.getItemId();
+            if (ItemConstants.isArrowForBow(id) || ItemConstants.isArrowForCrossBow(id)
+                    || ItemConstants.isThrowingStar(id) || ItemConstants.isBullet(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Builds a ranged attack packet. The ranged branch of {@code parseDamage} reads a longer
+     * fixed header than the close-range branch, plus an extra block for hurricane-like skills.
+     */
+    static InPacket buildRangedAttackPacket(int skillId, int targetObjectId, int damage) {
+        OutPacket out = new ByteBufOutPacket();
+        out.writeByte(0);                       // unknown prefix byte
+        out.writeByte(0x10 | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
+        out.writeInt(skillId);
+        if (CHARGE_SKILLS.contains(skillId)) {
+            out.writeInt(0);
+        }
+        out.skip(8);
+        out.writeByte(0);   // display
+        out.writeByte(0);   // direction
+        out.writeByte(4);   // stance
+        out.writeByte(0);   // (ranged: unused)
+        out.writeByte(4);   // speed
+        out.writeByte(0);   // (ranged: unused)
+        out.writeByte(0);   // rangedirection
+        out.skip(7);
+        if (RANGED_EXTRA_SKILLS.contains(skillId)) {
+            out.skip(4);
+        }
+        out.writeInt(targetObjectId);
+        out.skip(14);
+        out.writeInt(damage);
+        out.skip(4);
+        return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
     }
 
     /**
