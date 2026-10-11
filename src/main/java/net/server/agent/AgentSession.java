@@ -247,20 +247,32 @@ public class AgentSession {
         if (p == null) {
             return;
         }
+        // One budget token covers the whole behaviour tick (follow/sustain/combat/respawn).
+        if (!allowAction()) {
+            return;
+        }
         if (!p.isAlive()) {
             if (AgentConfig.autoSustain() || AgentConfig.autoCombat()) {
-                AgentCombat.respawn(this);
+                runSafely("respawn", () -> AgentCombat.respawn(this));
             }
             return;
         }
         if (followTargetId >= 0 && AgentConfig.followEnabled()) {
-            followStep();
+            runSafely("follow", this::followStep);
         }
         if (AgentConfig.autoSustain()) {
-            AgentCombat.sustain(this);
+            runSafely("sustain", () -> AgentCombat.sustain(this));
         }
         if (AgentConfig.autoCombat()) {
-            AgentCombat.attackNearest(this);
+            runSafely("combat", () -> AgentCombat.attackNearest(this));
+        }
+    }
+
+    private void runSafely(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable t) {
+            log.warn("Agent {} behaviour '{}' failed", getName(), name, t);
         }
     }
 
@@ -277,9 +289,6 @@ public class AgentSession {
         Character target = p.getMap().getCharacterById(targetId);
         if (target == null || target.getMapId() != p.getMapId()) {
             return;
-        }
-        if (!allowAction()) {
-            return; // follow steps share the agent's action budget
         }
         AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
     }

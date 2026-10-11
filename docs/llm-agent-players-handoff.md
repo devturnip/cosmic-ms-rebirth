@@ -122,6 +122,7 @@ arrive via lightweight hooks (see §5).
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`. |
+| `AgentCombat` | Potion self-sustain, respawn, and a basic skill-0 melee attack packet. |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
 | `AgentPersona` | Persona record + JSON loader. |
@@ -176,6 +177,12 @@ arrive via lightweight hooks (see §5).
 10. `AgentAction` is a **sealed interface** — adding a record requires updating the
     exhaustive `switch` in `AgentActionDispatcher#dispatch` (and the LLM tool mapping if
     you want the LLM to use it).
+11. **Combat safety:** `AgentCombat.findPotion` only considers ids in `[2000000, 2060000)`
+    and try/catches `getItemEffect` — projectile/food items have no `spec` and make the
+    loader throw. Attack damage is `calculateMaxBaseDamage` (<= the handler's recalculation)
+    and targets are only attacked well within the distance-alert threshold. `behaviorStep`
+    charges **one** action-budget token per tick and isolates each sub-behaviour in a
+    try/catch; do not remove either.
 
 ---
 
@@ -232,6 +239,11 @@ It already runs off the Netty loop.
 | `LLM_AGENT_MAX_ACTIONS_PER_SEC` | `4` | Per-agent action rate limit. |
 | `LLM_AGENT_REQUIRE_PREFIX` | `false` | Refuse spawn if name lacks the prefix. |
 | `LLM_AGENT_FOLLOW` | `true` | Enable follow behavior. |
+| `LLM_AGENT_AUTO_SUSTAIN` | `false` | Auto-use HP/MP potions when low. |
+| `LLM_AGENT_AUTO_COMBAT` | `false` | Auto-attack the nearest monster. |
+| `LLM_AGENT_HP_POTION_PERCENT` | `50` | HP % below which an HP potion is used. |
+| `LLM_AGENT_MP_POTION_PERCENT` | `30` | MP % below which an MP potion is used. |
+| `LLM_AGENT_ATTACK_RANGE_SQ` | `150000.0` | Squared auto-attack range (~387px). |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -267,14 +279,15 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M0: headless puppet player, real bootstrap, `/agent spawn`.
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader, party-search listing.
-- M3 (partial): monster/item/NPC perception, movement, follow, item pickup.
+- M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
+  self-sustain, respawn, and a basic skill-0 melee attack.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat:** attack (close/ranged/magic), buff, heal, potion use, respawn. Attack packet
-  synthesis is the highest-risk piece — verify against `CloseRangeDamageHandler`/
-  `RangedAttackHandler`/`MagicDamageHandler` and the damage-batch format before writing code.
+- **Combat depth:** skill-based attacks, buffs, heal-skill casting, ranged (`RANGED_ATTACK`)
+  and magic (`MAGIC_ATTACK`) packets, multi-target/multi-line attacks, MP-cost handling,
+  monster facing, flee/aggro management, and auto-looting kills.
 - **Pathing:** only clamped straight-line steps; no footholds/portals.
 - **Warp-with-party / cross-map follow.**
 - **LLM movement policy** beyond `move_to`/follow.
@@ -309,6 +322,8 @@ on very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `367530db1` | combat assist (potions, respawn, basic melee attack) |
+| `2994ee6a8` | developer handoff doc; plan marked implemented |
 | `0cc8eb539` | M2/M3 review fixes + tests |
 | `41c0c11b0` | perception, personas, movement/follow, loot, party search, rate limits |
 | `54ef8c76f` | address first review findings |

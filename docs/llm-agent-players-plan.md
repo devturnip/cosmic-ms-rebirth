@@ -44,7 +44,8 @@ Delivered:
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
 - [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
   party-update and map-change perception events.
-- [x] M3 (partial): monster/item/NPC perception, clamped synthetic movement, item pickup.
+- [x] M3 (partial): monster/item/NPC perception, clamped synthetic movement, item pickup,
+  potion self-sustain, respawn, and a basic skill-0 melee attack (auto modes behind config).
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
   spawn off the Netty event loop; content filter defaults on; clamped movement;

@@ -65,9 +65,6 @@ public final class AgentCombat {
         if (potion == null) {
             return false;
         }
-        if (!session.allowAction()) {
-            return false;
-        }
         useItem(session, potion.getItemId());
         return true;
     }
@@ -103,12 +100,22 @@ public final class AgentCombat {
             if (item == null || item.getQuantity() <= 0) {
                 continue;
             }
-            StatEffect effect = ii.getItemEffect(item.getItemId());
+            // Projectiles (0206/0207) carry no "spec" data and make the item-effect loader
+            // throw; restrict to the consumable/potion range.
+            if (item.getItemId() < 2_000_000 || item.getItemId() >= 2_060_000) {
+                continue;
+            }
+            StatEffect effect;
+            try {
+                effect = ii.getItemEffect(item.getItemId());
+            } catch (RuntimeException e) {
+                continue;
+            }
             if (effect == null) {
                 continue;
             }
-            boolean hasHp = effect.getHp() > 0;
-            boolean hasMp = effect.getMp() > 0;
+            boolean hasHp = effect.getHp() > 0 || effect.getHpRate() > 0.0;
+            boolean hasMp = effect.getMp() > 0 || effect.getMpRate() > 0.0;
             if (forHp ? !hasHp : !hasMp) {
                 continue;
             }
@@ -140,7 +147,18 @@ public final class AgentCombat {
         if (chr == null || chr.isAlive() || chr.getMap() == null) {
             return;
         }
-        chr.respawn(chr.getMap().getReturnMapId());
+        int returnMap = chr.getMap().getReturnMapId();
+        if (returnMap <= 0) {
+            return;
+        }
+        // Mirror ChangeMapHandler's revive path so event/PQ scripts get a say.
+        boolean executeStandardPath = true;
+        if (chr.getEventInstance() != null) {
+            executeStandardPath = chr.getEventInstance().revivePlayer(chr);
+        }
+        if (executeStandardPath) {
+            chr.respawn(returnMap);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -169,9 +187,6 @@ public final class AgentCombat {
         if (target == null) {
             return false;
         }
-        if (!session.allowAction()) {
-            return false;
-        }
         attack(session, target.getObjectId());
         return true;
     }
@@ -185,7 +200,7 @@ public final class AgentCombat {
         if (!(object instanceof Monster monster) || monster.getHp() <= 0) {
             return;
         }
-        if (chr.getPosition().distanceSq(monster.getPosition()) > MAX_ATTACK_DISTANCE_SQ) {
+        if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return; // too far; the handler would flag a distance hack
         }
         session.dispatchInbound(RecvOpcode.CLOSE_RANGE_ATTACK,
