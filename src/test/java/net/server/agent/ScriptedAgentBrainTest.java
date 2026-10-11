@@ -19,7 +19,7 @@ class ScriptedAgentBrainTest {
         return new AgentObservation(
                 PERSONA, 1, 0, "Beginner", 100000000, "Henesys", "Henesys",
                 100, 100, 100, 100, 0, 0,
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     @Test

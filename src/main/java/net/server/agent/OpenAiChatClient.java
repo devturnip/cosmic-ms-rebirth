@@ -153,8 +153,9 @@ public class OpenAiChatClient {
                 new Param("y", "integer", "Target y coordinate.", true)));
         tools.add(function(mapper, "pickup_item", "Pick up a dropped item by its map object id.",
                 new Param("object_id", "integer", "The map object id of the item to pick up.", true)));
-        tools.add(function(mapper, "attack", "Perform a basic melee attack on a nearby monster.",
-                new Param("target_object_id", "integer", "The map object id of the monster to attack.", true)));
+        tools.add(function(mapper, "attack", "Attack a nearby monster, optionally with a learned skill.",
+                new Param("target_object_id", "integer", "The map object id of the monster to attack.", true),
+                new Param("skill_id", "integer", "Optional attack skill id; omit for a basic attack.", false)));
         tools.add(function(mapper, "respawn", "Respawn at the return point after dying.", new Param[0]));
         tools.add(function(mapper, "cast_buff", "Cast a buff skill the agent has learned.",
                 new Param("skill_id", "integer", "The skill id of the buff to cast.", true)));

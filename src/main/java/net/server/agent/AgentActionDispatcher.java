@@ -52,6 +52,7 @@ public class AgentActionDispatcher {
             case AgentAction.UseItem use -> AgentCombat.useItem(session, use.itemId());
             case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
             case AgentAction.Attack attack -> AgentCombat.attack(session, attack.targetObjectId());
+            case AgentAction.SkillAttack attack -> AgentCombat.skillAttack(session, attack.targetObjectId(), attack.skillId());
             case AgentAction.CastBuff buff -> AgentSkill.castBuff(session, buff.skillId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());
             case AgentAction.Idle ignored -> {

@@ -331,4 +331,5 @@ public class ServerConfig {
     public double LLM_AGENT_ATTACK_RANGE_SQ = 150000.0;
     public boolean LLM_AGENT_AUTO_BUFF;
     public String LLM_AGENT_AUTO_BUFF_SKILLS;
+    public int LLM_AGENT_ATTACK_SKILL;
 }

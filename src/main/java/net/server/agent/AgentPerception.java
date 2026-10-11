@@ -64,8 +64,29 @@ public final class AgentPerception {
                 monsters,
                 items,
                 npcs,
-                collectBuffSkills(agent)
+                collectBuffSkills(agent),
+                collectAttackSkills(agent)
         );
+    }
+
+    /** Skill ids the agent has learned that are damaging attacks (damage > 0, not buffs). */
+    private static List<Integer> collectAttackSkills(Character agent) {
+        final List<Integer> result = new ArrayList<>();
+        for (Skill skill : agent.getSkills().keySet()) {
+            int level = agent.getSkillLevel(skill);
+            if (level <= 0) {
+                continue;
+            }
+            StatEffect effect = skill.getEffect(level);
+            if (effect == null || effect.getDamage() <= 0 || !effect.getStatups().isEmpty()) {
+                continue;
+            }
+            result.add(skill.getId());
+            if (result.size() >= MAX_BUFF_SKILLS) {
+                break;
+            }
+        }
+        return result;
     }
 
     /** Skill ids the agent has learned that are buffs (statups + positive duration). */

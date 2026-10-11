@@ -118,6 +118,10 @@ public final class AgentConfig {
         return YamlConfig.config.server.LLM_AGENT_AUTO_BUFF;
     }
 
+    public static int attackSkill() {
+        return Math.max(0, YamlConfig.config.server.LLM_AGENT_ATTACK_SKILL);
+    }
+
     /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
     public static int[] autoBuffSkills() {
         String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;

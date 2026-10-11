@@ -1,6 +1,9 @@
 package net.server.agent;
 
 import client.Character;
+import client.Job;
+import client.Skill;
+import client.SkillFactory;
 import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
@@ -18,6 +21,7 @@ import server.maps.MapObjectType;
 
 import java.awt.Point;
 import java.util.Arrays;
+import java.util.Set;
 
 /**
  * Combat helpers: potion self-sustain, respawn, and a basic melee attack.
@@ -32,6 +36,11 @@ public final class AgentCombat {
     /** The handler alerts when squared distance to the monster exceeds 200000. Stay well under it. */
     private static final double MAX_ATTACK_DISTANCE_SQ = 150000.0;
     private static final int DAMAGE_LINES = 1;
+
+    /** Skills for which parseDamage reads an extra charge int (and Poison Bomb a trailing position). */
+    private static final int POISON_BOMB = 14111006;
+    private static final Set<Integer> CHARGE_SKILLS = Set.of(
+            22121000, 22151001, 2121001, 2221001, 2321001, 5201002, 5101004, 15101003, POISON_BOMB);
 
     private AgentCombat() {
     }
@@ -187,7 +196,12 @@ public final class AgentCombat {
         if (target == null) {
             return false;
         }
-        attack(session, target.getObjectId());
+        int skillId = AgentConfig.attackSkill();
+        if (skillId > 0 && canUseAttackSkill(chr, skillId)) {
+            skillAttack(session, target.getObjectId(), skillId);
+        } else {
+            attack(session, target.getObjectId());
+        }
         return true;
     }
 
@@ -203,8 +217,78 @@ public final class AgentCombat {
         if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return; // too far; the handler would flag a distance hack
         }
-        session.dispatchInbound(RecvOpcode.CLOSE_RANGE_ATTACK,
-                buildCloseRangeAttackPacket(chr, targetObjectId, safeDamage(chr)));
+        session.dispatchInbound(attackOpcode(chr),
+                buildAttackPacket(0, targetObjectId, safeDamage(chr)));
+    }
+
+    /** Attacks a monster with a learned damaging skill (melee or magic). */
+    public static void skillAttack(AgentSession session, int targetObjectId, int skillId) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)) {
+            return;
+        }
+        MapObject object = chr.getMap().getMapObject(targetObjectId);
+        if (!(object instanceof Monster monster) || monster.getHp() <= 0) {
+            return;
+        }
+        if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
+            return;
+        }
+        session.dispatchInbound(attackOpcode(chr),
+                buildAttackPacket(skillId, targetObjectId, skillDamage(chr, skillId)));
+    }
+
+    /** Whether the agent can use the given skill as a damaging attack right now. */
+    static boolean canUseAttackSkill(Character chr, int skillId) {
+        if (skillId <= 0 || chr.getSkillLevel(skillId) <= 0 || chr.skillIsCooling(skillId)) {
+            return false;
+        }
+        Skill skill = SkillFactory.getSkill(skillId);
+        if (skill == null) {
+            return false;
+        }
+        StatEffect effect = skill.getEffect(chr.getSkillLevel(skill));
+        // Attack skills deal damage and are not buffs.
+        if (effect == null || effect.getDamage() <= 0 || !effect.getStatups().isEmpty()) {
+            return false;
+        }
+        return chr.getMp() >= effect.getMpCon();
+    }
+
+    /**
+     * A conservative damage value for an attack skill. The server recomputes a maximum from the
+     * same base formula (buffs can only raise it), so 80% of our computed maximum stays well
+     * under the alert threshold.
+     */
+    static int skillDamage(Character chr, int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        if (skill == null) {
+            return 1;
+        }
+        StatEffect effect = skill.getEffect(chr.getSkillLevel(skill));
+        if (effect == null) {
+            return 1;
+        }
+        long computed;
+        if (isMagicJob(chr)) {
+            int totalMagic = chr.getTotalMagic();
+            int totalInt = chr.getTotalInt();
+            computed = (long) (Math.ceil((totalMagic * Math.ceil(totalMagic / 1000.0) + totalMagic) / 30.0)
+                    + Math.ceil(totalInt / 200.0));
+            computed *= effect.getMatk();
+        } else {
+            computed = chr.calculateMaxBaseDamage(chr.getTotalWatk());
+        }
+        computed = computed * effect.getDamage() / 100;
+        return (int) Math.max(1, computed * 4 / 5);
+    }
+
+    static RecvOpcode attackOpcode(Character chr) {
+        return isMagicJob(chr) ? RecvOpcode.MAGIC_ATTACK : RecvOpcode.CLOSE_RANGE_ATTACK;
+    }
+
+    private static boolean isMagicJob(Character chr) {
+        return chr.getJob() != null && chr.getJob().isA(Job.MAGICIAN);
     }
 
     /**
@@ -218,15 +302,20 @@ public final class AgentCombat {
     }
 
     /**
-     * Builds a basic (skill 0) close-range attack packet with one target and one damage line.
-     * Layout verified against {@code AbstractDealDamageHandler#parseDamage}.
+     * Builds an attack packet with one target and one damage line. The layout is identical for
+     * close-range and magic attacks (only the opcode differs), and matches
+     * {@code AbstractDealDamageHandler#parseDamage}. Charge skills get an extra int, and Poison
+     * Bomb a trailing position, exactly as the parser reads them.
      */
-    static InPacket buildCloseRangeAttackPacket(Character chr, int targetObjectId, int damage) {
+    static InPacket buildAttackPacket(int skillId, int targetObjectId, int damage) {
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
         out.writeByte(0x10 | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage: 1 target, N damage lines
-        out.writeInt(0);                        // skill id (0 = basic attack)
-        out.skip(8);                            // charge / unknown
+        out.writeInt(skillId);
+        if (CHARGE_SKILLS.contains(skillId)) {
+            out.writeInt(0);                    // charge (read only for charge-list skills)
+        }
+        out.skip(8);                            // fixed 8-byte block
         out.writeByte(0);                       // display
         out.writeByte(0);                       // direction
         out.writeByte(4);                       // stance
@@ -239,7 +328,16 @@ public final class AgentCombat {
             out.writeInt(damage);
         }
         out.skip(4);                            // trailing per-target
+        if (skillId == POISON_BOMB) {
+            out.skip(4);
+            out.writePos(new Point(0, 0));
+        }
         return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
+    }
+
+    /** Kept for the basic-attack callers/tests. */
+    static InPacket buildCloseRangeAttackPacket(Character chr, int targetObjectId, int damage) {
+        return buildAttackPacket(0, targetObjectId, damage);
     }
 
     private static int percent(int value, int max) {

@@ -485,3 +485,4 @@ server:
     LLM_AGENT_ATTACK_RANGE_SQ: 150000.0 #Squared attack range for auto-combat (~387px).
     LLM_AGENT_AUTO_BUFF: false          #Auto-cast configured buff skills when they lapse.
     LLM_AGENT_AUTO_BUFF_SKILLS: ""      #Comma-separated skill ids to keep active (e.g. "1001003,2001002").
+    LLM_AGENT_ATTACK_SKILL: 0           #Attack skill id used for auto/LLM attacks (0 = basic attack).

@@ -55,6 +55,10 @@ public sealed interface AgentAction {
     record Attack(int targetObjectId) implements AgentAction {
     }
 
+    /** Attack a monster with a learned damaging skill. */
+    record SkillAttack(int targetObjectId, int skillId) implements AgentAction {
+    }
+
     /** Cast a buff skill the agent has learned. */
     record CastBuff(int skillId) implements AgentAction {
     }

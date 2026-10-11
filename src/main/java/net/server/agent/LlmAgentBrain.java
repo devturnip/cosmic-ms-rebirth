@@ -93,6 +93,9 @@ public class LlmAgentBrain implements AgentBrain {
             if (observation.buffSkills() != null && !observation.buffSkills().isEmpty()) {
                 sb.append("- Buff skills you can cast: ").append(observation.buffSkills()).append('\n');
             }
+            if (observation.attackSkills() != null && !observation.attackSkills().isEmpty()) {
+                sb.append("- Attack skills you can use: ").append(observation.attackSkills()).append('\n');
+            }
             appendPlayers(sb, "Nearby players", observation.nearbyPlayers());
             appendPlayers(sb, "Party members", observation.partyMembers());
             appendMonsters(sb, observation.nearbyMonsters());
@@ -261,7 +264,13 @@ public class LlmAgentBrain implements AgentBrain {
             }
             case "attack" -> {
                 JsonNode target = args.path("target_object_id");
-                yield target.canConvertToInt() ? new AgentAction.Attack(target.asInt()) : null;
+                if (!target.canConvertToInt()) {
+                    yield null;
+                }
+                JsonNode skill = args.path("skill_id");
+                yield skill.canConvertToInt() && skill.asInt() > 0
+                        ? new AgentAction.SkillAttack(target.asInt(), skill.asInt())
+                        : new AgentAction.Attack(target.asInt());
             }
             case "respawn" -> new AgentAction.Respawn();
             case "cast_buff" -> {
