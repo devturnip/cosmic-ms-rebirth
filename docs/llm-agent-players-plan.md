@@ -38,7 +38,7 @@ Delivered:
   tool calling and fail-safe fallback to the scripted brain.
 - [x] Persistent memory (`AgentMemoryStore` + `agent_memory` table, migration `v0.15.0.sql`).
 - [x] Chat/party/whisper/party-invite hooks route events to agents.
-- [x] `/agent spawn|despawn|list|say` GM command (rank 5).
+- [x] `/agent spawn|despawn|list|say|follow|stopfollow|search` GM command (rank 5).
 - [x] Config keys in `ServerConfig` + `config.yaml`; `AgentManager` start/stop in `Server`.
 - [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize,
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
@@ -54,7 +54,10 @@ Delivered:
   spawn off the Netty event loop; content filter defaults on; clamped movement;
   concurrency-safe rate limiter; pickup range/ownership validation; post-mutation follow;
   packet-exact attack/charge/hurricane/poison layouts; ammo type/level/bulletCount gating;
-  non-damaging/buff/fixed-damage skill rejection.
+  non-damaging/buff/fixed-damage skill rejection; atomic account claim on spawn
+  (`registerAgentClientIfAbsent`) to avoid kicking a real player; `StatEffect#hasDamage()` so
+  utility skills are never attacked with; loot ownership matching `Character#pickupItem`;
+  and `mapTransitioning` cleared for agents at spawn and after each warp.
 
 Not yet implemented (M2 remainder + M3 remainder):
 

@@ -102,7 +102,8 @@ arrive via lightweight hooks (see §5).
 - Each `AgentSession` owns a single-thread `actionExecutor`; all game mutations for that
   agent happen there, serialized.
 - `AgentManager` ticker (single thread) calls `AgentSession#tick` every `LLM_AGENT_TICK_MS`.
-- Spawn/despawn are `synchronized` on `AgentManager`; `/agent` runs on `ThreadManager`.
+- `spawn` is `synchronized` on `AgentManager`; `despawn` uses the concurrent map's atomic
+  remove and does its DB I/O outside any monitor. `/agent` runs on `ThreadManager`.
 
 ---
 
@@ -124,7 +125,7 @@ arrive via lightweight hooks (see §5).
 | `AgentBrainFactory` | Chooses LLM vs scripted; injects persona system prompt. |
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
-| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo` guard for cross-map follow. |
+| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo`/`warpTo` for cross-map follow. |
 | `AgentCombat` | Potion self-sustain, respawn, auto-looting, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
@@ -152,7 +153,11 @@ arrive via lightweight hooks (see §5).
   `onPartyUpdate` (events) + `refreshAutoFollow()` (post-mutation).
 - `net/server/channel/handlers/{GeneralChatHandler,WhisperHandler,PartyOperationHandler}.java`
   — event hooks.
-- `net/server/coordinator/session/SessionCoordinator.java` — `isAccountOnline(int)`.
+- `net/server/coordinator/session/SessionCoordinator.java` — `isAccountOnline(int)`,
+  `registerAgentClientIfAbsent(Client)` (atomic agent account claim); `onlineClients` is a
+  `ConcurrentHashMap` and `updateOnlineClient` no longer disconnects the client it just stored.
+- `server/StatEffect.java` — `hasDamage()` (whether WZ carried a `damage` node) so agents do
+  not treat utility skills as attacks.
 - `config/ServerConfig.java` + `config.yaml` — agent config keys.
 - `pom.xml` — `jackson-databind:2.17.2`.
 
@@ -167,9 +172,11 @@ arrive via lightweight hooks (see §5).
 3. **All agent chat goes through `sanitize()`**, which clamps to 127 chars and strips
    leading `/ @ !` — otherwise the agent can execute server commands or self-disconnect
    (autoban on >127-char chat). Do not bypass.
-4. **Never spawn an agent whose character/account is already online** — `spawn` checks
-   `PlayerStorage` + `SessionCoordinator.isAccountOnline`. `updateLoginState` force-disconnects
-   duplicates, so this guard prevents kicking a real player.
+4. **Never spawn an agent whose character/account is already online.** `spawn` checks
+   `PlayerStorage` + `SessionCoordinator.isAccountOnline`, then atomically claims the account
+   with `registerAgentClientIfAbsent` after the (slow) DB load. Without that atomic claim a
+   real player logging in concurrently would be force-disconnected by `updateLoginState`.
+   Never let the agent be the one that kicks a real session.
 5. **Despawn is synchronous** (`forceDisconnect`) to avoid a despawn→respawn race that
    deleted the new agent.
 6. **Movement is clamped** to 16-bit + map area and capped at `MAX_STEP` (150px) per action —
@@ -194,15 +201,29 @@ arrive via lightweight hooks (see §5).
     when a ranged weapon and matching, level-valid ammo (>= the skill's `bulletCount`) are
     present. Out-of-ammo ranged agents skip rather than swinging melee.
 13. **Attack skills are filtered** (`AgentCombat.isAttackSkill`): learned, not a buff, not
-    `fixDamage`, magic requires `matk > 0` (StatEffect damage defaults to 100, so this is what
-    rejects utility skills), plus `EXCLUDED_ATTACK_SKILLS` (Meso Explosion, Shadow Meso,
-    ranged-special skills). Otherwise a non-damaging skill trips `DAMAGE_HACK` (server max 0).
+    `fixDamage`, magic requires `matk > 0`, physical requires `StatEffect#hasDamage()` (the WZ
+    `damage` node actually exists — plain `getDamage()` defaults to 100 and would let Teleport/
+    Shadow Web through), plus `EXCLUDED_ATTACK_SKILLS` (Meso Explosion, Shadow Meso, ranged-
+    special skills). `canUseAttackSkill` also requires the skill's raw `mobCount > 0`.
+    Otherwise a non-damaging skill trips `DAMAGE_HACK` (server max 0).
 14. **Buff casting validates** via `canCastBuff` (learned, not cooling, `isSkill()`, statups,
     duration, MP/HP, not already active) before dispatching — `cast_buff` must never reach
     `skill.getEffect(0)`.
 15. **Attack packets are byte-exact** against `AbstractDealDamageHandler#parseDamage`; the
     charge-skill list, the hurricane extra block, and the Poison Bomb tail are mirrored.
-    There are layout tests — keep parity when adding packets.
+    Multi-target builders repeat the per-target block and pack the count into the high nibble
+    of `numAttackedAndDamage`. There are layout tests — keep parity when adding packets.
+16. **Agents must not stay in the "changing maps" state.** `Character.mapTransitioning`
+    defaults to `true` and is only cleared by the client's `PLAYER_MAP_TRANSFER` packet, which
+    an agent never sends. `AgentManager.spawn` and `AgentMovement.warpTo` call
+    `setMapTransitionComplete()`; any new code path that calls `Character#changeMap` for an
+    agent must do the same or transition guards (`isChangingMaps()`) break.
+17. **Cross-map follow is opt-in and guarded.** `LLM_AGENT_FOLLOW_WARP` (default off) warps a
+    following agent to its target's map via `AgentMovement.warpTo`, which refuses dead/mid-
+    transition agents, trades, open cash shops, event instances, and cross-channel targets.
+    It uses the spawn-point `changeMap(int)` overload; there is a 4 s cooldown in `AgentSession`.
+    This is trusted party-warp semantics (like `warpParty`) and deliberately skips portal/
+    level/quest gating.
 
 ---
 
@@ -231,7 +252,8 @@ arrive via lightweight hooks (see §5).
    record if needed.
 2. Populate it in `AgentPerception` (use `rangeSq()`, cap with `MAX_OBSERVED`).
 3. Render it in `LlmAgentBrain#buildUserPrompt`.
-4. Update the one test helper that constructs `AgentObservation` (`ScriptedAgentBrainTest`).
+4. Update the test helpers that construct `AgentObservation` (`ScriptedAgentBrainTest` and
+   `ScriptedAgentBrainLootTest`).
 
 ### Add a GM subcommand
 Edit `AgentCommand.executeInternal` in `client/command/commands/gm5/AgentCommand.java`.
@@ -270,7 +292,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AUTO_HEAL` | `false` | Auto-cast a heal skill when the agent/party is low. |
 | `LLM_AGENT_AUTO_HEAL_SKILL` | `0` | Heal skill id (0 = auto-detect the learned heal skill). |
 | `LLM_AGENT_HEAL_PERCENT` | `90` | HP % below which auto-heal fires. |
-| `LLM_AGENT_AUTO_LOOT` | `false` | Auto-pick up owned/free drops after combat. |
+| `LLM_AGENT_AUTO_LOOT` | `false` | Auto-pick up owned/party/FFA drops every behaviour tick. |
 | `LLM_AGENT_AOE_ATTACK` | `false` | Allow a multi-target skill attack to hit several monsters. |
 | `LLM_AGENT_AOE_MAX_TARGETS` | `6` | Upper bound on monsters hit by one AOE attack. |
 | `LLM_AGENT_FOLLOW_WARP` | `false` | Warp the agent to its follow target's map when they leave the current map. |
@@ -308,10 +330,12 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 **Done**
 - M0: headless puppet player, real bootstrap, `/agent spawn`.
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
-- M2: party invite accept/deny/join/leave, party chat, follow-the-leader, party-search listing.
+- M2: party invite accept/deny/join/leave, party chat, follow-the-leader (same-map walk +
+  cross-map warp), party-search listing.
 - M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
-  self-sustain, respawn, basic melee attacks, buff-skill casting, melee/magic damaging skill
-  attacks, and ranged attacks (bow/crossbow/gun/claw + ammo gating).
+  self-sustain, respawn, basic melee attacks, buff-skill casting, heal-skill casting,
+  melee/magic damaging skill attacks, ranged attacks (bow/crossbow/gun/claw + ammo gating),
+  multi-target skill attacks, and auto-looting kills.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
@@ -332,8 +356,8 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 
 ## 9. Review history
 
-Six independent verifier passes were run (each followed by a fixes commit); all HIGH/MEDIUM
-findings were addressed:
+Independent verifier passes were run for each milestone (each followed by a fixes commit); all
+HIGH/MEDIUM findings were addressed:
 - **Foundation/M1** (`54ef8c76f`): command injection via `@`/`!`; double-login kicking real
   players; partial-login ghost; async despawn race.
 - **M2/M3** (`0cc8eb539`): unclamped/teleport movement; pre-mutation follow state; rate-limiter
@@ -352,7 +376,7 @@ findings were addressed:
   `lastActions` scheduling race, damage-less-skill misclassification (`StatEffect#hasDamage()`),
   `AUTO_BUFF`-only never ticking, loot owner rule now matches `Character#pickupItem`, and
   `cast_heal` now resolves skill id 0.
-- **Cross-map follow** (this pass): warps a following agent to its target's map when they leave
+- **Cross-map follow** (`2fb00ad3c`): warps a following agent to its target's map when they leave
   (`LLM_AGENT_FOLLOW_WARP`, default off), guarded by `AgentMovement.canWarpTo`. Verifier fix:
   agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
   the warp unreachable and would also have broken it after the first warp — now cleared at spawn
@@ -370,7 +394,7 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
-| _(current tip)_ | cross-map follow (warp-with-party) |
+| `2fb00ad3c` | cross-map follow (warp-with-party) |
 | `ac779b70a` | heal casting, auto-loot, multi-target attacks + review fixes |
 | `8f0a6b9e5` | ranged-attack review fixes + ranged tests |
 | `b57d7c8c0` | ranged attacks |
