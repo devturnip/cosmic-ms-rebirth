@@ -36,6 +36,14 @@ class AgentActionDispatcherSanitizeTest {
     }
 
     @Test
+    void allCommandHeadingsAreStripped() {
+        // '@' and '!' are command headings recognised by CommandsExecutor/GeneralChatHandler.
+        assertEquals("item 1000", dispatcher.sanitize("@item 1000"));
+        assertEquals("warp 100000000", dispatcher.sanitize("!warp 100000000"));
+        assertEquals("hello", dispatcher.sanitize("@!hello"));
+    }
+
+    @Test
     void longMessageIsClampedToMaxLength() {
         String result = dispatcher.sanitize("a".repeat(200));
 

@@ -5,8 +5,10 @@ import client.Client;
 import net.PacketProcessor;
 import net.server.PlayerLoginService;
 import net.server.Server;
+import net.server.coordinator.session.SessionCoordinator;
 import net.server.world.Party;
 import net.server.world.PartyCharacter;
+import net.server.world.World;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.maps.MapleMap;
@@ -117,8 +119,12 @@ public class AgentManager {
      * the agent limit has been reached.
      */
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain) {
+        if (!AgentConfig.enabled()) {
+            log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
+            return null;
+        }
         if (ticker == null) {
-            start(); // allow /agent spawn to work even when auto-start is disabled in config
+            start(); // defensive: ensure the tick loop/pool exist even if server auto-start was skipped
         }
         if (sessionsByCharacterId.size() >= AgentConfig.maxAgents()) {
             log.warn("Refusing to spawn agent {}: agent limit ({}) reached", characterName, AgentConfig.maxAgents());
@@ -133,6 +139,23 @@ public class AgentManager {
         if (sessionsByCharacterId.containsKey(record.characterId())) {
             log.warn("Character {} is already an active agent", characterName);
             return null;
+        }
+
+        // Never hijack a character/account that a real player is currently using: doing so
+        // would force-disconnect them via SessionCoordinator.updateOnlineClient.
+        final World worldServer = Server.getInstance().getWorld(world);
+        if (worldServer != null && worldServer.getPlayerStorage().getCharacterById(record.characterId()) != null) {
+            log.warn("Refusing to spawn agent {}: character is already online", characterName);
+            return null;
+        }
+        if (SessionCoordinator.getInstance().isAccountOnline(record.accountId())) {
+            log.warn("Refusing to spawn agent {}: account {} already has an online session", characterName, record.accountId());
+            return null;
+        }
+
+        if (!characterName.startsWith(AgentConfig.namePrefix())) {
+            log.warn("Agent character '{}' does not start with the configured label prefix '{}'; agents should be distinguishable to players",
+                    characterName, AgentConfig.namePrefix());
         }
 
         final PacketProcessor processor = PacketProcessor.getChannelServerProcessor(world, channel);
@@ -160,8 +183,13 @@ public class AgentManager {
             log.info("Spawned agent {} (chr {}, world {}, channel {}) using brain {}",
                     player.getName(), player.getId(), world, channel, brain.describe());
             return session;
-        } catch (SQLException e) {
-            log.error("Failed to load agent character {}", characterName, e);
+        } catch (Exception e) {
+            log.error("Failed to spawn agent {}; rolling back partial login", characterName, e);
+            try {
+                client.forceDisconnect();
+            } catch (Throwable t) {
+                log.warn("Failed to roll back agent spawn for {}", characterName, t);
+            }
             return null;
         }
     }
@@ -176,7 +204,7 @@ public class AgentManager {
             memoryStore.save(session.getMemory());
         }
         try {
-            session.getClient().disconnect(false, false);
+            session.getClient().forceDisconnect();
         } catch (Throwable t) {
             log.warn("Error while despawning agent {}", session.getName(), t);
         }

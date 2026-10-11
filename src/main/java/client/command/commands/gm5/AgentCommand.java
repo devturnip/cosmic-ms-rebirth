@@ -23,8 +23,10 @@ import client.Character;
 import client.Client;
 import client.command.Command;
 import net.server.agent.AgentBrainFactory;
+import net.server.agent.AgentConfig;
 import net.server.agent.AgentManager;
 import net.server.agent.AgentSession;
+import server.ThreadManager;
 
 public class AgentCommand extends Command {
     {
@@ -33,7 +35,16 @@ public class AgentCommand extends Command {
 
     @Override
     public void execute(Client c, String[] params) {
+        // Spawning loads a character and runs the full login bootstrap; run it off the Netty
+        // event loop so the GM's connection is not blocked.
+        ThreadManager.getInstance().newTask(() -> executeInternal(c, params));
+    }
+
+    private void executeInternal(Client c, String[] params) {
         Character player = c.getPlayer();
+        if (player == null) {
+            return;
+        }
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
@@ -44,6 +55,10 @@ public class AgentCommand extends Command {
         String action = params[0].toLowerCase();
         switch (action) {
             case "spawn" -> {
+                if (!AgentConfig.enabled()) {
+                    player.message("LLM agents are disabled. Set USE_LLM_AGENTS: true in config.yaml and restart.");
+                    return;
+                }
                 if (params.length < 2) {
                     player.message("Usage: /agent spawn <characterName>");
                     return;

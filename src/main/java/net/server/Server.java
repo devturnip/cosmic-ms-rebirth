@@ -41,6 +41,7 @@ import net.ChannelDependencies;
 import net.PacketProcessor;
 import net.netty.LoginServer;
 import net.packet.Packet;
+import net.server.agent.AgentConfig;
 import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.coordinator.session.IpAddresses;
@@ -939,7 +940,7 @@ public class Server {
         Duration initDuration = Duration.between(beforeInit, Instant.now());
         log.info("Cosmic is now online after {} ms.", initDuration.toMillis());
 
-        if (YamlConfig.config.server.USE_LLM_AGENTS) {
+        if (AgentConfig.enabled()) {
             AgentManager.getInstance().start();
         }
 

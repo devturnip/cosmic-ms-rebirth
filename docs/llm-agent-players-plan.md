@@ -23,6 +23,37 @@ Agreed with the requester:
 
 ---
 
+## Implementation status (branch `feature/llm-agent-players`)
+
+Delivered:
+
+- [x] `Client` outbound seam (`writePacket`) + null-safe channel ops + `getPacketProcessor()`.
+- [x] `PlayerLoginService.finishLogin` extracted from `PlayerLoggedinHandler` (behavior-preserving).
+- [x] `AgentClient`, `AgentSession`, `AgentManager`, `AgentPerception`, `AgentActionDispatcher`.
+- [x] `AgentEvent` / `AgentAction` / `AgentBrain` / `ScriptedAgentBrain` / `AgentMemory`.
+- [x] OpenAI-compatible LLM brain (`OpenAiChatClient`, `LlmAgentBrain`, `AgentPersona`) with
+  tool calling and fail-safe fallback to the scripted brain.
+- [x] Persistent memory (`AgentMemoryStore` + `agent_memory` table, migration `v0.15.0.sql`).
+- [x] Chat/party/whisper/party-invite hooks route events to agents.
+- [x] `/agent spawn|despawn|list|say` GM command (rank 5).
+- [x] Config keys in `ServerConfig` + `config.yaml`; `AgentManager` start/stop in `Server`.
+- [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize.
+- [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
+  refuse to spawn a character/account that is already online; synchronous despawn;
+  spawn off the Netty event loop; content filter defaults on.
+
+Not yet implemented (M2 remainder + M3):
+
+- [ ] Movement / follow / pathing (synthetic `MOVE_PLAYER`) and warp-with-party.
+- [ ] Combat assist: attack, buff, heal, potion, loot, respawn.
+- [ ] Proactive behaviour (M4 — explicitly deferred; agents are strictly reactive).
+- [ ] `PartySearchCoordinator` registration for in-game matchmaking.
+- [ ] Additional perception event hooks (damage/death/buff/map-change are stubbed only for
+  map change; `AgentEvent.MapChanged` is defined but not yet emitted from a map-transition hook).
+- [ ] Admin opt-out / player-facing notice beyond the name prefix.
+
+---
+
 ## 1. Goal
 
 Allow one or more LLM-driven **agents** to exist on the server as normal

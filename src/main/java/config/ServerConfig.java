@@ -318,7 +318,7 @@ public class ServerConfig {
     public String LLM_MODEL;
     public int LLM_MAX_CONCURRENT_CALLS;
     public String LLM_AGENT_NAME_PREFIX;
-    public boolean LLM_AGENT_CONTENT_FILTER;
+    public boolean LLM_AGENT_CONTENT_FILTER = true;
     public String LLM_AGENT_PERSONAS_FILE;
-    public boolean LLM_AGENT_MEMORY_PERSIST;
+    public boolean LLM_AGENT_MEMORY_PERSIST = true;
 }

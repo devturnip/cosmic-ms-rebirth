@@ -118,7 +118,7 @@ public class AgentActionDispatcher {
         if (message.isEmpty()) {
             return null;
         }
-        while (message.startsWith("/")) {
+        while (!message.isEmpty() && isCommandHeading(message.charAt(0))) {
             message = message.substring(1).strip();
         }
         if (message.isEmpty()) {
@@ -131,6 +131,11 @@ public class AgentActionDispatcher {
             message = message.substring(0, MAX_CHAT_LENGTH);
         }
         return message;
+    }
+
+    private static boolean isCommandHeading(char c) {
+        // '/', '@' and '!' are all interpreted as command headings by CommandsExecutor/GeneralChatHandler.
+        return c == '/' || c == '@' || c == '!';
     }
 
     private String applyContentFilter(String message) {

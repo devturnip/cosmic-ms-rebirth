@@ -120,6 +120,14 @@ public class SessionCoordinator {
         }
     }
 
+    /**
+     * @return whether the given account currently has an online game session. Used by the
+     * agent subsystem to refuse spawning an agent that would kick a real player.
+     */
+    public boolean isAccountOnline(int accountId) {
+        return onlineClients.containsKey(accountId);
+    }
+
     private void disconnectClientIfOnline(int accountId) {
         Client ingameClient = onlineClients.get(accountId);
         if (ingameClient != null) {     // thanks MedicOP for finding out a loss of loggedin account uniqueness when using the CMS "Unstuck" feature

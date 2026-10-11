@@ -21,65 +21,25 @@
  */
 package net.server.channel.handlers;
 
-import client.BuddyList;
-import client.BuddylistEntry;
 import client.Character;
-import client.CharacterNameAndId;
 import client.Client;
-import client.Disease;
-import client.Family;
-import client.FamilyEntry;
-import client.Mount;
-import client.SkillFactory;
-import client.inventory.Equip;
-import client.inventory.Inventory;
-import client.inventory.InventoryType;
-import client.inventory.Item;
-import client.inventory.Pet;
-import client.keybind.KeyBinding;
-import config.YamlConfig;
-import constants.game.GameConstants;
 import net.AbstractPacketHandler;
 import net.packet.InPacket;
-import net.server.PlayerBuffValueHolder;
 import net.server.PlayerLoginService;
 import net.server.Server;
 import net.server.channel.Channel;
-import net.server.channel.CharacterIdChannelPair;
 import net.server.coordinator.session.Hwid;
 import net.server.coordinator.session.SessionCoordinator;
-import net.server.coordinator.world.EventRecallCoordinator;
-import net.server.guild.Alliance;
-import net.server.guild.Guild;
-import net.server.guild.GuildPackets;
-import net.server.world.PartyCharacter;
-import net.server.world.PartyOperation;
 import net.server.world.World;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import scripting.event.EventInstanceManager;
-import server.life.MobSkill;
 import service.NoteService;
-import tools.DatabaseConnection;
 import tools.PacketCreator;
-import tools.Pair;
-import tools.packets.WeddingPackets;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public final class PlayerLoggedinHandler extends AbstractPacketHandler {
-    private static final Logger log = LoggerFactory.getLogger(PlayerLoggedinHandler.class);
     private static final Set<Integer> attemptingLoginAccounts = new HashSet<>();
 
     private final NoteService noteService;
