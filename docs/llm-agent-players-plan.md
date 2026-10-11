@@ -44,16 +44,21 @@ Delivered:
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
 - [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
   party-update and map-change perception events.
-- [x] M3 (partial): monster/item/NPC perception, clamped synthetic movement, item pickup,
-  potion self-sustain, respawn, and a basic skill-0 melee attack (auto modes behind config).
+- [x] M3 (substantially): monster/item/NPC perception, clamped synthetic movement, item
+  pickup, potion self-sustain, respawn, buff-skill casting, and melee/magic/ranged basic +
+  skill attacks (auto modes behind config).
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
   spawn off the Netty event loop; content filter defaults on; clamped movement;
-  concurrency-safe rate limiter; pickup range/ownership validation; post-mutation follow.
+  concurrency-safe rate limiter; pickup range/ownership validation; post-mutation follow;
+  packet-exact attack/charge/hurricane/poison layouts; ammo type/level/bulletCount gating;
+  non-damaging/buff/fixed-damage skill rejection.
 
-Not yet implemented (M2 remainder + M3):
+Not yet implemented (M2 remainder + M3 remainder):
 
-- [ ] Combat assist: attack (close/ranged/magic), buff, heal, potion use, respawn.
+- [ ] Combat depth: multi-target/multi-line attacks, ammo recharge, local cooldown tracking,
+  heal-skill casting, MP/HP-cost timing, Hurricane/Rapid Fire semantics, monster facing,
+  flee/aggro management, auto-looting kills, cast animation.
 - [ ] Real pathing (portals/footholds); movement is a clamped straight-line step.
 - [ ] Warp-with-party / cross-map follow.
 - [ ] LLM-driven movement policy beyond `move_to`/follow.

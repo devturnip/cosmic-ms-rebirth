@@ -14,11 +14,13 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** `0cc8eb539`
-- **Status:** M0 + M1 done; M2 done; M3 partial (perception, movement, follow, loot).
-  Combat (attack/buff/heal/potion/respawn), pathing, and warp-with-party are **not** done.
+- **HEAD:** `8f0a6b9e5`
+- **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow, loot,
+  potion self-sustain, respawn, melee/magic/ranged basic + skill attacks, buff casting).
+  Remaining: multi-target attacks, ammo recharge, heal-skill casting, pathing,
+  warp-with-party, M4 proactive behavior.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 29 agent tests + existing suite).
+- **Build:** `mvn -q clean test` (green: 55 agent tests across 17 classes + existing suite).
 
 ---
 
@@ -111,7 +113,7 @@ arrive via lightweight hooks (see §5).
 | `AgentManager` | Singleton: start/stop, spawn/despawn, event routing hooks, party-search + follow control, ticker + brain pool. |
 | `AgentSession` | One agent: inbox, decide cycle, action execution, follow, rate limit. |
 | `AgentClient` | `Client` subclass with no socket; overrides `writePacket`. |
-| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `Remember`, `Idle`). |
+| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `UseItem`, `Respawn`, `Attack`, `SkillAttack`, `CastBuff`, `Remember`, `Idle`). |
 | `AgentActionDispatcher` | Maps actions → synthetic inbound packets; content filter; audit log; rate-limit gate. |
 | `AgentEvent` | Sealed interface of perceived events (`MapChat`, `PartyChat`, `Whisper`, `PartyInvite`, `PartyUpdate`, `MapChanged`, `Tick`, `Instruction`). |
 | `AgentBrain` | Decision interface: `List<AgentAction> decide(observation, events, memory)`. |
@@ -122,7 +124,7 @@ arrive via lightweight hooks (see §5).
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`. |
-| `AgentCombat` | Potion self-sustain, respawn, and a basic skill-0 melee attack packet. |
+| `AgentCombat` | Potion self-sustain, respawn, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
@@ -135,7 +137,7 @@ arrive via lightweight hooks (see §5).
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
 - `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
-- `src/test/java/net/server/agent/*` — 8 test classes.
+- `src/test/java/net/server/agent/*` — 17 test classes (55 tests).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -180,10 +182,26 @@ arrive via lightweight hooks (see §5).
     you want the LLM to use it).
 11. **Combat safety:** `AgentCombat.findPotion` only considers ids in `[2000000, 2060000)`
     and try/catches `getItemEffect` — projectile/food items have no `spec` and make the
-    loader throw. Attack damage is `calculateMaxBaseDamage` (<= the handler's recalculation)
-    and targets are only attacked well within the distance-alert threshold. `behaviorStep`
+    loader throw. Attack damage is conservative (server max can only be raised by buffs) and
+    targets are only attacked well inside the distance-alert threshold. `behaviorStep`
     charges **one** action-budget token per tick and isolates each sub-behaviour in a
     try/catch; do not remove either.
+12. **Attack routing is job/weapon/skill aware.** Basic (skill-0) attacks always use
+    `CLOSE_RANGE_ATTACK` unless the agent wields a ranged weapon, because `MagicDamageHandler`
+    NPEs on `SkillFactory.getSkill(0)`. Magic skills use `MAGIC_ATTACK` (chosen by
+    `effect.getMatk() > 0`, so Cygnus/Evan work); physical skills use `RANGED_ATTACK` only
+    when a ranged weapon and matching, level-valid ammo (>= the skill's `bulletCount`) are
+    present. Out-of-ammo ranged agents skip rather than swinging melee.
+13. **Attack skills are filtered** (`AgentCombat.isAttackSkill`): learned, not a buff, not
+    `fixDamage`, magic requires `matk > 0` (StatEffect damage defaults to 100, so this is what
+    rejects utility skills), plus `EXCLUDED_ATTACK_SKILLS` (Meso Explosion, Shadow Meso,
+    ranged-special skills). Otherwise a non-damaging skill trips `DAMAGE_HACK` (server max 0).
+14. **Buff casting validates** via `canCastBuff` (learned, not cooling, `isSkill()`, statups,
+    duration, MP/HP, not already active) before dispatching — `cast_buff` must never reach
+    `skill.getEffect(0)`.
+15. **Attack packets are byte-exact** against `AbstractDealDamageHandler#parseDamage`; the
+    charge-skill list, the hurricane extra block, and the Poison Bomb tail are mirrored.
+    There are layout tests — keep parity when adding packets.
 
 ---
 
@@ -306,21 +324,25 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 
 ## 9. Review history
 
-Two independent verifier passes were run; all HIGH/MEDIUM findings were fixed in
-`54ef8c76f` and `0cc8eb539`:
-- Command injection via `@`/`!` (now all headings stripped).
-- Double-login / kicking real players (now guarded).
-- Partial-login ghost on spawn failure (now rolled back).
-- Async despawn race (now synchronous).
-- Unclamped/teleport movement (now clamped + step-capped).
-- Pre-mutation follow state (now `refreshAutoFollow` after mutation).
-- Rate limiter races + `Remember` starving chat (now synchronized + free action).
-- Pickup range mismatch / WARN spam (now validated).
-- Uncapped nearby-player list (now capped).
+Six independent verifier passes were run (each followed by a fixes commit); all HIGH/MEDIUM
+findings were addressed:
+- **Foundation/M1** (`54ef8c76f`): command injection via `@`/`!`; double-login kicking real
+  players; partial-login ghost; async despawn race.
+- **M2/M3** (`0cc8eb539`): unclamped/teleport movement; pre-mutation follow state; rate-limiter
+  races and `Remember` starving chat; pickup range mismatch; uncapped player list.
+- **Combat** (`a72a98f33`): `findPotion` NPE on spec-less items; percentage potions;
+  event-aware respawn; per-tick single rate charge; error isolation; range enforcement.
+- **Buffs** (`b89f75a3e`): unvalidated `cast_buff`; charge-list packet desync; cooldown/HP-cost;
+  `isSkill()` active-buff match.
+- **Skills** (`ad2ddacb4`): skill-0 magic NPE; non-damaging-skill autoban; Meso/Shadow/ranged
+  exclusions; Cygnus/Evan opcode; LLM fallback.
+- **Ranged** (`8f0a6b9e5`): ammo type/level/bulletCount mismatch; Shadow-Claw no-op;
+  magic-skill misrouting; out-of-ammo melee fallback; Poison Bomb tail.
 
 Known low-risk remainder: `/agent search` enabling party-search auto-invites (documented),
-siteless `/agent tell|mute|pause` (not implemented), and latent cross-thread map mutation
-on very busy maps (soak-test target; map collections use read/write locks).
+`/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry), and
+latent cross-thread map mutation on very busy maps (soak-test target; map collections use
+read/write locks).
 
 ---
 
@@ -328,6 +350,7 @@ on very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `8f0a6b9e5` | ranged-attack review fixes + ranged tests |
 | `b57d7c8c0` | ranged attacks |
 | `ad2ddacb4` | skill-attack review fixes + skill tests |
 | `53503ecb0` | melee/magic skill attacks |
