@@ -14,10 +14,18 @@ public final class AgentBrainFactory {
     }
 
     public static AgentBrain create(String personaName) {
+        AgentPersona persona = AgentPersonaStore.getInstance().find(personaName).orElse(null);
         String apiUrl = AgentConfig.apiUrl();
         String model = AgentConfig.model();
         if (!apiUrl.isBlank() && !model.isBlank()) {
             try {
+                if (persona != null) {
+                    String prompt = persona.systemPrompt();
+                    if (prompt == null || prompt.isBlank()) {
+                        prompt = persona.description();
+                    }
+                    return new LlmAgentBrain(personaName, prompt);
+                }
                 return new LlmAgentBrain(personaName);
             } catch (Throwable t) {
                 log.warn("Failed to create LLM brain for {}; falling back to scripted brain", personaName, t);

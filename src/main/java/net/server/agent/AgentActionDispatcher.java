@@ -6,8 +6,11 @@ import net.packet.ByteBufInPacket;
 import net.packet.ByteBufOutPacket;
 import net.packet.InPacket;
 import net.packet.OutPacket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.PacketCreator;
 
+import java.awt.Point;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -17,11 +20,20 @@ import java.util.function.Consumer;
  * This keeps agent behaviour subject to the server's existing validation.
  */
 public class AgentActionDispatcher {
+    private static final Logger log = LoggerFactory.getLogger(AgentActionDispatcher.class);
     private static final int MAX_CHAT_LENGTH = Byte.MAX_VALUE;
 
     private static final List<String> BLOCKED_WORDS = List.of("fuck", "shit", "bitch", "asshole");
 
     public void dispatch(AgentSession session, AgentAction action) {
+        if (action instanceof AgentAction.Idle) {
+            return;
+        }
+        if (!session.allowAction()) {
+            log.debug("Agent {} exceeded its action rate limit; dropping {}", session.getName(), action);
+            return;
+        }
+        logAction(session, action);
         switch (action) {
             case AgentAction.Say say -> generalChat(session, sanitize(say.message()));
             case AgentAction.PartySay say -> partyChat(session, sanitize(say.message()));
@@ -30,9 +42,20 @@ public class AgentActionDispatcher {
             case AgentAction.AcceptPartyInvite accept -> acceptPartyInvite(session, accept.partyId());
             case AgentAction.DenyPartyInvite deny -> denyPartyInvite(session, deny.inviterName());
             case AgentAction.LeaveParty ignored -> leaveParty(session);
+            case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
+            case AgentAction.PickupItem pickup -> pickupItem(session, pickup.objectId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());
             case AgentAction.Idle ignored -> {
             }
+        }
+    }
+
+    private void logAction(AgentSession session, AgentAction action) {
+        // Chat/party actions are audit-logged at INFO; high-frequency movement stays at DEBUG.
+        if (action instanceof AgentAction.Say || action instanceof AgentAction.PartySay || action instanceof AgentAction.Whisper) {
+            log.info("[agent {}] {}", session.getName(), action);
+        } else {
+            log.debug("[agent {}] {}", session.getName(), action);
         }
     }
 
@@ -97,6 +120,16 @@ public class AgentActionDispatcher {
 
     private void leaveParty(AgentSession session) {
         send(session, RecvOpcode.PARTY_OPERATION, p -> p.writeByte(2)); // leave
+    }
+
+    private void pickupItem(AgentSession session, int objectId) {
+        Point pos = session.getPlayer() == null ? new Point(0, 0) : session.getPlayer().getPosition();
+        send(session, RecvOpcode.ITEM_PICKUP, p -> {
+            p.writeInt(0); // timestamp
+            p.writeByte(0);
+            p.writePos(pos);
+            p.writeInt(objectId);
+        });
     }
 
     private void send(AgentSession session, RecvOpcode opcode, Consumer<OutPacket> writer) {

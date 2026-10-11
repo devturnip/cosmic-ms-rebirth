@@ -92,6 +92,9 @@ public class LlmAgentBrain implements AgentBrain {
             sb.append("- Position: (").append(observation.x()).append(", ").append(observation.y()).append(")\n");
             appendPlayers(sb, "Nearby players", observation.nearbyPlayers());
             appendPlayers(sb, "Party members", observation.partyMembers());
+            appendMonsters(sb, observation.nearbyMonsters());
+            appendItems(sb, observation.nearbyItems());
+            appendNpcs(sb, observation.nearbyNpcs());
         }
 
         sb.append("New events since your last decision:\n");
@@ -132,6 +135,64 @@ public class LlmAgentBrain implements AgentBrain {
             }
             sb.append(")\n");
         }
+    }
+
+    private void appendMonsters(StringBuilder sb, List<AgentObservation.ObservedMonster> monsters) {
+        if (monsters == null || monsters.isEmpty()) {
+            sb.append("Nearby monsters: none\n");
+            return;
+        }
+        sb.append("Nearby monsters: ");
+        for (int i = 0; i < monsters.size(); i++) {
+            AgentObservation.ObservedMonster monster = monsters.get(i);
+            if (i > 0) {
+                sb.append("; ");
+            }
+            sb.append(monster.name())
+                    .append(" (id ").append(monster.mobId())
+                    .append(", lvl ").append(monster.level())
+                    .append(", hp ").append(monster.hp()).append('/').append(monster.maxHp())
+                    .append(", object ").append(monster.objectId())
+                    .append(") at (").append(monster.x()).append(", ").append(monster.y()).append(')');
+        }
+        sb.append('\n');
+    }
+
+    private void appendItems(StringBuilder sb, List<AgentObservation.ObservedItem> items) {
+        if (items == null || items.isEmpty()) {
+            sb.append("Nearby items: none\n");
+            return;
+        }
+        sb.append("Nearby items: ");
+        for (int i = 0; i < items.size(); i++) {
+            AgentObservation.ObservedItem item = items.get(i);
+            if (i > 0) {
+                sb.append("; ");
+            }
+            sb.append(item.itemId()).append(" x").append(item.quantity())
+                    .append(" (object ").append(item.objectId())
+                    .append(", owner ").append(item.ownerId())
+                    .append(") at (").append(item.x()).append(", ").append(item.y()).append(')');
+        }
+        sb.append('\n');
+    }
+
+    private void appendNpcs(StringBuilder sb, List<AgentObservation.ObservedNpc> npcs) {
+        if (npcs == null || npcs.isEmpty()) {
+            sb.append("Nearby NPCs: none\n");
+            return;
+        }
+        sb.append("Nearby NPCs: ");
+        for (int i = 0; i < npcs.size(); i++) {
+            AgentObservation.ObservedNpc npc = npcs.get(i);
+            if (i > 0) {
+                sb.append("; ");
+            }
+            sb.append(npc.npcId())
+                    .append(" (object ").append(npc.objectId())
+                    .append(") at (").append(npc.x()).append(", ").append(npc.y()).append(')');
+        }
+        sb.append('\n');
     }
 
     private String describeEvent(AgentEvent event) {
@@ -184,6 +245,17 @@ public class LlmAgentBrain implements AgentBrain {
                 yield inviter == null ? null : new AgentAction.DenyPartyInvite(inviter);
             }
             case "leave_party" -> new AgentAction.LeaveParty();
+            case "move_to" -> {
+                JsonNode x = args.path("x");
+                JsonNode y = args.path("y");
+                yield x.canConvertToInt() && y.canConvertToInt()
+                        ? new AgentAction.MoveTo(x.asInt(), y.asInt())
+                        : null;
+            }
+            case "pickup_item" -> {
+                JsonNode objectId = args.path("object_id");
+                yield objectId.canConvertToInt() ? new AgentAction.PickupItem(objectId.asInt()) : null;
+            }
             case "remember" -> {
                 String fact = text(args, "fact");
                 yield fact == null ? null : new AgentAction.Remember(fact);

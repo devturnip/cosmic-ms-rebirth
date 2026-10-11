@@ -48,7 +48,7 @@ public class AgentCommand extends Command {
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
-            player.message("Usage: /agent spawn <characterName> | despawn <characterName> | list | say <characterName> <message>");
+            player.message("Usage: /agent spawn <name> | despawn <name> | list | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name>");
             return;
         }
 
@@ -103,7 +103,32 @@ public class AgentCommand extends Command {
                 String message = joinStringFrom(params, 2);
                 player.message(manager.instruct(name, message) ? "Sent instruction to '" + name + "'." : "No active agent named '" + name + "'.");
             }
-            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list or say.");
+            case "follow" -> {
+                if (params.length < 3) {
+                    player.message("Usage: /agent follow <agentName> <playerName>");
+                    return;
+                }
+                player.message(manager.setFollow(params[1], params[2], c.getWorld())
+                        ? "Agent '" + params[1] + "' will follow '" + params[2] + "'."
+                        : "Failed to set follow (check both names in this world).");
+            }
+            case "stopfollow" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent stopfollow <agentName>");
+                    return;
+                }
+                player.message(manager.clearFollow(params[1]) ? "Agent '" + params[1] + "' will stop following." : "No active agent named '" + params[1] + "'.");
+            }
+            case "search" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent search <agentName>");
+                    return;
+                }
+                player.message(manager.registerForPartySearch(params[1], c.getWorld())
+                        ? "Agent '" + params[1] + "' is now listed in party search."
+                        : "Failed to register agent '" + params[1] + "' for party search (no active agent?).");
+            }
+            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, say, follow, stopfollow or search.");
         }
     }
 }

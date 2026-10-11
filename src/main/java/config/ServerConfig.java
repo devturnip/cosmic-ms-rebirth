@@ -321,4 +321,7 @@ public class ServerConfig {
     public boolean LLM_AGENT_CONTENT_FILTER = true;
     public String LLM_AGENT_PERSONAS_FILE;
     public boolean LLM_AGENT_MEMORY_PERSIST = true;
+    public int LLM_AGENT_MAX_ACTIONS_PER_SEC = 4;
+    public boolean LLM_AGENT_REQUIRE_PREFIX;
+    public boolean LLM_AGENT_FOLLOW = true;
 }

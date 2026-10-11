@@ -35,6 +35,14 @@ public sealed interface AgentAction {
     record LeaveParty() implements AgentAction {
     }
 
+    /** Walk the agent to a position on the current map. */
+    record MoveTo(int x, int y) implements AgentAction {
+    }
+
+    /** Pick up a dropped item by its map object id. */
+    record PickupItem(int objectId) implements AgentAction {
+    }
+
     /** Persist a durable memory fact. */
     record Remember(String fact) implements AgentAction {
     }

@@ -153,7 +153,11 @@ public class AgentManager {
             return null;
         }
 
-        if (!characterName.startsWith(AgentConfig.namePrefix())) {
+        if (AgentConfig.requireNamePrefix() && !characterName.startsWith(AgentConfig.namePrefix())) {
+            log.warn("Refusing to spawn agent {}: name does not start with the required prefix '{}'",
+                    characterName, AgentConfig.namePrefix());
+            return null;
+        } else if (!characterName.startsWith(AgentConfig.namePrefix())) {
             log.warn("Agent character '{}' does not start with the configured label prefix '{}'; agents should be distinguishable to players",
                     characterName, AgentConfig.namePrefix());
         }
@@ -295,10 +299,85 @@ public class AgentManager {
         }
         for (PartyCharacter member : party.getMembers()) {
             AgentSession session = sessionsByCharacterId.get(member.getId());
-            if (session != null) {
-                session.enqueue(new AgentEvent.PartyUpdate(description));
+            if (session == null) {
+                continue;
+            }
+            session.enqueue(new AgentEvent.PartyUpdate(description));
+            if ("DISBAND".equalsIgnoreCase(description)) {
+                session.clearFollow();
+            } else {
+                int leaderId = party.getLeaderId();
+                session.setFollowTarget(leaderId != member.getId() ? leaderId : -1);
             }
         }
+    }
+
+    /**
+     * Registers an agent as a party-search leader so solo players can find it through the
+     * in-game party search UI. Creates a party for the agent if it does not have one.
+     *
+     * @return whether the agent is now registered
+     */
+    public boolean registerForPartySearch(AgentSession session, int minLevel, int maxLevel, int jobs) {
+        Character player = session.getPlayer();
+        if (player == null) {
+            return false;
+        }
+        World world = Server.getInstance().getWorld(player.getWorld());
+        if (world == null) {
+            return false;
+        }
+        if (player.getParty() == null) {
+            Party.createParty(player, false);
+        }
+        if (player.getParty() == null || !player.isPartyLeader()) {
+            return false;
+        }
+        world.getPartySearchCoordinator().registerPartyLeader(player, minLevel, maxLevel, jobs);
+        return true;
+    }
+
+    /** Registers a named agent for party search over a +/- level window around its level. */
+    public boolean registerForPartySearch(String agentName, int worldId) {
+        AgentSession session = findByName(agentName);
+        if (session == null || session.getPlayer() == null) {
+            return false;
+        }
+        int level = session.getPlayer().getLevel();
+        return registerForPartySearch(session, Math.max(1, level - 10), level + 10, Integer.MAX_VALUE);
+    }
+
+    /** Points an agent's follow target at a player in the given world. */
+    public boolean setFollow(String agentName, String targetName, int worldId) {
+        AgentSession session = findByName(agentName);
+        World world = Server.getInstance().getWorld(worldId);
+        if (session == null || world == null) {
+            return false;
+        }
+        Character target = world.getPlayerStorage().getCharacterByName(targetName);
+        if (target == null) {
+            return false;
+        }
+        session.setFollowTarget(target.getId());
+        return true;
+    }
+
+    public boolean clearFollow(String agentName) {
+        AgentSession session = findByName(agentName);
+        if (session == null) {
+            return false;
+        }
+        session.clearFollow();
+        return true;
+    }
+
+    private AgentSession findByName(String agentName) {
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.getName().equalsIgnoreCase(agentName)) {
+                return session;
+            }
+        }
+        return null;
     }
 
     public void onMapChanged(Character player, int mapId) {

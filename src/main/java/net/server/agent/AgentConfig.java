@@ -77,6 +77,20 @@ public final class AgentConfig {
         return YamlConfig.config.server.LLM_AGENT_MEMORY_PERSIST;
     }
 
+    public static int maxActionsPerSecond() {
+        return YamlConfig.config.server.LLM_AGENT_MAX_ACTIONS_PER_SEC > 0
+                ? YamlConfig.config.server.LLM_AGENT_MAX_ACTIONS_PER_SEC
+                : 4;
+    }
+
+    public static boolean requireNamePrefix() {
+        return YamlConfig.config.server.LLM_AGENT_REQUIRE_PREFIX;
+    }
+
+    public static boolean followEnabled() {
+        return YamlConfig.config.server.LLM_AGENT_FOLLOW;
+    }
+
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }

@@ -82,6 +82,7 @@ import net.packet.Packet;
 import net.server.PlayerBuffValueHolder;
 import net.server.PlayerCoolDownValueHolder;
 import net.server.Server;
+import net.server.agent.AgentManager;
 import net.server.coordinator.world.InviteCoordinator;
 import net.server.guild.Alliance;
 import net.server.guild.Guild;
@@ -1804,6 +1805,7 @@ public class Character extends AbstractCharacterObject {
             setPosition(pos);
             map.addPlayer(this);
             visitMap(map);
+            AgentManager.getInstance().onMapChanged(this, map.getId());
 
             prtLock.lock();
             try {

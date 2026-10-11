@@ -3,6 +3,9 @@ package net.server.agent;
 import client.Character;
 import client.Job;
 import constants.game.GameConstants;
+import server.life.Monster;
+import server.life.NPC;
+import server.maps.MapItem;
 import server.maps.MapObject;
 import server.maps.MapObjectType;
 import server.maps.MapleMap;
@@ -23,6 +26,8 @@ import java.util.List;
  * </ul>
  */
 public final class AgentPerception {
+    private static final int MAX_OBSERVED = 16;
+
     private AgentPerception() {
     }
 
@@ -33,6 +38,9 @@ public final class AgentPerception {
 
         final List<AgentObservation.ObservedPlayer> nearby = collectNearbyPlayers(agent, map, pos);
         final List<AgentObservation.ObservedPlayer> party = collectPartyMembers(agent);
+        final List<AgentObservation.ObservedMonster> monsters = collectNearbyMonsters(map, pos);
+        final List<AgentObservation.ObservedItem> items = collectNearbyItems(map, pos);
+        final List<AgentObservation.ObservedNpc> npcs = collectNearbyNpcs(map, pos);
 
         return new AgentObservation(
                 agent.getName(),
@@ -49,16 +57,22 @@ public final class AgentPerception {
                 pos.x,
                 pos.y,
                 nearby,
-                party
+                party,
+                monsters,
+                items,
+                npcs
         );
+    }
+
+    private static double rangeSq() {
+        return AgentConfig.omniscient() ? Double.POSITIVE_INFINITY : AgentConfig.perceptionRangeSq();
     }
 
     private static List<AgentObservation.ObservedPlayer> collectNearbyPlayers(Character agent, MapleMap map, Point pos) {
         final List<AgentObservation.ObservedPlayer> result = new ArrayList<>();
         final int partyId = agent.getPartyId();
 
-        final double rangeSq = AgentConfig.omniscient() ? Double.POSITIVE_INFINITY : AgentConfig.perceptionRangeSq();
-        final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq, Arrays.asList(MapObjectType.PLAYER));
+        final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq(), Arrays.asList(MapObjectType.PLAYER));
         for (MapObject object : objects) {
             if (!(object instanceof Character other) || other.getId() == agent.getId()) {
                 continue;
@@ -94,5 +108,83 @@ public final class AgentPerception {
                 partyId > 0 && chr.getPartyId() == partyId,
                 partyId > 0 && chr.getParty() != null && chr.getParty().getLeaderId() == chr.getId()
         );
+    }
+
+    private static List<AgentObservation.ObservedMonster> collectNearbyMonsters(MapleMap map, Point pos) {
+        final List<AgentObservation.ObservedMonster> result = new ArrayList<>();
+        final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq(), Arrays.asList(MapObjectType.MONSTER));
+        for (MapObject object : objects) {
+            if (result.size() >= MAX_OBSERVED) {
+                break;
+            }
+            if (!(object instanceof Monster monster)) {
+                continue;
+            }
+            final Point monsterPos = monster.getPosition();
+            if (monsterPos == null) {
+                continue;
+            }
+            result.add(new AgentObservation.ObservedMonster(
+                    monster.getObjectId(),
+                    monster.getId(),
+                    monster.getName(),
+                    monster.getLevel(),
+                    monster.getHp(),
+                    monster.getMaxHp(),
+                    monsterPos.x,
+                    monsterPos.y
+            ));
+        }
+        return result;
+    }
+
+    private static List<AgentObservation.ObservedItem> collectNearbyItems(MapleMap map, Point pos) {
+        final List<AgentObservation.ObservedItem> result = new ArrayList<>();
+        final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq(), Arrays.asList(MapObjectType.ITEM));
+        for (MapObject object : objects) {
+            if (result.size() >= MAX_OBSERVED) {
+                break;
+            }
+            if (!(object instanceof MapItem mapItem)) {
+                continue;
+            }
+            final Point itemPos = mapItem.getPosition();
+            if (itemPos == null) {
+                continue;
+            }
+            result.add(new AgentObservation.ObservedItem(
+                    mapItem.getObjectId(),
+                    mapItem.getItemId(),
+                    mapItem.getItem() == null ? 0 : mapItem.getItem().getQuantity(),
+                    mapItem.getOwnerId(),
+                    itemPos.x,
+                    itemPos.y
+            ));
+        }
+        return result;
+    }
+
+    private static List<AgentObservation.ObservedNpc> collectNearbyNpcs(MapleMap map, Point pos) {
+        final List<AgentObservation.ObservedNpc> result = new ArrayList<>();
+        final List<MapObject> objects = map.getMapObjectsInRange(pos, rangeSq(), Arrays.asList(MapObjectType.NPC));
+        for (MapObject object : objects) {
+            if (result.size() >= MAX_OBSERVED) {
+                break;
+            }
+            if (!(object instanceof NPC npc)) {
+                continue;
+            }
+            final Point npcPos = npc.getPosition();
+            if (npcPos == null) {
+                continue;
+            }
+            result.add(new AgentObservation.ObservedNpc(
+                    npc.getObjectId(),
+                    npc.getId(),
+                    npcPos.x,
+                    npcPos.y
+            ));
+        }
+        return result;
     }
 }

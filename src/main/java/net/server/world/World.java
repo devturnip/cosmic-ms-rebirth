@@ -1018,6 +1018,7 @@ public class World {
         if (party == null) {
             throw new IllegalArgumentException("no party with the specified partyid exists");
         }
+        AgentManager.getInstance().onPartyUpdate(party, operation.name());
         switch (operation) {
             case JOIN:
                 party.addMember(target);

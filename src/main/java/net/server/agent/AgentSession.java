@@ -44,6 +44,9 @@ public class AgentSession {
 
     private volatile long lastDecisionAt;
     private volatile List<AgentAction> lastActions = List.of();
+    private volatile int followTargetId = -1;
+    private final AtomicInteger actionsThisSecond = new AtomicInteger();
+    private volatile long actionWindowStart = System.currentTimeMillis();
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this.client = client;
@@ -112,12 +115,42 @@ public class AgentSession {
     }
 
     /**
+     * Per-agent action rate limiter, shared by all actions routed through
+     * {@link AgentActionDispatcher}.
+     *
+     * @return whether another action may be performed in the current one-second window
+     */
+    public boolean allowAction() {
+        long now = System.currentTimeMillis();
+        if (now - actionWindowStart >= 1000) {
+            actionWindowStart = now;
+            actionsThisSecond.set(0);
+        }
+        return actionsThisSecond.incrementAndGet() <= AgentConfig.maxActionsPerSecond();
+    }
+
+    public int getFollowTargetId() {
+        return followTargetId;
+    }
+
+    public void setFollowTarget(int characterId) {
+        this.followTargetId = characterId;
+    }
+
+    public void clearFollow() {
+        this.followTargetId = -1;
+    }
+
+    /**
      * Runs one decision cycle if the agent is idle. Called by {@link AgentManager} on its
      * tick schedule.
      */
     public void tick(ExecutorService brainPool) {
         if (!active.get()) {
             return;
+        }
+        if (followTargetId >= 0 && AgentConfig.followEnabled()) {
+            actionExecutor.execute(this::followStep);
         }
         if (inbox.isEmpty()) {
             return;
@@ -187,6 +220,23 @@ public class AgentSession {
                 log.warn("Agent {} failed to perform {}", getName(), action, t);
             }
         }
+    }
+
+    /** Keeps the agent near its follow target (typically the party leader) when on the same map. */
+    private void followStep() {
+        if (!active.get() || !AgentConfig.followEnabled()) {
+            return;
+        }
+        int targetId = followTargetId;
+        Character p = player;
+        if (targetId < 0 || p == null || p.getMap() == null) {
+            return;
+        }
+        Character target = p.getMap().getCharacterById(targetId);
+        if (target == null || target.getMapId() != p.getMapId()) {
+            return;
+        }
+        AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
     }
 
     /** Sends an inbound packet through the agent's (real) packet processor. */

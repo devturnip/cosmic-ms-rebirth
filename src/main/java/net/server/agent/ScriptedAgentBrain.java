@@ -43,6 +43,11 @@ public class ScriptedAgentBrain implements AgentBrain {
                 }
             }
         }
+
+        // Opportunistic loot: pick up the first nearby dropped item (used for smoke testing).
+        if (observation != null && observation.nearbyItems() != null && !observation.nearbyItems().isEmpty()) {
+            actions.add(new AgentAction.PickupItem(observation.nearbyItems().get(0).objectId()));
+        }
         return actions;
     }
 

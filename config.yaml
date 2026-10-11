@@ -475,3 +475,6 @@ server:
     LLM_AGENT_CONTENT_FILTER: true      #Apply basic output filtering to agent chat.
     LLM_AGENT_PERSONAS_FILE: ""         #Optional yaml/json file of persona definitions.
     LLM_AGENT_MEMORY_PERSIST: true      #Persist long-term agent memory per character.
+    LLM_AGENT_MAX_ACTIONS_PER_SEC: 4     #Per-agent action rate limit (chat/move/etc per second).
+    LLM_AGENT_REQUIRE_PREFIX: false     #When true, refuse to spawn agent characters whose name lacks LLM_AGENT_NAME_PREFIX.
+    LLM_AGENT_FOLLOW: true              #Allow agents to follow their party leader.

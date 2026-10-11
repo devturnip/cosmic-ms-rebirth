@@ -148,6 +148,11 @@ public class OpenAiChatClient {
         tools.add(function(mapper, "deny_party_invite", "Decline a pending party invitation.",
                 new Param("inviter", "string", "The name of the player who sent the invite.", true)));
         tools.add(function(mapper, "leave_party", "Leave the agent's current party.", new Param[0]));
+        tools.add(function(mapper, "move_to", "Walk the agent to a position on the current map.",
+                new Param("x", "integer", "Target x coordinate.", true),
+                new Param("y", "integer", "Target y coordinate.", true)));
+        tools.add(function(mapper, "pickup_item", "Pick up a dropped item by its map object id.",
+                new Param("object_id", "integer", "The map object id of the item to pick up.", true)));
         tools.add(function(mapper, "remember", "Persist a durable fact about a player or event.",
                 new Param("fact", "string", "The fact to remember.", true)));
         tools.add(function(mapper, "idle", "Do nothing this cycle.", new Param[0]));

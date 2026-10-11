@@ -21,7 +21,10 @@ public record AgentObservation(
         int x,
         int y,
         List<ObservedPlayer> nearbyPlayers,
-        List<ObservedPlayer> partyMembers
+        List<ObservedPlayer> partyMembers,
+        List<ObservedMonster> nearbyMonsters,
+        List<ObservedItem> nearbyItems,
+        List<ObservedNpc> nearbyNpcs
 ) {
 
     /** A player visible to (or grouped with) the agent. */
@@ -36,6 +39,39 @@ public record AgentObservation(
             boolean sameMap,
             boolean partyMember,
             boolean leader
+    ) {
+    }
+
+    /** A monster visible to the agent. */
+    public record ObservedMonster(
+            int objectId,
+            int mobId,
+            String name,
+            int level,
+            int hp,
+            int maxHp,
+            int x,
+            int y
+    ) {
+    }
+
+    /** A dropped item (or meso pile) visible to the agent. */
+    public record ObservedItem(
+            int objectId,
+            int itemId,
+            int quantity,
+            int ownerId,
+            int x,
+            int y
+    ) {
+    }
+
+    /** An NPC visible to the agent. */
+    public record ObservedNpc(
+            int objectId,
+            int npcId,
+            int x,
+            int y
     ) {
     }
 }
