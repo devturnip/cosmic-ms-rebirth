@@ -1,8 +1,11 @@
 # LLM Agent Players — Implementation Plan
 
-> Status: DRAFT / proposal. No code has been written.
+> Status: IMPLEMENTED (M0–M2 done, M3 partial). See the implementation-status section below.
 > Scope: let LLM-driven agents join the server as ordinary players so that solo
 > players can form parties and chat with them.
+>
+> **New here? Read `docs/llm-agent-players-handoff.md` first** — it is the practical
+> developer handoff (file map, invariants, recipes, build/run, review history).
 
 ---
 
