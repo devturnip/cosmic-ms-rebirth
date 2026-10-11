@@ -8,6 +8,7 @@ import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
 import client.inventory.WeaponType;
+import constants.id.ItemId;
 import constants.inventory.ItemConstants;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
@@ -51,7 +52,7 @@ public final class AgentCombat {
             4001344,  // Lucky Seven: ranged
             14111006, // Poison Bomb: ranged
             5201002,  // Grenade: ranged
-            5101004, 15101003 // Corkscrew Blow: ranged
+            5101004, 15101003 // Corkscrew Blow: special charge skill
     );
 
     /** Ranged skills whose parseDamage branch reads an extra 4-byte block. */
@@ -236,15 +237,17 @@ public final class AgentCombat {
         if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return; // too far; the handler would flag a distance hack
         }
-        // A skill-0 packet must go through CLOSE_RANGE_ATTACK: MagicDamageHandler dereferences
-        // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id. Ranged jobs
-        // use the ranged packet instead.
         int damage = safeDamage(chr);
-        if (canUseRangedAttack(chr)) {
-            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(0, targetObjectId, damage));
-        } else {
-            session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, damage));
+        if (isRangedWeapon(chr)) {
+            if (canUseRangedAttack(chr, 1)) {
+                session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(0, targetObjectId, damage));
+            }
+            // Out of ammo: never swing a bow/gun/claw as if it were a melee weapon.
+            return;
         }
+        // A skill-0 packet must go through CLOSE_RANGE_ATTACK: MagicDamageHandler dereferences
+        // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id.
+        session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, damage));
     }
 
     /** Attacks a monster with a learned damaging skill (melee or magic). */
@@ -261,7 +264,10 @@ public final class AgentCombat {
             return;
         }
         int damage = skillDamage(chr, skillId);
-        if (canUseRangedAttack(chr)) {
+        if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
+            if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
+                return; // out of ammo; do not fall back to a melee swing with a ranged weapon
+            }
             session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, targetObjectId, damage));
         } else {
             session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, targetObjectId, damage));
@@ -355,44 +361,119 @@ public final class AgentCombat {
         return effect != null && effect.getMatk() > 0 ? RecvOpcode.MAGIC_ATTACK : RecvOpcode.CLOSE_RANGE_ATTACK;
     }
 
-    /** Whether the agent has a ranged weapon equipped and usable ammunition. */
+    /** Whether the agent can use a ranged attack requiring {@code requiredAmmo} projectiles. */
+    static boolean canUseRangedAttack(Character chr, int requiredAmmo) {
+        WeaponType type = rangedWeaponType(chr);
+        if (type == null) {
+            return false;
+        }
+        if (chr.getBuffedValue(BuffStat.SOULARROW) != null) {
+            return true; // Soul Arrow consumes no ammunition
+        }
+        return hasMatchingAmmo(chr, type, requiredAmmo);
+    }
+
     static boolean canUseRangedAttack(Character chr) {
-        return isRangedWeapon(chr) && hasAmmo(chr);
+        return canUseRangedAttack(chr, 1);
     }
 
     static boolean isRangedWeapon(Character chr) {
+        return rangedWeaponType(chr) != null;
+    }
+
+    /** The equipped weapon type when it is a ranged type, otherwise {@code null}. */
+    static WeaponType rangedWeaponType(Character chr) {
         Inventory equipped = chr.getInventory(InventoryType.EQUIPPED);
         if (equipped == null) {
-            return false;
+            return null;
         }
         Item weapon = equipped.getItem((short) -11);
         if (weapon == null) {
-            return false;
+            return null;
         }
         WeaponType type = ItemInformationProvider.getInstance().getWeaponType(weapon.getItemId());
-        return type == WeaponType.BOW || type == WeaponType.CROSSBOW
-                || type == WeaponType.GUN || type == WeaponType.CLAW;
+        switch (type) {
+            case BOW, CROSSBOW, GUN, CLAW -> {
+                return type;
+            }
+            default -> {
+                return null;
+            }
+        }
     }
 
-    static boolean hasAmmo(Character chr) {
-        if (chr.getBuffedValue(BuffStat.SOULARROW) != null || chr.getBuffedValue(BuffStat.SHADOW_CLAW) != null) {
-            return true; // these buffs consume no ammunition
-        }
+    /** Whether the USE inventory holds enough valid projectiles for the weapon. */
+    static boolean hasMatchingAmmo(Character chr, WeaponType type, int required) {
         Inventory use = chr.getInventory(InventoryType.USE);
-        if (use == null) {
+        if (use == null || type == null) {
             return false;
         }
+        int need = Math.max(1, required);
         for (Item item : use.list()) {
-            if (item == null || item.getQuantity() <= 0) {
+            if (item == null || item.getQuantity() < need) {
                 continue;
             }
-            int id = item.getItemId();
-            if (ItemConstants.isArrowForBow(id) || ItemConstants.isArrowForCrossBow(id)
-                    || ItemConstants.isThrowingStar(id) || ItemConstants.isBullet(id)) {
+            if (isValidAmmo(chr, type, item.getItemId())) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Mirrors RangedAttackHandler's weapon-type and level gating for a projectile. */
+    static boolean isValidAmmo(Character chr, WeaponType type, int id) {
+        switch (type) {
+            case BOW -> {
+                return ItemConstants.isArrowForBow(id);
+            }
+            case CROSSBOW -> {
+                return ItemConstants.isArrowForCrossBow(id);
+            }
+            case GUN -> {
+                if (!ItemConstants.isBullet(id)) {
+                    return false;
+                }
+                if (id == ItemId.BLAZE_CAPSULE || id == ItemId.GLAZE_CAPSULE) {
+                    return chr.getLevel() >= 70;
+                }
+                return chr.getLevel() > (id % 10) * 20 + 9;
+            }
+            case CLAW -> {
+                if (!ItemConstants.isThrowingStar(id)) {
+                    return false;
+                }
+                if (id == ItemId.HWABI_THROWING_STARS || id == ItemId.BALANCED_FURY) {
+                    return chr.getLevel() >= 70;
+                }
+                if (id == ItemId.CRYSTAL_ILBI_THROWING_STARS) {
+                    return chr.getLevel() >= 50;
+                }
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    /** Projectiles the ranged handler needs for this skill (doubled by Shadow Partner). */
+    static int requiredAmmo(Character chr, int skillId) {
+        if (skillId <= 0) {
+            return 1;
+        }
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        int count = effect == null ? 1 : Math.max(1, effect.getBulletCount());
+        if (chr.getBuffedValue(BuffStat.SHADOWPARTNER) != null) {
+            count *= 2;
+        }
+        return count;
+    }
+
+    private static boolean isMagicSkill(Character chr, int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        return effect != null && effect.getMatk() > 0;
     }
 
     /**
@@ -423,6 +504,10 @@ public final class AgentCombat {
         out.skip(14);
         out.writeInt(damage);
         out.skip(4);
+        if (skillId == POISON_BOMB) {
+            out.skip(4);
+            out.writePos(new Point(0, 0));
+        }
         return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
     }
 

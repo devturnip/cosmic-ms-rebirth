@@ -284,15 +284,16 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader, party-search listing.
 - M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
-  self-sustain, respawn, a basic skill-0 melee attack, buff-skill casting, and melee/magic
-  damaging skill attacks.
+  self-sustain, respawn, basic melee attacks, buff-skill casting, melee/magic damaging skill
+  attacks, and ranged attacks (bow/crossbow/gun/claw + ammo gating).
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat depth:** ranged (`RANGED_ATTACK`) skill attacks, multi-target/multi-line attacks,
-  local cooldown tracking, heal-skill casting, mp/hp-cost timing on the skill path, monster
-  facing, flee/aggro management, auto-looting kills, cast animation/after-delay.
+- **Combat depth:** multi-target/multi-line attacks, ammo recharge action, local cooldown
+  tracking, heal-skill casting, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire
+  after-delay semantics, monster facing, flee/aggro management, auto-looting kills, cast
+  animation.
 - **Pathing:** only clamped straight-line steps; no footholds/portals.
 - **Warp-with-party / cross-map follow.**
 - **LLM movement policy** beyond `move_to`/follow.
@@ -327,6 +328,8 @@ on very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `b57d7c8c0` | ranged attacks |
+| `ad2ddacb4` | skill-attack review fixes + skill tests |
 | `53503ecb0` | melee/magic skill attacks |
 | `b89f75a3e` | buff review fixes + buff skills in perception |
 | `41805f1ff` | buff skill casting |
