@@ -27,6 +27,7 @@ import client.autoban.AutobanFactory;
 import client.command.CommandsExecutor;
 import net.AbstractPacketHandler;
 import net.packet.InPacket;
+import net.server.agent.AgentManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ChatLogger;
@@ -66,6 +67,8 @@ public final class GeneralChatHandler extends AbstractPacketHandler {
                 chr.getMap().broadcastGMMessage(PacketCreator.getChatText(chr.getId(), s, chr.getWhiteChat(), show));
                 ChatLogger.log(c, "GM General", s);
             }
+
+            AgentManager.getInstance().onMapChat(chr.getMap(), chr.getId(), chr.getName(), s, chr.getWhiteChat());
 
             chr.getAutobanManager().spam(7);
         }

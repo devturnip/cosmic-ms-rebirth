@@ -282,11 +282,15 @@ public class Client extends ChannelInboundHandlerAdapter {
     }
 
     public void closeSession() {
-        ioChannel.close();
+        if (ioChannel != null) {
+            ioChannel.close();
+        }
     }
 
     public void disconnectSession() {
-        ioChannel.disconnect();
+        if (ioChannel != null) {
+            ioChannel.disconnect();
+        }
     }
 
     public Hwid getHwid() {
@@ -1167,7 +1171,7 @@ public class Client extends ChannelInboundHandlerAdapter {
         TimerManager.getInstance().schedule(() -> {
             try {
                 if (lastPong < pingedAt) {
-                    if (ioChannel.isActive()) {
+                    if (ioChannel != null && ioChannel.isActive()) {
                         log.info("Disconnected {} due to idling. Reason: {}", remoteAddress, event.state());
                         updateLoginState(Client.LOGIN_NOTLOGGEDIN);
                         disconnectSession();
@@ -1465,10 +1469,21 @@ public class Client extends ChannelInboundHandlerAdapter {
     public void sendPacket(Packet packet) {
         announcerLock.lock();
         try {
-            ioChannel.writeAndFlush(packet);
+            writePacket(packet);
         } finally {
             announcerLock.unlock();
         }
+    }
+
+    /**
+     * Writes a packet to the client's underlying network channel.
+     * <p>
+     * Extracted as an overridable seam so that in-process, connection-less clients
+     * (see {@code net.server.agent.AgentClient}) can capture or redirect outbound
+     * packets instead of writing to a socket.
+     */
+    protected void writePacket(Packet packet) {
+        ioChannel.writeAndFlush(packet);
     }
 
     public void announceHint(String msg, int length) {
@@ -1532,6 +1547,10 @@ public class Client extends ChannelInboundHandlerAdapter {
 
     public long getSessionId() {
         return this.sessionId;
+    }
+
+    public PacketProcessor getPacketProcessor() {
+        return packetProcessor;
     }
 
     public boolean canRequestCharlist() {

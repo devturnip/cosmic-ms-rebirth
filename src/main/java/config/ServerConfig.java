@@ -306,4 +306,19 @@ public class ServerConfig {
 
     //Custom NPC overrides. List of NPC IDs.
     public Map<String, String> NPCS_SCRIPTABLE = new HashMap<>();
+
+    //LLM agents (all default off).
+    public boolean USE_LLM_AGENTS;
+    public int LLM_AGENTS_MAX;
+    public long LLM_AGENT_TICK_MS;
+    public String LLM_AGENT_PERCEPTION;
+    public double LLM_AGENT_VIEW_RANGE;
+    public String LLM_API_URL;
+    public String LLM_API_KEY;
+    public String LLM_MODEL;
+    public int LLM_MAX_CONCURRENT_CALLS;
+    public String LLM_AGENT_NAME_PREFIX;
+    public boolean LLM_AGENT_CONTENT_FILTER;
+    public String LLM_AGENT_PERSONAS_FILE;
+    public boolean LLM_AGENT_MEMORY_PERSIST;
 }

@@ -32,6 +32,7 @@ import constants.game.GameConstants;
 import net.packet.Packet;
 import net.server.PlayerStorage;
 import net.server.Server;
+import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.channel.CharacterIdChannelPair;
 import net.server.coordinator.matchchecker.MatchCheckerCoordinator;
@@ -1096,6 +1097,7 @@ public class World {
     }
 
     public void partyChat(Party party, String chattext, String namefrom) {
+        AgentManager.getInstance().onPartyChat(party, namefrom, chattext);
         for (PartyCharacter partychar : party.getMembers()) {
             if (!(partychar.getName().equals(namefrom))) {
                 Character chr = getPlayerStorage().getCharacterByName(partychar.getName());

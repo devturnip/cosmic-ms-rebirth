@@ -26,6 +26,7 @@ import client.Client;
 import client.autoban.AutobanFactory;
 import net.AbstractPacketHandler;
 import net.packet.InPacket;
+import net.server.agent.AgentManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ChatLogger;
@@ -101,6 +102,8 @@ public final class WhisperHandler extends AbstractPacketHandler {
         }
 
         ChatLogger.log(user.getClient(), "Whisper To " + target.getName(), message);
+
+        AgentManager.getInstance().onWhisper(target.getId(), user.getId(), user.getName(), message);
 
         target.sendPacket(PacketCreator.getWhisperReceive(user.getName(), user.getClient().getChannel() - 1, user.isGM(), message));
 

@@ -41,6 +41,7 @@ import net.ChannelDependencies;
 import net.PacketProcessor;
 import net.netty.LoginServer;
 import net.packet.Packet;
+import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.coordinator.session.IpAddresses;
 import net.server.coordinator.session.SessionCoordinator;
@@ -938,6 +939,10 @@ public class Server {
         Duration initDuration = Duration.between(beforeInit, Instant.now());
         log.info("Cosmic is now online after {} ms.", initDuration.toMillis());
 
+        if (YamlConfig.config.server.USE_LLM_AGENTS) {
+            AgentManager.getInstance().start();
+        }
+
         OpcodeConstants.generateOpcodeNames();
         CommandsExecutor.getInstance();
 
@@ -1004,6 +1009,10 @@ public class Server {
 
     public Properties getSubnetInfo() {
         return subnetInfo;
+    }
+
+    public ChannelDependencies getChannelDependencies() {
+        return channelDependencies;
     }
 
     public Alliance getAlliance(int id) {
@@ -1919,6 +1928,7 @@ public class Server {
         if (getWorlds() == null) {
             return;//already shutdown
         }
+        AgentManager.getInstance().stop();
         for (World w : getWorlds()) {
             w.shutdown();
         }

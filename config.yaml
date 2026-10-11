@@ -460,3 +460,18 @@ server:
     NPCS_SCRIPTABLE:
       #9200000: Talk to Cody # Cody
       9001105: Rescue Gaga!  # Grandpa moon bunny
+
+    #LLM Agent Players Configuration (all default off)
+    USE_LLM_AGENTS: false               #Master switch for in-process LLM agent players.
+    LLM_AGENTS_MAX: 4                   #Max simultaneously active agents.
+    LLM_AGENT_TICK_MS: 2000             #Heartbeat interval per agent, in milliseconds.
+    LLM_AGENT_PERCEPTION: "BOUNDED"     #BOUNDED (fair-ish, view range) | OMNISCIENT (dev only)
+    LLM_AGENT_VIEW_RANGE: 722500.0      #Squared view radius used by BOUNDED perception.
+    LLM_API_URL: ""                     #OpenAI-compatible chat-completions endpoint.
+    LLM_API_KEY: ""                     #API key for the endpoint (empty for local servers).
+    LLM_MODEL: ""                       #Model name to request.
+    LLM_MAX_CONCURRENT_CALLS: 4         #Max in-flight LLM requests across all agents.
+    LLM_AGENT_NAME_PREFIX: "[AI]"       #Client-visible label; agents must be distinguishable.
+    LLM_AGENT_CONTENT_FILTER: true      #Apply basic output filtering to agent chat.
+    LLM_AGENT_PERSONAS_FILE: ""         #Optional yaml/json file of persona definitions.
+    LLM_AGENT_MEMORY_PERSIST: true      #Persist long-term agent memory per character.

@@ -179,6 +179,7 @@ import client.command.commands.gm4.ServerMessageCommand;
 import client.command.commands.gm4.SetEqStatCommand;
 import client.command.commands.gm4.TravelRateCommand;
 import client.command.commands.gm4.ZakumCommand;
+import client.command.commands.gm5.AgentCommand;
 import client.command.commands.gm5.DebugCommand;
 import client.command.commands.gm5.IpListCommand;
 import client.command.commands.gm5.SetCommand;
@@ -539,6 +540,7 @@ public class CommandsExecutor {
         levelCommandsCursor = new Pair<>(new ArrayList<String>(), new ArrayList<String>());
 
         addCommand("debug", 5, DebugCommand.class);
+        addCommand("agent", 5, AgentCommand.class);
         addCommand("set", 5, SetCommand.class);
         addCommand("showpackets", 5, ShowPacketsCommand.class);
         addCommand("showmovelife", 5, ShowMoveLifeCommand.class);
