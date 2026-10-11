@@ -266,6 +266,9 @@ public class AgentSession {
         if (AgentConfig.autoCombat()) {
             runSafely("combat", () -> AgentCombat.attackNearest(this));
         }
+        if (AgentConfig.autoBuff()) {
+            runSafely("buff", () -> AgentSkill.autoCast(this));
+        }
     }
 
     private void runSafely(String name, Runnable action) {

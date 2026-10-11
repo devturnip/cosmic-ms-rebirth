@@ -156,6 +156,8 @@ public class OpenAiChatClient {
         tools.add(function(mapper, "attack", "Perform a basic melee attack on a nearby monster.",
                 new Param("target_object_id", "integer", "The map object id of the monster to attack.", true)));
         tools.add(function(mapper, "respawn", "Respawn at the return point after dying.", new Param[0]));
+        tools.add(function(mapper, "cast_buff", "Cast a buff skill the agent has learned.",
+                new Param("skill_id", "integer", "The skill id of the buff to cast.", true)));
         tools.add(function(mapper, "remember", "Persist a durable fact about a player or event.",
                 new Param("fact", "string", "The fact to remember.", true)));
         tools.add(function(mapper, "idle", "Do nothing this cycle.", new Param[0]));

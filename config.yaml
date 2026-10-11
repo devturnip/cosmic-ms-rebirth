@@ -483,3 +483,5 @@ server:
     LLM_AGENT_HP_POTION_PERCENT: 50     #Auto-use an HP potion below this HP percentage.
     LLM_AGENT_MP_POTION_PERCENT: 30     #Auto-use an MP potion below this MP percentage.
     LLM_AGENT_ATTACK_RANGE_SQ: 150000.0 #Squared attack range for auto-combat (~387px).
+    LLM_AGENT_AUTO_BUFF: false          #Auto-cast configured buff skills when they lapse.
+    LLM_AGENT_AUTO_BUFF_SKILLS: ""      #Comma-separated skill ids to keep active (e.g. "1001003,2001002").

@@ -55,6 +55,10 @@ public sealed interface AgentAction {
     record Attack(int targetObjectId) implements AgentAction {
     }
 
+    /** Cast a buff skill the agent has learned. */
+    record CastBuff(int skillId) implements AgentAction {
+    }
+
     /** Persist a durable memory fact. */
     record Remember(String fact) implements AgentAction {
     }

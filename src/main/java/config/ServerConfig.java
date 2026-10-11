@@ -329,4 +329,6 @@ public class ServerConfig {
     public int LLM_AGENT_HP_POTION_PERCENT = 50;
     public int LLM_AGENT_MP_POTION_PERCENT = 30;
     public double LLM_AGENT_ATTACK_RANGE_SQ = 150000.0;
+    public boolean LLM_AGENT_AUTO_BUFF;
+    public String LLM_AGENT_AUTO_BUFF_SKILLS;
 }

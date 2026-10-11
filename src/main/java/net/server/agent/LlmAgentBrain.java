@@ -261,6 +261,10 @@ public class LlmAgentBrain implements AgentBrain {
                 yield target.canConvertToInt() ? new AgentAction.Attack(target.asInt()) : null;
             }
             case "respawn" -> new AgentAction.Respawn();
+            case "cast_buff" -> {
+                JsonNode skillId = args.path("skill_id");
+                yield skillId.canConvertToInt() ? new AgentAction.CastBuff(skillId.asInt()) : null;
+            }
             case "remember" -> {
                 String fact = text(args, "fact");
                 yield fact == null ? null : new AgentAction.Remember(fact);

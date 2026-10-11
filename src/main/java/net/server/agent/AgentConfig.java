@@ -114,6 +114,36 @@ public final class AgentConfig {
         return value > 0 ? value : 150000.0;
     }
 
+    public static boolean autoBuff() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_BUFF;
+    }
+
+    /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
+    public static int[] autoBuffSkills() {
+        String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;
+        if (raw == null || raw.isBlank()) {
+            return new int[0];
+        }
+        String[] parts = raw.split("[,\\s]+");
+        int[] skills = new int[parts.length];
+        int count = 0;
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            try {
+                int id = Integer.parseInt(part.trim());
+                if (id > 0) {
+                    skills[count++] = id;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        int[] result = new int[count];
+        System.arraycopy(skills, 0, result, 0, count);
+        return result;
+    }
+
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }
