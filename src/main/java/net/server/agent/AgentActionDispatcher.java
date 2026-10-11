@@ -48,12 +48,13 @@ public class AgentActionDispatcher {
             case AgentAction.DenyPartyInvite deny -> denyPartyInvite(session, deny.inviterName());
             case AgentAction.LeaveParty ignored -> leaveParty(session);
             case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
-            case AgentAction.PickupItem pickup -> pickupItem(session, pickup.objectId());
+            case AgentAction.PickupItem pickup -> pickupItemFor(session, pickup.objectId());
             case AgentAction.UseItem use -> AgentCombat.useItem(session, use.itemId());
             case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
             case AgentAction.Attack attack -> AgentCombat.attack(session, attack.targetObjectId());
             case AgentAction.SkillAttack attack -> AgentCombat.attackOrFallback(session, attack.targetObjectId(), attack.skillId());
             case AgentAction.CastBuff buff -> AgentSkill.castBuff(session, buff.skillId());
+            case AgentAction.CastHeal heal -> AgentSkill.castHeal(session, heal.skillId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());
             case AgentAction.Idle ignored -> {
             }
@@ -132,7 +133,12 @@ public class AgentActionDispatcher {
         send(session, RecvOpcode.PARTY_OPERATION, p -> p.writeByte(2)); // leave
     }
 
-    private void pickupItem(AgentSession session, int objectId) {
+    /**
+     * Validates and dispatches an item-pickup for {@code objectId}. Static so server-driven
+     * behaviours (auto-loot) can reuse the exact same range/ownership checks without going
+     * through the rate-limited action dispatch path twice.
+     */
+    static void pickupItemFor(AgentSession session, int objectId) {
         Character chr = session.getPlayer();
         if (chr == null || chr.getMap() == null) {
             return;
@@ -146,12 +152,12 @@ public class AgentActionDispatcher {
         if (pos == null || obPos == null) {
             return;
         }
-        // Mirror the range ItemPickupHandler enforces, and only take drops we own or free drops.
+        // Mirror the range ItemPickupHandler enforces, then the same ownership rule the server
+        // applies in Character#pickupItem (owner/party/FFA/expired).
         if (Math.abs(pos.x - obPos.x) > 800 || Math.abs(pos.y - obPos.y) > 600) {
             return;
         }
-        int ownerId = mapItem.getOwnerId();
-        if (ownerId != 0 && ownerId != chr.getId()) {
+        if (!AgentCombat.canLoot(chr, mapItem)) {
             return;
         }
         send(session, RecvOpcode.ITEM_PICKUP, p -> {
@@ -162,7 +168,7 @@ public class AgentActionDispatcher {
         });
     }
 
-    private void send(AgentSession session, RecvOpcode opcode, Consumer<OutPacket> writer) {
+    private static void send(AgentSession session, RecvOpcode opcode, Consumer<OutPacket> writer) {
         OutPacket out = new ByteBufOutPacket();
         writer.accept(out);
         InPacket in = new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));

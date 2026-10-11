@@ -56,7 +56,28 @@ public class ScriptedAgentBrain implements AgentBrain {
             return false;
         }
         String lower = message.toLowerCase();
-        return lower.contains(personaName.toLowerCase()) || lower.contains("ai");
+        return containsWord(lower, personaName.toLowerCase()) || containsWord(lower, "ai");
+    }
+
+    /** Whole-word (alphanumeric-boundary) match, so "said"/"again" do not trigger "ai". */
+    private static boolean containsWord(String haystack, String word) {
+        if (word == null || word.isEmpty()) {
+            return false;
+        }
+        int from = 0;
+        while (true) {
+            int idx = haystack.indexOf(word, from);
+            if (idx < 0) {
+                return false;
+            }
+            boolean leftOk = idx == 0 || !Character.isLetterOrDigit(haystack.charAt(idx - 1));
+            int end = idx + word.length();
+            boolean rightOk = end >= haystack.length() || !Character.isLetterOrDigit(haystack.charAt(end));
+            if (leftOk && rightOk) {
+                return true;
+            }
+            from = idx + 1;
+        }
     }
 
     private String nextReply() {

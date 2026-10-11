@@ -331,5 +331,11 @@ public class ServerConfig {
     public double LLM_AGENT_ATTACK_RANGE_SQ = 150000.0;
     public boolean LLM_AGENT_AUTO_BUFF;
     public String LLM_AGENT_AUTO_BUFF_SKILLS;
-    public int LLM_AGENT_ATTACK_SKILL;
+    public int LLM_AGENT_ATTACK_SKILL = 0;
+    public boolean LLM_AGENT_AUTO_HEAL = false;
+    public int LLM_AGENT_AUTO_HEAL_SKILL = 0;
+    public int LLM_AGENT_HEAL_PERCENT = 90;
+    public boolean LLM_AGENT_AUTO_LOOT = false;
+    public boolean LLM_AGENT_AOE_ATTACK = false;
+    public int LLM_AGENT_AOE_MAX_TARGETS = 6;
 }

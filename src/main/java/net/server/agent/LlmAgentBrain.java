@@ -96,6 +96,9 @@ public class LlmAgentBrain implements AgentBrain {
             if (observation.attackSkills() != null && !observation.attackSkills().isEmpty()) {
                 sb.append("- Attack skills you can use: ").append(observation.attackSkills()).append('\n');
             }
+            if (observation.healSkills() != null && !observation.healSkills().isEmpty()) {
+                sb.append("- Heal skills you can cast: ").append(observation.healSkills()).append('\n');
+            }
             appendPlayers(sb, "Nearby players", observation.nearbyPlayers());
             appendPlayers(sb, "Party members", observation.partyMembers());
             appendMonsters(sb, observation.nearbyMonsters());
@@ -276,6 +279,10 @@ public class LlmAgentBrain implements AgentBrain {
             case "cast_buff" -> {
                 JsonNode skillId = args.path("skill_id");
                 yield skillId.canConvertToInt() ? new AgentAction.CastBuff(skillId.asInt()) : null;
+            }
+            case "cast_heal" -> {
+                JsonNode skillId = args.path("skill_id");
+                yield new AgentAction.CastHeal(skillId.canConvertToInt() ? skillId.asInt() : 0);
             }
             case "remember" -> {
                 String fact = text(args, "fact");

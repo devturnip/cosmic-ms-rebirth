@@ -16,11 +16,11 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **Branch:** `feature/llm-agent-players`
 - **HEAD:** `8f0a6b9e5`
 - **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow, loot,
-  potion self-sustain, respawn, melee/magic/ranged basic + skill attacks, buff casting).
-  Remaining: multi-target attacks, ammo recharge, heal-skill casting, pathing,
-  warp-with-party, M4 proactive behavior.
+  potion self-sustain, respawn, melee/magic/ranged basic + skill attacks, buff casting,
+  heal-skill casting, auto-looting kills, multi-target skill attacks).
+  Remaining: ammo recharge, multi-line attacks, pathing, warp-with-party, M4 proactive behavior.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 55 agent tests across 17 classes + existing suite).
+- **Build:** `mvn -q clean test` (green: 74 agent tests across 22 classes + existing suite).
 
 ---
 
@@ -113,7 +113,7 @@ arrive via lightweight hooks (see §5).
 | `AgentManager` | Singleton: start/stop, spawn/despawn, event routing hooks, party-search + follow control, ticker + brain pool. |
 | `AgentSession` | One agent: inbox, decide cycle, action execution, follow, rate limit. |
 | `AgentClient` | `Client` subclass with no socket; overrides `writePacket`. |
-| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `UseItem`, `Respawn`, `Attack`, `SkillAttack`, `CastBuff`, `Remember`, `Idle`). |
+| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `UseItem`, `Respawn`, `Attack`, `SkillAttack`, `CastBuff`, `CastHeal`, `Remember`, `Idle`). |
 | `AgentActionDispatcher` | Maps actions → synthetic inbound packets; content filter; audit log; rate-limit gate. |
 | `AgentEvent` | Sealed interface of perceived events (`MapChat`, `PartyChat`, `Whisper`, `PartyInvite`, `PartyUpdate`, `MapChanged`, `Tick`, `Instruction`). |
 | `AgentBrain` | Decision interface: `List<AgentAction> decide(observation, events, memory)`. |
@@ -124,8 +124,8 @@ arrive via lightweight hooks (see §5).
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`. |
-| `AgentCombat` | Potion self-sustain, respawn, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating). |
-| `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application). |
+| `AgentCombat` | Potion self-sustain, respawn, auto-looting, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target). |
+| `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
 | `AgentPersona` | Persona record + JSON loader. |
@@ -137,7 +137,7 @@ arrive via lightweight hooks (see §5).
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
 - `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
-- `src/test/java/net/server/agent/*` — 17 test classes (55 tests).
+- `src/test/java/net/server/agent/*` — 22 test classes (74 tests).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -266,6 +266,12 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AUTO_BUFF` | `false` | Auto-cast configured buff skills. |
 | `LLM_AGENT_AUTO_BUFF_SKILLS` | `""` | Comma-separated buff skill ids. |
 | `LLM_AGENT_ATTACK_SKILL` | `0` | Attack skill id for auto/LLM attacks (0 = basic). |
+| `LLM_AGENT_AUTO_HEAL` | `false` | Auto-cast a heal skill when the agent/party is low. |
+| `LLM_AGENT_AUTO_HEAL_SKILL` | `0` | Heal skill id (0 = auto-detect the learned heal skill). |
+| `LLM_AGENT_HEAL_PERCENT` | `90` | HP % below which auto-heal fires. |
+| `LLM_AGENT_AUTO_LOOT` | `false` | Auto-pick up owned/free drops after combat. |
+| `LLM_AGENT_AOE_ATTACK` | `false` | Allow a multi-target skill attack to hit several monsters. |
+| `LLM_AGENT_AOE_MAX_TARGETS` | `6` | Upper bound on monsters hit by one AOE attack. |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -308,13 +314,12 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat depth:** multi-target/multi-line attacks, ammo recharge action, local cooldown
-  tracking, heal-skill casting, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire
-  after-delay semantics, monster facing, flee/aggro management, auto-looting kills, cast
-  animation.
+- **Combat depth:** ammo recharge action, local cooldown tracking, multi-line attacks,
+  MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay semantics, monster
+  facing, flee/aggro management, cast animation. (Multi-target and heal are now implemented.)
 - **Pathing:** only clamped straight-line steps; no footholds/portals.
 - **Warp-with-party / cross-map follow.**
-- **LLM movement policy** beyond `move_to`/follow.
+- **LLM movement policy** beyond `move_to`/follow; multi-target attacks have no LLM tool yet.
 - **M4:** proactive social behavior is deferred; note `/agent search` already triggers
   `PartySearchCoordinator` auto-invites (a form of matchmaking) — keep that in mind if you
   want strictly-reactive semantics.
@@ -338,6 +343,12 @@ findings were addressed:
   exclusions; Cygnus/Evan opcode; LLM fallback.
 - **Ranged** (`8f0a6b9e5`): ammo type/level/bulletCount mismatch; Shadow-Claw no-op;
   magic-skill misrouting; out-of-ammo melee fallback; Poison Bomb tail.
+- **Combat depth 2** (this pass): heal-skill casting via `SPECIAL_MOVE`; auto-looting of
+  owned/party/FFA/expired drops; multi-target skill attacks gated by `LLM_AGENT_AOE_ATTACK`.
+  Fixes from two further verifier passes: spawn/login TOCTOU (`registerAgentClientIfAbsent`),
+  `lastActions` scheduling race, damage-less-skill misclassification (`StatEffect#hasDamage()`),
+  `AUTO_BUFF`-only never ticking, loot owner rule now matches `Character#pickupItem`, and
+  `cast_heal` now resolves skill id 0.
 
 Known low-risk remainder: `/agent search` enabling party-search auto-invites (documented),
 `/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry), and

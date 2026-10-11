@@ -146,6 +146,7 @@ public class StatEffect {
     private double prop;
     private int itemCon, itemConNo;
     private int damage, attackCount, fixdamage;
+    private boolean hasDamage;
     private Point lt, rb;
     private short bulletCount, bulletConsume;
     private byte mapProtection;
@@ -481,6 +482,7 @@ public class StatEffect {
         ret.y = DataTool.getInt("y", source, 0);
 
         ret.damage = DataTool.getIntConvert("damage", source, 100);
+        ret.hasDamage = source.getChildByPath("damage") != null;
         ret.fixdamage = DataTool.getIntConvert("fixdamage", source, -1);
         ret.attackCount = DataTool.getIntConvert("attackCount", source, 1);
         ret.bulletCount = (short) DataTool.getIntConvert("bulletCount", source, 1);
@@ -1904,6 +1906,15 @@ public class StatEffect {
 
     public int getDamage() {
         return damage;
+    }
+
+    /**
+     * Whether the WZ data actually carried a {@code damage} node for this effect. A plain
+     * {@link #getDamage()} defaults to 100 when the node is absent, so this distinguishes a real
+     * damaging skill from utility skills (e.g. Teleport, Shadow Web).
+     */
+    public boolean hasDamage() {
+        return hasDamage;
     }
 
     public int getAttackCount() {

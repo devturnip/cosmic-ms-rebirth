@@ -486,3 +486,9 @@ server:
     LLM_AGENT_AUTO_BUFF: false          #Auto-cast configured buff skills when they lapse.
     LLM_AGENT_AUTO_BUFF_SKILLS: ""      #Comma-separated skill ids to keep active (e.g. "1001003,2001002").
     LLM_AGENT_ATTACK_SKILL: 0           #Attack skill id used for auto/LLM attacks (0 = basic attack).
+    LLM_AGENT_AUTO_HEAL: false          #Auto-cast a heal skill when the agent or a nearby party member is low.
+    LLM_AGENT_AUTO_HEAL_SKILL: 0        #Heal skill id to auto-cast (0 = auto-detect the first learned heal skill).
+    LLM_AGENT_HEAL_PERCENT: 90          #Auto-heal when HP is below this percentage.
+    LLM_AGENT_AUTO_LOOT: false          #Auto-pick up nearby drops the agent owns (or free drops) after combat.
+    LLM_AGENT_AOE_ATTACK: false         #Allow a multi-target skill attack to hit several nearby monsters at once.
+    LLM_AGENT_AOE_MAX_TARGETS: 6        #Upper bound on monsters hit by one multi-target attack.

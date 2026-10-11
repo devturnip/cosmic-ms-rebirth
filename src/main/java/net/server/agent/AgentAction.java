@@ -63,6 +63,10 @@ public sealed interface AgentAction {
     record CastBuff(int skillId) implements AgentAction {
     }
 
+    /** Cast a heal skill to restore the agent and/or nearby party members. */
+    record CastHeal(int skillId) implements AgentAction {
+    }
+
     /** Persist a durable memory fact. */
     record Remember(String fact) implements AgentAction {
     }

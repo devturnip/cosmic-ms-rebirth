@@ -162,7 +162,7 @@ public class AgentSession {
         if (!active.get()) {
             return;
         }
-        if (followTargetId >= 0 || AgentConfig.autoSustain() || AgentConfig.autoCombat()) {
+        if (followTargetId >= 0 || behaviorEnabled()) {
             actionExecutor.execute(this::behaviorStep);
         }
         if (inbox.isEmpty()) {
@@ -186,13 +186,16 @@ public class AgentSession {
                     return;
                 }
                 AgentObservation observation = AgentPerception.observe(p);
-                List<AgentAction> actions = brain.decide(observation, events, memory);
+                List<AgentAction> decided = brain.decide(observation, events, memory);
                 lastDecisionAt = System.currentTimeMillis();
-                lastActions = actions == null ? List.of() : List.copyOf(actions);
-                if (lastActions.isEmpty()) {
+                // Capture the immutable list in a local: the mutable field may be overwritten by a
+                // subsequent decision before the action executor runs.
+                List<AgentAction> toApply = decided == null ? List.of() : List.copyOf(decided);
+                lastActions = toApply;
+                if (toApply.isEmpty()) {
                     return;
                 }
-                actionExecutor.execute(() -> applyActions(lastActions));
+                actionExecutor.execute(() -> applyActions(toApply));
             } catch (Throwable t) {
                 log.warn("Agent {} decision failed", getName(), t);
             } finally {
@@ -236,8 +239,9 @@ public class AgentSession {
     }
 
     /**
-     * Runs the server-side gameplay behaviours each tick: respawn when dead, follow, potion
-     * self-sustain and auto-combat. All of these run on the action executor.
+     * Runs the server-driven gameplay behaviours each tick: respawn when dead, follow, potion
+     * self-sustain, healing, auto-combat, auto-loot and buffing. All of these run on the action
+     * executor under a single action-budget token.
      */
     private void behaviorStep() {
         if (!active.get()) {
@@ -247,12 +251,12 @@ public class AgentSession {
         if (p == null) {
             return;
         }
-        // One budget token covers the whole behaviour tick (follow/sustain/combat/respawn).
+        // One budget token covers the whole behaviour tick (follow/sustain/heal/combat/loot/buff).
         if (!allowAction()) {
             return;
         }
         if (!p.isAlive()) {
-            if (AgentConfig.autoSustain() || AgentConfig.autoCombat()) {
+            if (behaviorEnabled()) {
                 runSafely("respawn", () -> AgentCombat.respawn(this));
             }
             return;
@@ -263,8 +267,14 @@ public class AgentSession {
         if (AgentConfig.autoSustain()) {
             runSafely("sustain", () -> AgentCombat.sustain(this));
         }
+        if (AgentConfig.autoHeal()) {
+            runSafely("heal", () -> AgentSkill.autoHeal(this));
+        }
         if (AgentConfig.autoCombat()) {
             runSafely("combat", () -> AgentCombat.attackNearest(this));
+        }
+        if (AgentConfig.autoLoot()) {
+            runSafely("loot", () -> AgentCombat.lootNearest(this));
         }
         if (AgentConfig.autoBuff()) {
             runSafely("buff", () -> AgentSkill.autoCast(this));
@@ -277,6 +287,12 @@ public class AgentSession {
         } catch (Throwable t) {
             log.warn("Agent {} behaviour '{}' failed", getName(), name, t);
         }
+    }
+
+    /** Whether any server-driven behaviour needs the per-tick step to run. */
+    private static boolean behaviorEnabled() {
+        return AgentConfig.autoSustain() || AgentConfig.autoCombat() || AgentConfig.autoBuff()
+                || AgentConfig.autoHeal() || AgentConfig.autoLoot();
     }
 
     /** Keeps the agent near its follow target (typically the party leader) when on the same map. */

@@ -144,7 +144,11 @@ public class AgentManager {
         // Never hijack a character/account that a real player is currently using: doing so
         // would force-disconnect them via SessionCoordinator.updateOnlineClient.
         final World worldServer = Server.getInstance().getWorld(world);
-        if (worldServer != null && worldServer.getPlayerStorage().getCharacterById(record.characterId()) != null) {
+        if (worldServer == null) {
+            log.warn("Refusing to spawn agent {}: world {} does not exist", characterName, world);
+            return null;
+        }
+        if (worldServer.getPlayerStorage().getCharacterById(record.characterId()) != null) {
             log.warn("Refusing to spawn agent {}: character is already online", characterName);
             return null;
         }
@@ -172,6 +176,14 @@ public class AgentManager {
         try {
             final Character player = Character.loadCharFromDB(record.characterId(), client, true);
             client.setPlayer(player);
+            // Atomically claim the account for the agent. This closes the TOCTOU window between
+            // the online checks above and the (slow) DB load: if a real player logged in in the
+            // meantime, we refuse instead of force-disconnecting them in updateLoginState.
+            if (!SessionCoordinator.getInstance().registerAgentClientIfAbsent(client)) {
+                log.warn("Refusing to spawn agent {}: account {} came online during spawn", characterName, record.accountId());
+                client.forceDisconnect();
+                return null;
+            }
             client.updateLoginState(Client.LOGIN_LOGGEDIN);
 
             final AgentMemory memory = AgentConfig.memoryPersist() ? memoryStore.load(player.getId()) : new AgentMemory(player.getId());
@@ -198,12 +210,14 @@ public class AgentManager {
         }
     }
 
-    public synchronized boolean despawn(int characterId) {
+    public boolean despawn(int characterId) {
         final AgentSession session = sessionsByCharacterId.remove(characterId);
         if (session == null) {
             return false;
         }
         session.shutdown();
+        // Persist and disconnect outside any monitor: both can block on DB I/O, and the map
+        // removal above is already atomic on the concurrent map.
         if (AgentConfig.memoryPersist()) {
             memoryStore.save(session.getMemory());
         }

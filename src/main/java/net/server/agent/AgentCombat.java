@@ -19,11 +19,15 @@ import net.packet.OutPacket;
 import server.ItemInformationProvider;
 import server.StatEffect;
 import server.life.Monster;
+import server.maps.MapItem;
 import server.maps.MapObject;
 import server.maps.MapObjectType;
 
 import java.awt.Point;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -194,35 +198,124 @@ public final class AgentCombat {
     // attack
     // ------------------------------------------------------------------
 
-    /** Attacks the nearest living monster within range. */
+    /** Attacks the nearest living monster(s) within range, using the configured skill when usable. */
     public static boolean attackNearest(AgentSession session) {
         Character chr = session.getPlayer();
         if (chr == null || !chr.isAlive() || chr.getMap() == null) {
             return false;
         }
-        Point pos = chr.getPosition();
-        double range = Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ);
-        Monster target = null;
-        double bestDistance = Double.MAX_VALUE;
-        for (MapObject object : chr.getMap().getMapObjectsInRange(pos, range, Arrays.asList(MapObjectType.MONSTER))) {
-            if (object instanceof Monster monster && monster.getHp() > 0) {
-                double distance = pos.distanceSq(monster.getPosition());
-                if (distance <= range && distance < bestDistance) {
-                    bestDistance = distance;
-                    target = monster;
-                }
-            }
-        }
-        if (target == null) {
-            return false;
-        }
         int skillId = AgentConfig.attackSkill();
         if (skillId > 0 && canUseAttackSkill(chr, skillId)) {
-            skillAttack(session, target.getObjectId(), skillId);
-        } else {
-            attack(session, target.getObjectId());
+            int maxTargets = AgentConfig.aoeAttack()
+                    ? Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId))
+                    : 1;
+            List<Integer> targets = nearestMonsters(chr, maxTargets);
+            if (targets.isEmpty()) {
+                return false;
+            }
+            if (targets.size() == 1) {
+                skillAttack(session, targets.get(0), skillId);
+            } else {
+                skillAttackMany(session, targets, skillId);
+            }
+            return true;
         }
+        List<Integer> targets = nearestMonsters(chr, 1);
+        if (targets.isEmpty()) {
+            return false;
+        }
+        attack(session, targets.get(0));
         return true;
+    }
+
+    /** Living monsters within attack range, nearest first, capped at {@code max}. */
+    static List<Integer> nearestMonsters(Character chr, int max) {
+        List<Integer> result = new ArrayList<>();
+        Point pos = chr.getPosition();
+        if (pos == null || chr.getMap() == null || max <= 0) {
+            return result;
+        }
+        double range = Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ);
+        List<Monster> candidates = new ArrayList<>();
+        for (MapObject object : chr.getMap().getMapObjectsInRange(pos, range, Arrays.asList(MapObjectType.MONSTER))) {
+            if (object instanceof Monster monster && monster.getHp() > 0 && monster.getPosition() != null
+                    && pos.distanceSq(monster.getPosition()) <= range) {
+                candidates.add(monster);
+            }
+        }
+        candidates.sort(Comparator.comparingDouble(m -> pos.distanceSq(m.getPosition())));
+        for (Monster monster : candidates) {
+            if (result.size() >= max) {
+                break;
+            }
+            result.add(monster.getObjectId());
+        }
+        return result;
+    }
+
+    /** Monster targets a skill can hit in one cast, mirroring the server's raw mob count. */
+    static int mobCount(Character chr, int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        return effect == null ? 0 : effect.getMobCount();
+    }
+
+    /**
+     * Picks up the nearest drop the agent owns (or a free drop) within the pickup handler's
+     * range box. One item per call.
+     */
+    public static boolean lootNearest(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getMap() == null) {
+            return false;
+        }
+        Point pos = chr.getPosition();
+        if (pos == null) {
+            return false;
+        }
+        int bestOid = -1;
+        double bestDistance = Double.MAX_VALUE;
+        for (MapObject object : chr.getMap().getMapObjectsInRange(pos, 1_000_000.0, Arrays.asList(MapObjectType.ITEM))) {
+            if (!(object instanceof MapItem mapItem)) {
+                continue;
+            }
+            Point itemPos = mapItem.getPosition();
+            if (itemPos == null) {
+                continue;
+            }
+            // Mirror ItemPickupHandler's range box, then use the same ownership rule the
+            // server enforces in Character#pickupItem (owner/party/FFA/expired).
+            if (Math.abs(pos.x - itemPos.x) > 800 || Math.abs(pos.y - itemPos.y) > 600) {
+                continue;
+            }
+            if (!canLoot(chr, mapItem)) {
+                continue;
+            }
+            double distance = pos.distanceSq(itemPos);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestOid = mapItem.getObjectId();
+            }
+        }
+        if (bestOid < 0) {
+            return false;
+        }
+        AgentActionDispatcher.pickupItemFor(session, bestOid);
+        return true;
+    }
+
+    /**
+     * Non-mutating equivalent of {@code MapItem#canBePickedBy}: the agent may take drops it owns,
+     * its party's drops, FFA/expired drops, and drops owned by a party member.
+     */
+    static boolean canLoot(Character chr, MapItem mapItem) {
+        if (mapItem.getOwnerId() <= 0 || mapItem.isFFADrop() || mapItem.getOwnerId() == chr.getId()) {
+            return true;
+        }
+        if (chr.getPartyId() > 0 && mapItem.getPartyOwnerId() == chr.getPartyId()) {
+            return true;
+        }
+        return chr.isPartyMember(mapItem.getOwnerId());
     }
 
     public static void attack(AgentSession session, int targetObjectId) {
@@ -285,6 +378,50 @@ public final class AgentCombat {
     }
 
     /**
+     * Hits several monsters with one damaging skill packet. Targets that moved out of range or
+     * died are dropped; the count is capped by both config and the skill's own mob count so the
+     * server never sees a mob-count hack.
+     */
+    public static void skillAttackMany(AgentSession session, List<Integer> targetObjectIds, int skillId) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)) {
+            return;
+        }
+        int maxTargets = Math.max(1, Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId)));
+        double range = Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ);
+        List<Integer> valid = new ArrayList<>();
+        for (int oid : targetObjectIds) {
+            if (valid.size() >= maxTargets) {
+                break;
+            }
+            MapObject object = chr.getMap().getMapObject(oid);
+            if (!(object instanceof Monster monster) || monster.getHp() <= 0 || monster.getPosition() == null) {
+                continue;
+            }
+            if (chr.getPosition().distanceSq(monster.getPosition()) > range) {
+                continue;
+            }
+            valid.add(oid);
+        }
+        if (valid.isEmpty()) {
+            return;
+        }
+        if (valid.size() == 1) {
+            skillAttack(session, valid.get(0), skillId);
+            return;
+        }
+        int damage = skillDamage(chr, skillId);
+        if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
+            if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
+                return; // out of ammo; do not fall back to a melee swing with a ranged weapon
+            }
+            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, valid, damage));
+        } else {
+            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, valid, damage));
+        }
+    }
+
+    /**
      * Whether the skill is a self-consistent damaging attack skill (learned, not a buff or
      * fixed-damage/ranged-special skill). Does not consider MP or cooldown.
      */
@@ -304,16 +441,18 @@ public final class AgentCombat {
             return false;
         }
         // Magic skills must actually deal magic damage; otherwise StatEffect's damage defaults
-        // to 100 and utility skills (e.g. Teleport) would slip through with a zero server max.
+        // to 100 and utility skills (e.g. Teleport, Shadow Web) would slip through with a zero
+        // server max and rack up DAMAGE_HACK points. For physical skills, require the WZ data to
+        // actually carry a damage node rather than the 100 default.
         if (effect.getMatk() > 0) {
             return true;
         }
-        return effect.getDamage() > 0 && effect.getMatk() <= 0;
+        return effect.hasDamage() && effect.getMatk() <= 0;
     }
 
     /** Whether the agent can use the given skill as a damaging attack right now. */
     static boolean canUseAttackSkill(Character chr, int skillId) {
-        if (!isAttackSkill(chr, skillId) || chr.skillIsCooling(skillId)) {
+        if (!isAttackSkill(chr, skillId) || chr.skillIsCooling(skillId) || mobCount(chr, skillId) <= 0) {
             return false;
         }
         Skill skill = SkillFactory.getSkill(skillId);
@@ -481,9 +620,14 @@ public final class AgentCombat {
      * fixed header than the close-range branch, plus an extra block for hurricane-like skills.
      */
     static InPacket buildRangedAttackPacket(int skillId, int targetObjectId, int damage) {
+        return buildRangedAttackPacket(skillId, List.of(targetObjectId), damage);
+    }
+
+    /** Ranged attack packet hitting every target in {@code targetObjectIds}. */
+    static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
-        out.writeByte(0x10 | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
+        out.writeByte(((targetObjectIds.size() & 0xF) << 4) | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
         out.writeInt(skillId);
         if (CHARGE_SKILLS.contains(skillId)) {
             out.writeInt(0);
@@ -500,10 +644,14 @@ public final class AgentCombat {
         if (RANGED_EXTRA_SKILLS.contains(skillId)) {
             out.skip(4);
         }
-        out.writeInt(targetObjectId);
-        out.skip(14);
-        out.writeInt(damage);
-        out.skip(4);
+        for (int targetObjectId : targetObjectIds) {
+            out.writeInt(targetObjectId);
+            out.skip(14);
+            for (int i = 0; i < DAMAGE_LINES; i++) {
+                out.writeInt(damage);
+            }
+            out.skip(4);
+        }
         if (skillId == POISON_BOMB) {
             out.skip(4);
             out.writePos(new Point(0, 0));
@@ -522,15 +670,20 @@ public final class AgentCombat {
     }
 
     /**
-     * Builds an attack packet with one target and one damage line. The layout is identical for
-     * close-range and magic attacks (only the opcode differs), and matches
+     * Builds an attack packet with one or more targets and one damage line each. The layout is
+     * identical for close-range and magic attacks (only the opcode differs), and matches
      * {@code AbstractDealDamageHandler#parseDamage}. Charge skills get an extra int, and Poison
      * Bomb a trailing position, exactly as the parser reads them.
      */
     static InPacket buildAttackPacket(int skillId, int targetObjectId, int damage) {
+        return buildAttackPacket(skillId, List.of(targetObjectId), damage);
+    }
+
+    /** Attack packet hitting every target in {@code targetObjectIds} with one damage line each. */
+    static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
-        out.writeByte(0x10 | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage: 1 target, N damage lines
+        out.writeByte(((targetObjectIds.size() & 0xF) << 4) | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
         out.writeInt(skillId);
         if (CHARGE_SKILLS.contains(skillId)) {
             out.writeInt(0);                    // charge (read only for charge-list skills)
@@ -542,12 +695,14 @@ public final class AgentCombat {
         out.writeByte(0);                       // (non-ranged unused)
         out.writeByte(4);                       // speed
         out.skip(4);                            // unknown
-        out.writeInt(targetObjectId);
-        out.skip(14);                           // per-target unknown block
-        for (int i = 0; i < DAMAGE_LINES; i++) {
-            out.writeInt(damage);
+        for (int targetObjectId : targetObjectIds) {
+            out.writeInt(targetObjectId);
+            out.skip(14);                       // per-target unknown block
+            for (int i = 0; i < DAMAGE_LINES; i++) {
+                out.writeInt(damage);
+            }
+            out.skip(4);                        // trailing per-target
         }
-        out.skip(4);                            // trailing per-target
         if (skillId == POISON_BOMB) {
             out.skip(4);
             out.writePos(new Point(0, 0));

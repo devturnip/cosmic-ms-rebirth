@@ -66,7 +66,8 @@ public final class AgentPerception {
                 items,
                 npcs,
                 collectBuffSkills(agent),
-                collectAttackSkills(agent)
+                collectAttackSkills(agent),
+                collectHealSkills(agent)
         );
     }
 
@@ -101,6 +102,16 @@ public final class AgentPerception {
             if (result.size() >= MAX_BUFF_SKILLS) {
                 break;
             }
+        }
+        return result;
+    }
+
+    /** Skill ids the agent has learned that are heal skills it can cast. */
+    private static List<Integer> collectHealSkills(Character agent) {
+        final List<Integer> result = new ArrayList<>();
+        int resolved = AgentSkill.resolveHealSkill(agent);
+        if (resolved > 0) {
+            result.add(resolved);
         }
         return result;
     }

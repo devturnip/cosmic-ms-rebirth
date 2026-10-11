@@ -122,6 +122,32 @@ public final class AgentConfig {
         return Math.max(0, YamlConfig.config.server.LLM_AGENT_ATTACK_SKILL);
     }
 
+    public static boolean autoHeal() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_HEAL;
+    }
+
+    public static int autoHealSkill() {
+        return Math.max(0, YamlConfig.config.server.LLM_AGENT_AUTO_HEAL_SKILL);
+    }
+
+    public static int healPercent() {
+        int value = YamlConfig.config.server.LLM_AGENT_HEAL_PERCENT;
+        return value > 0 && value <= 100 ? value : 90;
+    }
+
+    public static boolean autoLoot() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_LOOT;
+    }
+
+    public static boolean aoeAttack() {
+        return YamlConfig.config.server.LLM_AGENT_AOE_ATTACK;
+    }
+
+    public static int aoeMaxTargets() {
+        int value = YamlConfig.config.server.LLM_AGENT_AOE_MAX_TARGETS;
+        return value > 0 ? Math.min(value, 15) : 6;
+    }
+
     /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
     public static int[] autoBuffSkills() {
         String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;

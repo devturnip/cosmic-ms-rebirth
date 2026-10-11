@@ -45,8 +45,9 @@ Delivered:
 - [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
   party-update and map-change perception events.
 - [x] M3 (substantially): monster/item/NPC perception, clamped synthetic movement, item
-  pickup, potion self-sustain, respawn, buff-skill casting, and melee/magic/ranged basic +
-  skill attacks (auto modes behind config).
+  pickup, potion self-sustain, respawn, buff-skill casting, melee/magic/ranged basic +
+  skill attacks (auto modes behind config), heal-skill casting, auto-looting kills and
+  multi-target skill attacks.
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
   spawn off the Netty event loop; content filter defaults on; clamped movement;
@@ -56,12 +57,13 @@ Delivered:
 
 Not yet implemented (M2 remainder + M3 remainder):
 
-- [ ] Combat depth: multi-target/multi-line attacks, ammo recharge, local cooldown tracking,
-  heal-skill casting, MP/HP-cost timing, Hurricane/Rapid Fire semantics, monster facing,
-  flee/aggro management, auto-looting kills, cast animation.
+- [ ] Combat depth: ammo recharge, local cooldown tracking, MP/HP-cost timing on the skill
+  path, Hurricane/Rapid Fire after-delay semantics, monster facing, flee/aggro management,
+  cast animation, multi-line attacks (multi-target is done).
 - [ ] Real pathing (portals/footholds); movement is a clamped straight-line step.
 - [ ] Warp-with-party / cross-map follow.
-- [ ] LLM-driven movement policy beyond `move_to`/follow.
+- [ ] LLM-driven movement policy beyond `move_to`/follow (heal has an LLM tool, but there is
+  no LLM tool for multi-target attacks yet).
 - [ ] Proactive behaviour (M4 — deferred; note `/agent search` does enable party-search
   auto-invites, which is a form of matchmaking).
 - [ ] Player-facing opt-out / bot notice beyond the name prefix.

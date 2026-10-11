@@ -34,7 +34,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +65,7 @@ public class SessionCoordinator {
 
     private final SessionInitialization sessionInit = new SessionInitialization();
     private final LoginStorage loginStorage = new LoginStorage();
-    private final Map<Integer, Client> onlineClients = new HashMap<>(); // Key: account id
+    private final Map<Integer, Client> onlineClients = new ConcurrentHashMap<>(); // Key: account id
     private final Set<Hwid> onlineRemoteHwids = new HashSet<>(); // Hwid/nibblehwid
     private final Map<String, Client> loginRemoteHosts = new ConcurrentHashMap<>(); // Key: Ip (+ nibblehwid)
     private final HostHwidCache hostHwidCache = new HostHwidCache();
@@ -115,9 +114,23 @@ public class SessionCoordinator {
     public void updateOnlineClient(Client client) {
         if (client != null) {
             int accountId = client.getAccID();
-            disconnectClientIfOnline(accountId);
-            onlineClients.put(accountId, client);
+            Client replaced = onlineClients.put(accountId, client);
+            if (replaced != null && replaced != client) {
+                replaced.forceDisconnect();
+            }
         }
+    }
+
+    /**
+     * Atomically registers an agent client for its account only when no other client is already
+     * online. Lets {@code AgentManager} avoid kicking a real player that logged in while the
+     * agent was still loading from the database.
+     *
+     * @return whether the agent client now owns the account
+     */
+    public boolean registerAgentClientIfAbsent(Client client) {
+        Client existing = onlineClients.putIfAbsent(client.getAccID(), client);
+        return existing == null || existing == client;
     }
 
     /**
@@ -126,13 +139,6 @@ public class SessionCoordinator {
      */
     public boolean isAccountOnline(int accountId) {
         return onlineClients.containsKey(accountId);
-    }
-
-    private void disconnectClientIfOnline(int accountId) {
-        Client ingameClient = onlineClients.get(accountId);
-        if (ingameClient != null) {     // thanks MedicOP for finding out a loss of loggedin account uniqueness when using the CMS "Unstuck" feature
-            ingameClient.forceDisconnect();
-        }
     }
 
     public boolean canStartLoginSession(Client client) {
