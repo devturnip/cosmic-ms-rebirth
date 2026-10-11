@@ -2,7 +2,9 @@ package net.server.agent;
 
 import client.Character;
 import client.Job;
+import client.Skill;
 import constants.game.GameConstants;
+import server.StatEffect;
 import server.life.Monster;
 import server.life.NPC;
 import server.maps.MapItem;
@@ -27,6 +29,7 @@ import java.util.List;
  */
 public final class AgentPerception {
     private static final int MAX_OBSERVED = 16;
+    private static final int MAX_BUFF_SKILLS = 32;
 
     private AgentPerception() {
     }
@@ -60,8 +63,29 @@ public final class AgentPerception {
                 party,
                 monsters,
                 items,
-                npcs
+                npcs,
+                collectBuffSkills(agent)
         );
+    }
+
+    /** Skill ids the agent has learned that are buffs (statups + positive duration). */
+    private static List<Integer> collectBuffSkills(Character agent) {
+        final List<Integer> result = new ArrayList<>();
+        for (Skill skill : agent.getSkills().keySet()) {
+            int level = agent.getSkillLevel(skill);
+            if (level <= 0) {
+                continue;
+            }
+            StatEffect effect = skill.getEffect(level);
+            if (effect == null || !effect.isSkill() || effect.getStatups().isEmpty() || effect.getDuration() <= 0) {
+                continue;
+            }
+            result.add(skill.getId());
+            if (result.size() >= MAX_BUFF_SKILLS) {
+                break;
+            }
+        }
+        return result;
     }
 
     private static double rangeSq() {

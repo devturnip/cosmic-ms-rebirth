@@ -48,15 +48,18 @@ public final class AgentSkill {
         if (skillId <= 0 || chr.getSkillLevel(skillId) <= 0) {
             return false;
         }
+        if (chr.skillIsCooling(skillId)) {
+            return false;
+        }
         Skill skill = SkillFactory.getSkill(skillId);
         if (skill == null) {
             return false;
         }
         StatEffect effect = skill.getEffect(chr.getSkillLevel(skill));
-        if (effect == null || effect.getStatups().isEmpty() || effect.getDuration() <= 0) {
+        if (effect == null || !effect.isSkill() || effect.getStatups().isEmpty() || effect.getDuration() <= 0) {
             return false;
         }
-        if (chr.getMp() < effect.getMpCon()) {
+        if (chr.getMp() < effect.getMpCon() || chr.getHp() <= effect.getHpCon()) {
             return false;
         }
         return !isBuffActive(chr, skillId);
@@ -64,7 +67,8 @@ public final class AgentSkill {
 
     public static boolean isBuffActive(Character chr, int skillId) {
         for (PlayerBuffValueHolder buff : chr.getAllBuffs()) {
-            if (buff != null && buff.effect != null && buff.effect.getSourceId() == skillId) {
+            if (buff != null && buff.effect != null && buff.effect.isSkill()
+                    && buff.effect.getBuffSourceId() == skillId) {
                 return true;
             }
         }
@@ -73,7 +77,7 @@ public final class AgentSkill {
 
     public static void castBuff(AgentSession session, int skillId) {
         Character chr = session.getPlayer();
-        if (chr == null || !chr.isAlive()) {
+        if (chr == null || !chr.isAlive() || !canCastBuff(chr, skillId)) {
             return;
         }
         session.dispatchInbound(RecvOpcode.CLOSE_RANGE_ATTACK, buildBuffPacket(skillId));
@@ -88,7 +92,7 @@ public final class AgentSkill {
         out.writeByte(0);   // unknown prefix byte
         out.writeByte(0);   // numAttackedAndDamage: 0 targets, 0 damage lines
         out.writeInt(skillId);
-        out.skip(8);        // charge / unknown
+        out.skip(8);        // parseDamage's fixed 8-byte skip (charge skills would add 4 here)
         out.writeByte(0);   // display
         out.writeByte(0);   // direction
         out.writeByte(STANCE);

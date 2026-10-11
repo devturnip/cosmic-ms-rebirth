@@ -123,6 +123,7 @@ arrive via lightweight hooks (see §5).
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`. |
 | `AgentCombat` | Potion self-sustain, respawn, and a basic skill-0 melee attack packet. |
+| `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
 | `AgentPersona` | Persona record + JSON loader. |
@@ -244,6 +245,8 @@ It already runs off the Netty loop.
 | `LLM_AGENT_HP_POTION_PERCENT` | `50` | HP % below which an HP potion is used. |
 | `LLM_AGENT_MP_POTION_PERCENT` | `30` | MP % below which an MP potion is used. |
 | `LLM_AGENT_ATTACK_RANGE_SQ` | `150000.0` | Squared auto-attack range (~387px). |
+| `LLM_AGENT_AUTO_BUFF` | `false` | Auto-cast configured buff skills. |
+| `LLM_AGENT_AUTO_BUFF_SKILLS` | `""` | Comma-separated buff skill ids. |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -280,14 +283,14 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader, party-search listing.
 - M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
-  self-sustain, respawn, and a basic skill-0 melee attack.
+  self-sustain, respawn, a basic skill-0 melee attack, and buff-skill casting.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat depth:** skill-based attacks, buffs, heal-skill casting, ranged (`RANGED_ATTACK`)
-  and magic (`MAGIC_ATTACK`) packets, multi-target/multi-line attacks, MP-cost handling,
-  monster facing, flee/aggro management, and auto-looting kills.
+- **Combat depth:** damaging skill attacks, heal-skill casting, ranged (`RANGED_ATTACK`)
+  and magic (`MAGIC_ATTACK`) packets, multi-target/multi-line attacks, cooldown/MP-cost
+  tracking beyond the buff path, monster facing, flee/aggro management, auto-looting kills.
 - **Pathing:** only clamped straight-line steps; no footholds/portals.
 - **Warp-with-party / cross-map follow.**
 - **LLM movement policy** beyond `move_to`/follow.
@@ -322,6 +325,8 @@ on very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `41805f1ff` | buff skill casting |
+| `a72a98f33` | combat review fixes + combat tests |
 | `367530db1` | combat assist (potions, respawn, basic melee attack) |
 | `2994ee6a8` | developer handoff doc; plan marked implemented |
 | `0cc8eb539` | M2/M3 review fixes + tests |

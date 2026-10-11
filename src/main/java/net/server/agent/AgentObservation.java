@@ -24,7 +24,8 @@ public record AgentObservation(
         List<ObservedPlayer> partyMembers,
         List<ObservedMonster> nearbyMonsters,
         List<ObservedItem> nearbyItems,
-        List<ObservedNpc> nearbyNpcs
+        List<ObservedNpc> nearbyNpcs,
+        List<Integer> buffSkills
 ) {
 
     /** A player visible to (or grouped with) the agent. */

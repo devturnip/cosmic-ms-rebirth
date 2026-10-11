@@ -90,6 +90,9 @@ public class LlmAgentBrain implements AgentBrain {
             sb.append("- HP ").append(observation.hp()).append('/').append(observation.maxHp())
                     .append(", MP ").append(observation.mp()).append('/').append(observation.maxMp()).append('\n');
             sb.append("- Position: (").append(observation.x()).append(", ").append(observation.y()).append(")\n");
+            if (observation.buffSkills() != null && !observation.buffSkills().isEmpty()) {
+                sb.append("- Buff skills you can cast: ").append(observation.buffSkills()).append('\n');
+            }
             appendPlayers(sb, "Nearby players", observation.nearbyPlayers());
             appendPlayers(sb, "Party members", observation.partyMembers());
             appendMonsters(sb, observation.nearbyMonsters());
