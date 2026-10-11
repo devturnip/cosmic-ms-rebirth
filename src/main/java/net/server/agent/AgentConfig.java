@@ -148,6 +148,10 @@ public final class AgentConfig {
         return value > 0 ? Math.min(value, 15) : 6;
     }
 
+    public static boolean followWarp() {
+        return YamlConfig.config.server.LLM_AGENT_FOLLOW_WARP;
+    }
+
     /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
     public static int[] autoBuffSkills() {
         String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;

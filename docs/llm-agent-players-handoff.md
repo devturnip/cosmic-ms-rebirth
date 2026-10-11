@@ -14,13 +14,14 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** `8f0a6b9e5`
-- **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow, loot,
-  potion self-sustain, respawn, melee/magic/ranged basic + skill attacks, buff casting,
-  heal-skill casting, auto-looting kills, multi-target skill attacks).
-  Remaining: ammo recharge, multi-line attacks, pathing, warp-with-party, M4 proactive behavior.
+- **HEAD:** tip of `feature/llm-agent-players` (latest: cross-map follow; previous: `ac779b70a`)
+- **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow incl.
+  cross-map warp, loot, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks,
+  buff casting, heal-skill casting, auto-looting kills, multi-target skill attacks).
+  Remaining: ammo recharge, multi-line attacks, foothold pathing, channel-follow, M4 proactive
+  behavior.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 74 agent tests across 22 classes + existing suite).
+- **Build:** `mvn -q clean test` (green: 85 agent tests across 23 classes + existing suite).
 
 ---
 
@@ -123,7 +124,7 @@ arrive via lightweight hooks (see §5).
 | `AgentBrainFactory` | Chooses LLM vs scripted; injects persona system prompt. |
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
-| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`. |
+| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo` guard for cross-map follow. |
 | `AgentCombat` | Potion self-sustain, respawn, auto-looting, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
@@ -137,7 +138,7 @@ arrive via lightweight hooks (see §5).
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
 - `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
-- `src/test/java/net/server/agent/*` — 22 test classes (74 tests).
+- `src/test/java/net/server/agent/*` — 23 test classes (85 tests).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -272,6 +273,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AUTO_LOOT` | `false` | Auto-pick up owned/free drops after combat. |
 | `LLM_AGENT_AOE_ATTACK` | `false` | Allow a multi-target skill attack to hit several monsters. |
 | `LLM_AGENT_AOE_MAX_TARGETS` | `6` | Upper bound on monsters hit by one AOE attack. |
+| `LLM_AGENT_FOLLOW_WARP` | `false` | Warp the agent to its follow target's map when they leave the current map. |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -317,8 +319,9 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - **Combat depth:** ammo recharge action, local cooldown tracking, multi-line attacks,
   MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay semantics, monster
   facing, flee/aggro management, cast animation. (Multi-target and heal are now implemented.)
-- **Pathing:** only clamped straight-line steps; no footholds/portals.
-- **Warp-with-party / cross-map follow.**
+- **Pathing:** only clamped straight-line steps; no footholds/portals. Cross-map follow warps
+  directly to the leader's map (`LLM_AGENT_FOLLOW_WARP`) instead of walking through a portal.
+- **Channel-follow:** cross-channel follow needs a channel transfer and is not supported.
 - **LLM movement policy** beyond `move_to`/follow; multi-target attacks have no LLM tool yet.
 - **M4:** proactive social behavior is deferred; note `/agent search` already triggers
   `PartySearchCoordinator` auto-invites (a form of matchmaking) — keep that in mind if you
@@ -343,17 +346,23 @@ findings were addressed:
   exclusions; Cygnus/Evan opcode; LLM fallback.
 - **Ranged** (`8f0a6b9e5`): ammo type/level/bulletCount mismatch; Shadow-Claw no-op;
   magic-skill misrouting; out-of-ammo melee fallback; Poison Bomb tail.
-- **Combat depth 2** (this pass): heal-skill casting via `SPECIAL_MOVE`; auto-looting of
+- **Combat depth 2** (`ac779b70a`): heal-skill casting via `SPECIAL_MOVE`; auto-looting of
   owned/party/FFA/expired drops; multi-target skill attacks gated by `LLM_AGENT_AOE_ATTACK`.
   Fixes from two further verifier passes: spawn/login TOCTOU (`registerAgentClientIfAbsent`),
   `lastActions` scheduling race, damage-less-skill misclassification (`StatEffect#hasDamage()`),
   `AUTO_BUFF`-only never ticking, loot owner rule now matches `Character#pickupItem`, and
   `cast_heal` now resolves skill id 0.
+- **Cross-map follow** (this pass): warps a following agent to its target's map when they leave
+  (`LLM_AGENT_FOLLOW_WARP`, default off), guarded by `AgentMovement.canWarpTo`. Verifier fix:
+  agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
+  the warp unreachable and would also have broken it after the first warp — now cleared at spawn
+  and after each warp; also switched to the spawn-point overload to avoid a portal-0 NPE.
 
 Known low-risk remainder: `/agent search` enabling party-search auto-invites (documented),
-`/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry), and
-latent cross-thread map mutation on very busy maps (soak-test target; map collections use
-read/write locks).
+`/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry),
+cross-map follow warps without portal/level/quest gating (trusted party-warp semantics, like
+`warpParty`), and latent cross-thread map mutation on very busy maps (soak-test target; map
+collections use read/write locks).
 
 ---
 
@@ -361,6 +370,8 @@ read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| _(current tip)_ | cross-map follow (warp-with-party) |
+| `ac779b70a` | heal casting, auto-loot, multi-target attacks + review fixes |
 | `8f0a6b9e5` | ranged-attack review fixes + ranged tests |
 | `b57d7c8c0` | ranged attacks |
 | `ad2ddacb4` | skill-attack review fixes + skill tests |

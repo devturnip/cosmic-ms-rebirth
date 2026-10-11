@@ -76,6 +76,53 @@ public final class AgentMovement {
         return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value));
     }
 
+    /**
+     * Whether the agent may warp to {@code target} on another map to keep following it. Mirrors
+     * the same-member behaviour of {@code AbstractPlayerInteraction#warpParty} but refuses
+     * anything that could corrupt state: dead/changing agents, trades, cash shops, event
+     * instances, and cross-channel targets (which need a channel transfer, not a map warp).
+     */
+    static boolean canWarpTo(Character agent, Character target) {
+        if (agent == null || target == null || agent.getClient() == null || target.getClient() == null) {
+            return false;
+        }
+        if (!agent.isAlive() || agent.isChangingMaps() || agent.getMap() == null || target.getMap() == null) {
+            return false;
+        }
+        if (agent.getMapId() == target.getMapId()) {
+            return false; // same map: walk instead of warping
+        }
+        if (agent.getEventInstance() != null || target.getEventInstance() != null) {
+            return false; // never yank an agent into (or out of) an event/instance map
+        }
+        if (agent.getTrade() != null || (agent.getCashShop() != null && agent.getCashShop().isOpened())) {
+            return false;
+        }
+        if (!target.isLoggedinWorld() || (target.getCashShop() != null && target.getCashShop().isOpened())) {
+            return false;
+        }
+        if (agent.getClient().getChannel() != target.getClient().getChannel()) {
+            return false; // cross-channel follow is not supported here
+        }
+        return agent.getClient().getChannelServer() != null;
+    }
+
+    /**
+     * Warps {@code agent} to {@code target}'s map if {@link #canWarpTo} allows it, then clears
+     * the transition flag that {@code changeMapInternal} sets (agents never send the client's
+     * PLAYER_MAP_TRANSFER packet that normally clears it).
+     *
+     * @return whether a warp happened
+     */
+    static boolean warpTo(Character agent, Character target) {
+        if (!canWarpTo(agent, target)) {
+            return false;
+        }
+        agent.changeMap(target.getMapId());
+        agent.setMapTransitionComplete();
+        return true;
+    }
+
     /** Builds a single-command absolute movement packet. Package-private for testing. */
     static InPacket buildMovePacket(int x, int y, int stance) {
         OutPacket out = new ByteBufOutPacket();

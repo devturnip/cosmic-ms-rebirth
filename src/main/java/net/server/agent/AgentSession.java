@@ -5,6 +5,7 @@ import net.PacketHandler;
 import net.PacketProcessor;
 import net.opcodes.RecvOpcode;
 import net.packet.InPacket;
+import net.server.world.World;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +30,7 @@ public class AgentSession {
     private static final Logger log = LoggerFactory.getLogger(AgentSession.class);
     private static final int MAX_INBOX = 64;
     private static final int MAX_EVENTS_PER_DECISION = 16;
+    private static final long WARP_COOLDOWN_MS = 4000L;
     private static final AtomicInteger THREAD_COUNTER = new AtomicInteger();
 
     private final AgentClient client;
@@ -46,6 +48,7 @@ public class AgentSession {
     private volatile List<AgentAction> lastActions = List.of();
     private volatile int followTargetId = -1;
     private volatile boolean manualFollow = false;
+    private volatile long lastWarpAt;
     private final AtomicInteger actionsThisSecond = new AtomicInteger();
     private volatile long actionWindowStart = System.currentTimeMillis();
 
@@ -306,10 +309,29 @@ public class AgentSession {
             return;
         }
         Character target = p.getMap().getCharacterById(targetId);
-        if (target == null || target.getMapId() != p.getMapId()) {
+        if (target != null && target.getMapId() == p.getMapId()) {
+            AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
             return;
         }
-        AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
+        if (AgentConfig.followWarp()) {
+            warpToFollowTarget(p, targetId);
+        }
+    }
+
+    /** Warps the agent to its follow target's map (party-warp style) when they leave the map. */
+    private void warpToFollowTarget(Character p, int targetId) {
+        long now = System.currentTimeMillis();
+        if (now - lastWarpAt < WARP_COOLDOWN_MS) {
+            return; // avoid ping-ponging while the target is mid-transition
+        }
+        World world = p.getWorldServer();
+        if (world == null) {
+            return;
+        }
+        Character target = world.getPlayerStorage().getCharacterById(targetId);
+        if (AgentMovement.warpTo(p, target)) {
+            lastWarpAt = now;
+        }
     }
 
     /** Sends an inbound packet through the agent's (real) packet processor. */

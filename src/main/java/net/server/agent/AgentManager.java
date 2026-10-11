@@ -194,6 +194,10 @@ public class AgentManager {
             });
 
             PlayerLoginService.finishLogin(client, player, true, noteService());
+            // Real clients reset this by sending PLAYER_MAP_TRANSFER; an agent never does, so
+            // without this the agent would look permanently "changing maps" and cross-map
+            // follow (and any transition guard) would never fire.
+            player.setMapTransitionComplete();
 
             sessionsByCharacterId.put(player.getId(), session);
             log.info("Spawned agent {} (chr {}, world {}, channel {}) using brain {}",

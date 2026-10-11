@@ -338,4 +338,5 @@ public class ServerConfig {
     public boolean LLM_AGENT_AUTO_LOOT = false;
     public boolean LLM_AGENT_AOE_ATTACK = false;
     public int LLM_AGENT_AOE_MAX_TARGETS = 6;
+    public boolean LLM_AGENT_FOLLOW_WARP = false;
 }

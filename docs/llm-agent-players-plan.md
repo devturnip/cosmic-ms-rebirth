@@ -43,7 +43,8 @@ Delivered:
 - [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize,
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
 - [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
-  party-update and map-change perception events.
+  party-update and map-change perception events, and cross-map follow via warp
+  (`LLM_AGENT_FOLLOW_WARP`).
 - [x] M3 (substantially): monster/item/NPC perception, clamped synthetic movement, item
   pickup, potion self-sustain, respawn, buff-skill casting, melee/magic/ranged basic +
   skill attacks (auto modes behind config), heal-skill casting, auto-looting kills and
@@ -60,8 +61,9 @@ Not yet implemented (M2 remainder + M3 remainder):
 - [ ] Combat depth: ammo recharge, local cooldown tracking, MP/HP-cost timing on the skill
   path, Hurricane/Rapid Fire after-delay semantics, monster facing, flee/aggro management,
   cast animation, multi-line attacks (multi-target is done).
-- [ ] Real pathing (portals/footholds); movement is a clamped straight-line step.
-- [ ] Warp-with-party / cross-map follow.
+- [ ] Real pathing (portals/footholds); movement is a clamped straight-line step. Cross-map
+  follow warps directly (party-warp style) rather than walking to a portal.
+- [ ] Channel-follow (cross-channel party follow needs a channel transfer).
 - [ ] LLM-driven movement policy beyond `move_to`/follow (heal has an LLM tool, but there is
   no LLM tool for multi-target attacks yet).
 - [ ] Proactive behaviour (M4 — deferred; note `/agent search` does enable party-search
