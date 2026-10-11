@@ -67,6 +67,7 @@
         <HikariCP.version>5.1.0</HikariCP.version> <!-- Database connection pool -->
         <mysql-connector-j.version>8.4.0</mysql-connector-j.version> <!-- MySQL JDBC driver -->
         <jdbi-version>3.45.1</jdbi-version> <!-- Convenience wrapper around JDBC -->
+        <jackson-databind.version>2.17.2</jackson-databind.version> <!-- JSON for LLM agent tool calling -->
         <junit.version>5.10.2</junit.version> <!-- Unit test -->
         <mockito.version>5.11.0</mockito.version> <!-- Unit test -->
     </properties>
@@ -98,6 +99,13 @@
             <groupId>org.jdbi</groupId>
             <artifactId>jdbi3-core</artifactId>
             <version>${jdbi-version}</version>
+        </dependency>
+
+        <!-- JSON (LLM agent tool calling) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson-databind.version}</version>
         </dependency>
 
 

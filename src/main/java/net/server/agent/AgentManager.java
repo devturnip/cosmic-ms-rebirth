@@ -117,6 +117,9 @@ public class AgentManager {
      * the agent limit has been reached.
      */
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain) {
+        if (ticker == null) {
+            start(); // allow /agent spawn to work even when auto-start is disabled in config
+        }
         if (sessionsByCharacterId.size() >= AgentConfig.maxAgents()) {
             log.warn("Refusing to spawn agent {}: agent limit ({}) reached", characterName, AgentConfig.maxAgents());
             return null;
@@ -169,7 +172,9 @@ public class AgentManager {
             return false;
         }
         session.shutdown();
-        memoryStore.save(session.getMemory());
+        if (AgentConfig.memoryPersist()) {
+            memoryStore.save(session.getMemory());
+        }
         try {
             session.getClient().disconnect(false, false);
         } catch (Throwable t) {
