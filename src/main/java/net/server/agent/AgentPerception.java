@@ -30,6 +30,7 @@ import java.util.List;
 public final class AgentPerception {
     private static final int MAX_OBSERVED = 16;
     private static final int MAX_BUFF_SKILLS = 32;
+    private static final int MAX_ATTACK_SKILLS = 32;
 
     private AgentPerception() {
     }
@@ -69,20 +70,15 @@ public final class AgentPerception {
         );
     }
 
-    /** Skill ids the agent has learned that are damaging attacks (damage > 0, not buffs). */
+    /** Skill ids the agent has learned that are damaging attacks (usable by AgentCombat). */
     private static List<Integer> collectAttackSkills(Character agent) {
         final List<Integer> result = new ArrayList<>();
         for (Skill skill : agent.getSkills().keySet()) {
-            int level = agent.getSkillLevel(skill);
-            if (level <= 0) {
-                continue;
-            }
-            StatEffect effect = skill.getEffect(level);
-            if (effect == null || effect.getDamage() <= 0 || !effect.getStatups().isEmpty()) {
+            if (!AgentCombat.isAttackSkill(agent, skill.getId())) {
                 continue;
             }
             result.add(skill.getId());
-            if (result.size() >= MAX_BUFF_SKILLS) {
+            if (result.size() >= MAX_ATTACK_SKILLS) {
                 break;
             }
         }

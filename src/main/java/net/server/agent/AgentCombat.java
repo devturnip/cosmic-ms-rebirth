@@ -1,7 +1,6 @@
 package net.server.agent;
 
 import client.Character;
-import client.Job;
 import client.Skill;
 import client.SkillFactory;
 import client.inventory.Inventory;
@@ -42,6 +41,15 @@ public final class AgentCombat {
     private static final Set<Integer> CHARGE_SKILLS = Set.of(
             22121000, 22151001, 2121001, 2221001, 2321001, 5201002, 5101004, 15101003, POISON_BOMB);
 
+    /** Attack skills we cannot yet model correctly (bespoke layouts, flat caps, or ranged-only). */
+    private static final Set<Integer> EXCLUDED_ATTACK_SKILLS = Set.of(
+            4211006,  // Meso Explosion: bespoke packet layout
+            4111004,  // Shadow Meso: flat damage cap and meso cost
+            4001344,  // Lucky Seven: ranged
+            14111006, // Poison Bomb: ranged
+            5201002,  // Grenade: ranged
+            5101004, 15101003 // Corkscrew Blow: ranged
+    );
     private AgentCombat() {
     }
 
@@ -217,8 +225,9 @@ public final class AgentCombat {
         if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return; // too far; the handler would flag a distance hack
         }
-        session.dispatchInbound(attackOpcode(chr),
-                buildAttackPacket(0, targetObjectId, safeDamage(chr)));
+        // A skill-0 packet must go through CLOSE_RANGE_ATTACK: MagicDamageHandler dereferences
+        // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id.
+        session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, safeDamage(chr)));
     }
 
     /** Attacks a monster with a learned damaging skill (melee or magic). */
@@ -234,13 +243,29 @@ public final class AgentCombat {
         if (chr.getPosition().distanceSq(monster.getPosition()) > Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ)) {
             return;
         }
-        session.dispatchInbound(attackOpcode(chr),
+        session.dispatchInbound(attackOpcode(chr, skillId),
                 buildAttackPacket(skillId, targetObjectId, skillDamage(chr, skillId)));
     }
 
-    /** Whether the agent can use the given skill as a damaging attack right now. */
-    static boolean canUseAttackSkill(Character chr, int skillId) {
-        if (skillId <= 0 || chr.getSkillLevel(skillId) <= 0 || chr.skillIsCooling(skillId)) {
+    /** Attacks with the given skill if usable, otherwise falls back to a basic attack. */
+    public static void attackOrFallback(AgentSession session, int targetObjectId, int skillId) {
+        Character chr = session.getPlayer();
+        if (chr != null && canUseAttackSkill(chr, skillId)) {
+            skillAttack(session, targetObjectId, skillId);
+        } else {
+            attack(session, targetObjectId);
+        }
+    }
+
+    /**
+     * Whether the skill is a self-consistent damaging attack skill (learned, not a buff or
+     * fixed-damage/ranged-special skill). Does not consider MP or cooldown.
+     */
+    static boolean isAttackSkill(Character chr, int skillId) {
+        if (skillId <= 0 || chr.getSkillLevel(skillId) <= 0) {
+            return false;
+        }
+        if (EXCLUDED_ATTACK_SKILLS.contains(skillId)) {
             return false;
         }
         Skill skill = SkillFactory.getSkill(skillId);
@@ -248,11 +273,25 @@ public final class AgentCombat {
             return false;
         }
         StatEffect effect = skill.getEffect(chr.getSkillLevel(skill));
-        // Attack skills deal damage and are not buffs.
-        if (effect == null || effect.getDamage() <= 0 || !effect.getStatups().isEmpty()) {
+        if (effect == null || !effect.getStatups().isEmpty() || effect.getFixDamage() > 0) {
             return false;
         }
-        return chr.getMp() >= effect.getMpCon();
+        // Magic skills must actually deal magic damage; otherwise StatEffect's damage defaults
+        // to 100 and utility skills (e.g. Teleport) would slip through with a zero server max.
+        if (effect.getMatk() > 0) {
+            return true;
+        }
+        return effect.getDamage() > 0 && effect.getMatk() <= 0;
+    }
+
+    /** Whether the agent can use the given skill as a damaging attack right now. */
+    static boolean canUseAttackSkill(Character chr, int skillId) {
+        if (!isAttackSkill(chr, skillId) || chr.skillIsCooling(skillId)) {
+            return false;
+        }
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        return effect != null && chr.getMp() >= effect.getMpCon();
     }
 
     /**
@@ -270,7 +309,7 @@ public final class AgentCombat {
             return 1;
         }
         long computed;
-        if (isMagicJob(chr)) {
+        if (effect.getMatk() > 0) {
             int totalMagic = chr.getTotalMagic();
             int totalInt = chr.getTotalInt();
             computed = (long) (Math.ceil((totalMagic * Math.ceil(totalMagic / 1000.0) + totalMagic) / 30.0)
@@ -283,12 +322,16 @@ public final class AgentCombat {
         return (int) Math.max(1, computed * 4 / 5);
     }
 
-    static RecvOpcode attackOpcode(Character chr) {
-        return isMagicJob(chr) ? RecvOpcode.MAGIC_ATTACK : RecvOpcode.CLOSE_RANGE_ATTACK;
+    /** Basic (skill-0) attacks always use the close-range handler. */
+    static RecvOpcode basicAttackOpcode() {
+        return RecvOpcode.CLOSE_RANGE_ATTACK;
     }
 
-    private static boolean isMagicJob(Character chr) {
-        return chr.getJob() != null && chr.getJob().isA(Job.MAGICIAN);
+    /** Magic skills use MAGIC_ATTACK; physical skills use CLOSE_RANGE_ATTACK. */
+    static RecvOpcode attackOpcode(Character chr, int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        return effect != null && effect.getMatk() > 0 ? RecvOpcode.MAGIC_ATTACK : RecvOpcode.CLOSE_RANGE_ATTACK;
     }
 
     /**

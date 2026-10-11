@@ -247,6 +247,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_ATTACK_RANGE_SQ` | `150000.0` | Squared auto-attack range (~387px). |
 | `LLM_AGENT_AUTO_BUFF` | `false` | Auto-cast configured buff skills. |
 | `LLM_AGENT_AUTO_BUFF_SKILLS` | `""` | Comma-separated buff skill ids. |
+| `LLM_AGENT_ATTACK_SKILL` | `0` | Attack skill id for auto/LLM attacks (0 = basic). |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -283,14 +284,15 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader, party-search listing.
 - M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
-  self-sustain, respawn, a basic skill-0 melee attack, and buff-skill casting.
+  self-sustain, respawn, a basic skill-0 melee attack, buff-skill casting, and melee/magic
+  damaging skill attacks.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat depth:** damaging skill attacks, heal-skill casting, ranged (`RANGED_ATTACK`)
-  and magic (`MAGIC_ATTACK`) packets, multi-target/multi-line attacks, cooldown/MP-cost
-  tracking beyond the buff path, monster facing, flee/aggro management, auto-looting kills.
+- **Combat depth:** ranged (`RANGED_ATTACK`) skill attacks, multi-target/multi-line attacks,
+  local cooldown tracking, heal-skill casting, mp/hp-cost timing on the skill path, monster
+  facing, flee/aggro management, auto-looting kills, cast animation/after-delay.
 - **Pathing:** only clamped straight-line steps; no footholds/portals.
 - **Warp-with-party / cross-map follow.**
 - **LLM movement policy** beyond `move_to`/follow.
@@ -325,6 +327,8 @@ on very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `53503ecb0` | melee/magic skill attacks |
+| `b89f75a3e` | buff review fixes + buff skills in perception |
 | `41805f1ff` | buff skill casting |
 | `a72a98f33` | combat review fixes + combat tests |
 | `367530db1` | combat assist (potions, respawn, basic melee attack) |
