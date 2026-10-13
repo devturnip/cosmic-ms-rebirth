@@ -639,4 +639,7 @@ auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. 
 - Two independent verifier passes were completed; the fixes commit is `07bd27510`.
   Deferred: the party-quest script audit (M9); M8 idle despawn/uptime caps are intentionally not
   pursued (accepted anti-AFK posture).
-  GM-spawned agents remain persistent and unchanged.
+  GM-spawned agents remain persistent and unchanged. Note the in-game headings: players use
+  `@agents ...` and `@agentoptout`; GMs use `!agent ...` (`/…` is not dispatched). Below level 10
+  a companion is a `BEGINNER` and auto-party is skipped (server starter-party gate) — it still
+  spawns and follows.

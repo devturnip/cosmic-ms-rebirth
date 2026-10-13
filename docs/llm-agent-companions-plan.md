@@ -219,6 +219,11 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 
 ## 8. Deferred / open
 
+- **Low-level companions (known behavior, accepted):** below level 10 a companion is a
+  `BEGINNER` at the requester's level (basic attacks only), and auto-party is skipped because
+  `Party.createParty` refuses sub-level-10 parties unless `USE_PARTY_FOR_STARTERS: true` — the
+  companion still spawns and follows. (Also, an ephemeral companion's brain-emitted
+  `PickupItem` actions are dropped as no-ops but still appear in the DEBUG action log.)
 - ~~**Idle despawn & uptime caps** (M8)~~ — intentionally not pursued: the accepted anti-AFK
   posture is the per-player cap + request cooldown + no value transfer + no auto-loot. (The
   `Character` idle signal / reap hook would be needed if this is ever revisited.)

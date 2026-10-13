@@ -234,8 +234,12 @@ is generated at their level and deleted when dismissed (see
   character-creation recipe path: a random `[AI]`-prefixed name, level = yours, and a role
   that complements your job unless you pass one (`warrior`, `magician`, `healer`, `bowman`,
   `thief`, `pirate`). Its exp/mesos are shared normally and discarded with it.
-- It follows you and — unless `LLM_AGENT_AUTO_PARTY: false` — forms or joins your party.
-  Companions are companions-only: they never advance your quests.
+- It follows you and — unless `LLM_AGENT_AUTO_PARTY: false` — forms or joins your party when
+  you are **level 10+**. Companions are companions-only: they never advance your quests.
+- **Below level 10** the companion is a `BEGINNER` at your level (basic attacks only) and no
+  party is formed: the server's starter rule blocks party creation under level 10 while
+  `USE_PARTY_FOR_STARTERS: false`. The companion still spawns and follows. Set
+  `USE_PARTY_FOR_STARTERS: true` (or reach level 10) to get auto-party at low levels.
 - Caps: `LLM_AGENT_MAX_PER_PLAYER` (default 1), `LLM_AGENT_REQUEST_COOLDOWN_MS` (60 s) and
   the global `LLM_AGENTS_MAX`. Player companions never auto-loot (their loot would be
   destroyed with them).
