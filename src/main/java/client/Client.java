@@ -1483,7 +1483,13 @@ public class Client extends ChannelInboundHandlerAdapter {
      * packets instead of writing to a socket.
      */
     protected void writePacket(Packet packet) {
-        ioChannel.writeAndFlush(packet);
+        final io.netty.channel.Channel channel = this.ioChannel;
+        if (channel == null) {
+            // Connection-less client (Client#createMock, used to build server-owned characters):
+            // there is no socket to write to, so drop the packet instead of throwing an NPE.
+            return;
+        }
+        channel.writeAndFlush(packet);
     }
 
     public void announceHint(String msg, int length) {
