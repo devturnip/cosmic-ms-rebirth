@@ -99,6 +99,14 @@ Run these manually in order (see `database/sql/migration/README.md`):
 
 Agents still work without them; persistence just logs warnings.
 
+> **Docker note:** `docker-compose.yml` mounts `database/sql` to the MySQL init directory, so a
+> **fresh** volume only auto-runs the four top-level `1..4` scripts — the `migration/`
+> subdirectory is ignored. Run `v0.15.0.sql` and `v0.16.0.sql` manually, e.g.:
+> ```bash
+> docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.15.0.sql
+> docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.16.0.sql
+> ```
+
 ### 2.3 `config.yaml` (`server:` section)
 
 Minimum to enable agents:
