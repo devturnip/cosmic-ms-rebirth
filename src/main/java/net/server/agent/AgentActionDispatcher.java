@@ -29,15 +29,26 @@ public class AgentActionDispatcher {
 
     private static final List<String> BLOCKED_WORDS = List.of("fuck", "shit", "bitch", "asshole");
 
-    public void dispatch(AgentSession session, AgentAction action) {
+    /**
+     * Executes an action, subject to mute and rate limits.
+     *
+     * @return whether the action was actually executed
+     */
+    public boolean dispatch(AgentSession session, AgentAction action) {
         if (action instanceof AgentAction.Idle) {
-            return;
+            return false;
+        }
+        if (session.isMuted() && (action instanceof AgentAction.Say
+                || action instanceof AgentAction.PartySay
+                || action instanceof AgentAction.Whisper)) {
+            log.debug("Agent {} is muted; dropping {}", session.getName(), action);
+            return false;
         }
         // Remember is bookkeeping only; it must never consume a packet/action budget token.
         boolean freeAction = action instanceof AgentAction.Remember;
         if (!freeAction && !session.allowAction()) {
             log.debug("Agent {} exceeded its action rate limit; dropping {}", session.getName(), action);
-            return;
+            return false;
         }
         logAction(session, action);
         switch (action) {
@@ -66,6 +77,7 @@ public class AgentActionDispatcher {
             case AgentAction.Idle ignored -> {
             }
         }
+        return true;
     }
 
     private void logAction(AgentSession session, AgentAction action) {

@@ -498,3 +498,14 @@ server:
     LLM_AGENT_AUTO_FLEE: false          #Retreat from monsters when HP drops below LLM_AGENT_FLEE_PERCENT.
     LLM_AGENT_FLEE_PERCENT: 25          #Flee when HP is below this percentage (only with LLM_AGENT_AUTO_FLEE).
     LLM_AGENT_FOLLOW_CHANNEL: false     #Follow the party leader across channels (re-logs the agent on the target channel).
+    LLM_AGENT_PROACTIVE: false          #Master switch for proactive (non-reactive) agent behavior.
+    LLM_AGENT_GREET: true               #With PROACTIVE on, greet nearby players once each.
+    LLM_AGENT_MATCHMAKE: true           #With PROACTIVE on, auto-register for party search (auto-invites nearby solos).
+    LLM_AGENT_PATROL: false             #With PROACTIVE on, wander the map when idle.
+    LLM_AGENT_GREET_COOLDOWN_MS: 600000 #Minimum ms between greetings of the same player.
+    LLM_AGENT_MATCHMAKE_INTERVAL_MS: 60000 #Minimum ms between party-search (re)registrations.
+    LLM_AGENT_PATROL_INTERVAL_MS: 8000  #Minimum ms between patrol steps.
+    LLM_AGENT_GREETING: ""              #Greeting template ({name} is replaced); blank uses the brain/persona greeting.
+    LLM_AGENT_MEMORY_SUMMARIZE: true    #Fold old dialogue into durable memory facts.
+    LLM_MAX_CALLS_PER_MIN: 60           #Global cap on LLM requests per minute (0 = unlimited).
+    LLM_AGENT_NOTICE: false             #Broadcast a map notice that an agent is AI-controlled when it spawns.

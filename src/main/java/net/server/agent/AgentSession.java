@@ -60,6 +60,12 @@ public class AgentSession {
     private volatile long actionWindowStart = System.currentTimeMillis();
     /** Local mirror of skill cooldowns, so the agent does not re-issue a still-cooling skill. */
     private final Map<Integer, Long> skillReadyAt = new ConcurrentHashMap<>();
+    /** Last time each player was greeted by proactive behavior. */
+    private final Map<Integer, Long> greetedAt = new ConcurrentHashMap<>();
+    private volatile long lastMatchmakeAt;
+    private volatile long lastPatrolAt;
+    /** When muted, the agent's chat actions are dropped (GM moderation). */
+    private volatile boolean muted;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this.client = client;
@@ -102,6 +108,21 @@ public class AgentSession {
 
     public boolean isActive() {
         return active.get();
+    }
+
+    public boolean isMuted() {
+        return muted;
+    }
+
+    /** Sets chat suppression (idempotent; single volatile write so concurrent GMs cannot race). */
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+    }
+
+    /** Toggles chat suppression and returns the new state. */
+    public boolean toggleMuted() {
+        muted = !muted;
+        return muted;
     }
 
     public long getLastDecisionAt() {
@@ -235,6 +256,9 @@ public class AgentSession {
                 }
             }
         }
+        if (AgentConfig.memorySummarize()) {
+            memory.compact();
+        }
     }
 
     private void applyActions(List<AgentAction> actions) {
@@ -302,6 +326,29 @@ public class AgentSession {
         if (AgentConfig.autoBuff()) {
             runSafely("buff", () -> AgentSkill.autoCast(this));
         }
+        if (AgentConfig.proactive()) {
+            runSafely("proactive", this::proactiveStep);
+        }
+    }
+
+    /** Runs the opt-in proactive behaviors (greet / matchmake / patrol), each self-throttled. */
+    private void proactiveStep() {
+        if (!active.get()) {
+            return;
+        }
+        Character p = player;
+        if (p == null || !p.isAlive()) {
+            return;
+        }
+        if (AgentConfig.greet()) {
+            runSafely("greet", () -> AgentProactivity.greet(this));
+        }
+        if (AgentConfig.matchmake()) {
+            runSafely("matchmake", () -> AgentProactivity.matchmake(this));
+        }
+        if (AgentConfig.patrol()) {
+            runSafely("patrol", () -> AgentProactivity.patrol(this));
+        }
     }
 
     private void runSafely(String name, Runnable action) {
@@ -316,7 +363,8 @@ public class AgentSession {
     private static boolean behaviorEnabled() {
         return AgentConfig.autoSustain() || AgentConfig.autoCombat() || AgentConfig.autoBuff()
                 || AgentConfig.autoHeal() || AgentConfig.autoLoot() || AgentConfig.autoRecharge()
-                || AgentConfig.autoFlee();
+                || AgentConfig.autoFlee()
+                || AgentConfig.greet() || AgentConfig.matchmake() || AgentConfig.patrol();
     }
 
     /** Keeps the agent near its follow target (typically the party leader) when on the same map. */
@@ -404,6 +452,57 @@ public class AgentSession {
     public void markSkillUsed(int skillId, long cooldownMs) {
         if (skillId > 0 && cooldownMs > 0) {
             skillReadyAt.put(skillId, System.currentTimeMillis() + cooldownMs);
+        }
+    }
+
+    /** Read-only check: whether {@code playerId} is due for a greeting (does not mark). */
+    public boolean isGreetDue(int playerId, long cooldownMs) {
+        Long last = greetedAt.get(playerId);
+        return last == null || System.currentTimeMillis() - last >= cooldownMs;
+    }
+
+    /** Records that {@code playerId} was successfully greeted. */
+    public void markGreeted(int playerId) {
+        greetedAt.put(playerId, System.currentTimeMillis());
+    }
+
+    /** Drops greeting timestamps older than the cooldown so the map cannot grow unbounded. */
+    public void pruneGreetings(long cooldownMs) {
+        long cutoff = System.currentTimeMillis() - cooldownMs;
+        greetedAt.entrySet().removeIf(entry -> entry.getValue() < cutoff);
+    }
+
+    /** Throttle gate for party-search (re)registration. */
+    public boolean markMatchmakeDue(long intervalMs) {
+        long now = System.currentTimeMillis();
+        if (now - lastMatchmakeAt < intervalMs) {
+            return false;
+        }
+        lastMatchmakeAt = now;
+        return true;
+    }
+
+    /** Throttle gate for patrol steps. */
+    public boolean markPatrolDue(long intervalMs) {
+        long now = System.currentTimeMillis();
+        if (now - lastPatrolAt < intervalMs) {
+            return false;
+        }
+        lastPatrolAt = now;
+        return true;
+    }
+
+    /**
+     * Executes an action directly (used by server-driven proactive behavior).
+     *
+     * @return whether the action was actually executed (false if muted/rate-limited)
+     */
+    public boolean perform(AgentAction action) {
+        try {
+            return dispatcher.dispatch(this, action);
+        } catch (Throwable t) {
+            log.warn("Agent {} failed to perform proactive {}", getName(), action, t);
+            return false;
         }
     }
 

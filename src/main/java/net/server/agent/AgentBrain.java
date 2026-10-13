@@ -15,6 +15,14 @@ public interface AgentBrain {
     String describe();
 
     /**
+     * A short, deterministic greeting used by proactive behavior (never invokes the LLM, so
+     * greeting nearby players costs nothing).
+     */
+    default String greeting() {
+        return "Hi! Want to party up?";
+    }
+
+    /**
      * Decide what to do next.
      *
      * @param observation what the agent can currently perceive

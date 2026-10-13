@@ -22,6 +22,11 @@ public class ScriptedAgentBrain implements AgentBrain {
     }
 
     @Override
+    public String greeting() {
+        return "Hey! Want to party up?";
+    }
+
+    @Override
     public List<AgentAction> decide(AgentObservation observation, List<AgentEvent> newEvents, AgentMemory memory) {
         List<AgentAction> actions = new ArrayList<>();
         for (AgentEvent event : newEvents) {

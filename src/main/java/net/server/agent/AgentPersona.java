@@ -14,9 +14,14 @@ import java.util.Map;
  * description and an optional system prompt. A personas file is configured through
  * {@link AgentConfig#personasFile()}.
  */
-public record AgentPersona(String name, String description, String systemPrompt) {
+public record AgentPersona(String name, String description, String systemPrompt, String greeting, String traits) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** Backwards-compatible constructor for personas without greeting/traits. */
+    public AgentPersona(String name, String description, String systemPrompt) {
+        this(name, description, systemPrompt, "", "");
+    }
 
     /** Loads personas from the path configured in {@link AgentConfig#personasFile()}. */
     public static Map<String, AgentPersona> loadFromFile() {
@@ -71,6 +76,8 @@ public record AgentPersona(String name, String description, String systemPrompt)
         }
         String description = node.path("description").isTextual() ? node.get("description").asText() : "";
         String systemPrompt = node.path("systemPrompt").isTextual() ? node.get("systemPrompt").asText() : "";
-        personas.put(name, new AgentPersona(name, description, systemPrompt));
+        String greeting = node.path("greeting").isTextual() ? node.get("greeting").asText() : "";
+        String traits = node.path("traits").isTextual() ? node.get("traits").asText() : "";
+        personas.put(name, new AgentPersona(name, description, systemPrompt, greeting, traits));
     }
 }

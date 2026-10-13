@@ -102,6 +102,65 @@ class AgentConfigTacticsTest {
     }
 
     @Test
+    void proactiveSubSwitchesRequireTheMasterSwitch() {
+        boolean originalMaster = YamlConfig.config.server.LLM_AGENT_PROACTIVE;
+        boolean originalGreet = YamlConfig.config.server.LLM_AGENT_GREET;
+        boolean originalMatch = YamlConfig.config.server.LLM_AGENT_MATCHMAKE;
+        boolean originalPatrol = YamlConfig.config.server.LLM_AGENT_PATROL;
+        try {
+            YamlConfig.config.server.LLM_AGENT_PROACTIVE = false;
+            YamlConfig.config.server.LLM_AGENT_GREET = true;
+            YamlConfig.config.server.LLM_AGENT_MATCHMAKE = true;
+            YamlConfig.config.server.LLM_AGENT_PATROL = true;
+            assertFalse(AgentConfig.greet());
+            assertFalse(AgentConfig.matchmake());
+            assertFalse(AgentConfig.patrol());
+
+            YamlConfig.config.server.LLM_AGENT_PROACTIVE = true;
+            assertTrue(AgentConfig.greet());
+            assertTrue(AgentConfig.matchmake());
+            assertTrue(AgentConfig.patrol());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_PROACTIVE = originalMaster;
+            YamlConfig.config.server.LLM_AGENT_GREET = originalGreet;
+            YamlConfig.config.server.LLM_AGENT_MATCHMAKE = originalMatch;
+            YamlConfig.config.server.LLM_AGENT_PATROL = originalPatrol;
+        }
+    }
+
+    @Test
+    void proactiveIntervalsFallBackForNonPositiveValues() {
+        long originalGreet = YamlConfig.config.server.LLM_AGENT_GREET_COOLDOWN_MS;
+        long originalMatch = YamlConfig.config.server.LLM_AGENT_MATCHMAKE_INTERVAL_MS;
+        long originalPatrol = YamlConfig.config.server.LLM_AGENT_PATROL_INTERVAL_MS;
+        try {
+            YamlConfig.config.server.LLM_AGENT_GREET_COOLDOWN_MS = 0;
+            YamlConfig.config.server.LLM_AGENT_MATCHMAKE_INTERVAL_MS = -1;
+            YamlConfig.config.server.LLM_AGENT_PATROL_INTERVAL_MS = 0;
+            assertEquals(600000L, AgentConfig.greetCooldownMs());
+            assertEquals(60000L, AgentConfig.matchmakeIntervalMs());
+            assertEquals(8000L, AgentConfig.patrolIntervalMs());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_GREET_COOLDOWN_MS = originalGreet;
+            YamlConfig.config.server.LLM_AGENT_MATCHMAKE_INTERVAL_MS = originalMatch;
+            YamlConfig.config.server.LLM_AGENT_PATROL_INTERVAL_MS = originalPatrol;
+        }
+    }
+
+    @Test
+    void maxCallsPerMinuteIsNeverNegative() {
+        int original = YamlConfig.config.server.LLM_MAX_CALLS_PER_MIN;
+        try {
+            YamlConfig.config.server.LLM_MAX_CALLS_PER_MIN = -5;
+            assertEquals(0, AgentConfig.maxCallsPerMinute());
+            YamlConfig.config.server.LLM_MAX_CALLS_PER_MIN = 120;
+            assertEquals(120, AgentConfig.maxCallsPerMinute());
+        } finally {
+            YamlConfig.config.server.LLM_MAX_CALLS_PER_MIN = original;
+        }
+    }
+
+    @Test
     void autoHealSkillIsNeverNegative() {
         int original = YamlConfig.config.server.LLM_AGENT_AUTO_HEAL_SKILL;
         try {

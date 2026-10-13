@@ -30,7 +30,7 @@ import server.ThreadManager;
 
 public class AgentCommand extends Command {
     {
-        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|say ...");
+        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute ...");
     }
 
     @Override
@@ -38,6 +38,15 @@ public class AgentCommand extends Command {
         // Spawning loads a character and runs the full login bootstrap; run it off the Netty
         // event loop so the GM's connection is not blocked.
         ThreadManager.getInstance().newTask(() -> executeInternal(c, params));
+    }
+
+    private static AgentSession findSession(AgentManager manager, String name) {
+        for (AgentSession session : manager.getSessions()) {
+            if (session.getName().equalsIgnoreCase(name)) {
+                return session;
+            }
+        }
+        return null;
     }
 
     private void executeInternal(Client c, String[] params) {
@@ -48,7 +57,7 @@ public class AgentCommand extends Command {
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
-            player.message("Usage: /agent spawn <name> | despawn <name> | list | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name>");
+            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name>");
             return;
         }
 
@@ -128,7 +137,53 @@ public class AgentCommand extends Command {
                         ? "Agent '" + params[1] + "' is now listed in party search."
                         : "Failed to register agent '" + params[1] + "' for party search (no active agent?).");
             }
-            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, say, follow, stopfollow or search.");
+            case "status" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent status <agentName>");
+                    return;
+                }
+                AgentSession session = findSession(manager, params[1]);
+                if (session == null) {
+                    player.message("No active agent named '" + params[1] + "'.");
+                    return;
+                }
+                Character agent = session.getPlayer();
+                long age = session.getLastDecisionAt() <= 0 ? -1 : System.currentTimeMillis() - session.getLastDecisionAt();
+                StringBuilder sb = new StringBuilder("Agent ").append(session.getName())
+                        .append(" chr=").append(session.getCharacterId())
+                        .append(" brain=").append(session.getBrain().describe())
+                        .append(" active=").append(session.isActive())
+                        .append(" muted=").append(session.isMuted())
+                        .append(" queued=").append(session.getQueuedEvents())
+                        .append(" follow=").append(session.getFollowTargetId())
+                        .append(session.isManualFollow() ? " (manual)" : "");
+                if (agent != null) {
+                    sb.append(" map=").append(agent.getMapId())
+                            .append(" lvl=").append(agent.getLevel())
+                            .append(" hp=").append(agent.getHp()).append('/').append(agent.getCurrentMaxHp());
+                }
+                sb.append(" lastDecision=").append(age < 0 ? "never" : age + "ms ago")
+                        .append(" lastActions=").append(session.getLastActions());
+                player.message(sb.toString());
+            }
+            case "mute", "unmute" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent mute|unmute <agentName>");
+                    return;
+                }
+                AgentSession session = findSession(manager, params[1]);
+                if (session == null) {
+                    player.message("No active agent named '" + params[1] + "'.");
+                    return;
+                }
+                boolean mute = action.equals("mute");
+                if (session.isMuted() != mute) {
+                    session.toggleMuted();
+                }
+                player.message("Agent '" + session.getName() + "' is now "
+                        + (session.isMuted() ? "muted" : "unmuted") + ".");
+            }
+            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, status, say, follow, stopfollow, search, mute or unmute.");
         }
     }
 }

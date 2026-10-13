@@ -200,6 +200,58 @@ public final class AgentConfig {
         return result;
     }
 
+    // ------------------------------------------------------------------
+    // proactive behaviour / cost controls
+    // ------------------------------------------------------------------
+
+    public static boolean proactive() {
+        return YamlConfig.config.server.LLM_AGENT_PROACTIVE;
+    }
+
+    public static boolean greet() {
+        return proactive() && YamlConfig.config.server.LLM_AGENT_GREET;
+    }
+
+    public static boolean matchmake() {
+        return proactive() && YamlConfig.config.server.LLM_AGENT_MATCHMAKE;
+    }
+
+    public static boolean patrol() {
+        return proactive() && YamlConfig.config.server.LLM_AGENT_PATROL;
+    }
+
+    public static long greetCooldownMs() {
+        long value = YamlConfig.config.server.LLM_AGENT_GREET_COOLDOWN_MS;
+        return value > 0 ? value : 600000L;
+    }
+
+    public static long matchmakeIntervalMs() {
+        long value = YamlConfig.config.server.LLM_AGENT_MATCHMAKE_INTERVAL_MS;
+        return value > 0 ? value : 60000L;
+    }
+
+    public static long patrolIntervalMs() {
+        long value = YamlConfig.config.server.LLM_AGENT_PATROL_INTERVAL_MS;
+        return value > 0 ? value : 8000L;
+    }
+
+    public static String greetingTemplate() {
+        return orEmpty(YamlConfig.config.server.LLM_AGENT_GREETING);
+    }
+
+    public static boolean memorySummarize() {
+        return YamlConfig.config.server.LLM_AGENT_MEMORY_SUMMARIZE;
+    }
+
+    /** Global cap on LLM requests per minute; 0 means unlimited. */
+    public static int maxCallsPerMinute() {
+        return Math.max(0, YamlConfig.config.server.LLM_MAX_CALLS_PER_MIN);
+    }
+
+    public static boolean notice() {
+        return YamlConfig.config.server.LLM_AGENT_NOTICE;
+    }
+
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }

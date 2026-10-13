@@ -140,7 +140,8 @@ public final class AgentPersonaStore {
         if (name.isBlank()) {
             return;
         }
-        personas.put(name, new AgentPersona(name, value(map.get("description")), value(map.get("systemPrompt"))));
+        personas.put(name, new AgentPersona(name, value(map.get("description")), value(map.get("systemPrompt")),
+                value(map.get("greeting")), value(map.get("traits"))));
     }
 
     private static String value(Object raw) {

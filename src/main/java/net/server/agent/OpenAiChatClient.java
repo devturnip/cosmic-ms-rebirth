@@ -29,9 +29,31 @@ public class OpenAiChatClient {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
+    /** Rolling one-minute window for the global request budget. */
+    private static long budgetWindowStart;
+    private static int budgetCount;
+
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ArrayNode toolsSchema;
+
+    /** Global cost control: caps LLM requests per minute across all agents. */
+    private static synchronized boolean tryConsumeCallBudget() {
+        int cap = AgentConfig.maxCallsPerMinute();
+        if (cap <= 0) {
+            return true; // unlimited
+        }
+        long now = System.nanoTime(); // monotonic: a wall-clock jump cannot wedge the window
+        if (now - budgetWindowStart >= 60_000_000_000L) {
+            budgetWindowStart = now;
+            budgetCount = 0;
+        }
+        if (budgetCount >= cap) {
+            return false;
+        }
+        budgetCount++;
+        return true;
+    }
 
     public OpenAiChatClient() {
         this.httpClient = HttpClient.newBuilder()
@@ -50,6 +72,10 @@ public class OpenAiChatClient {
         String apiUrl = AgentConfig.apiUrl();
         if (apiUrl.isBlank()) {
             throw new RuntimeException("LLM API URL is not configured");
+        }
+        if (!tryConsumeCallBudget()) {
+            throw new RuntimeException("LLM request budget exceeded (LLM_MAX_CALLS_PER_MIN="
+                    + AgentConfig.maxCallsPerMinute() + ")");
         }
 
         ObjectNode body = mapper.createObjectNode();

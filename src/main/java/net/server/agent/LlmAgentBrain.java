@@ -22,22 +22,35 @@ public class LlmAgentBrain implements AgentBrain {
 
     private final String personaName;
     private final String personaDescription;
+    private final String greeting;
+    private final String traits;
     private final OpenAiChatClient client;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public LlmAgentBrain(String personaName) {
-        this(personaName, null);
+        this(personaName, null, null, null);
     }
 
     public LlmAgentBrain(String personaName, String personaDescription) {
+        this(personaName, personaDescription, null, null);
+    }
+
+    public LlmAgentBrain(String personaName, String personaDescription, String greeting, String traits) {
         this.personaName = personaName == null || personaName.isBlank() ? "Agent" : personaName;
         this.personaDescription = personaDescription;
+        this.greeting = greeting;
+        this.traits = traits;
         this.client = new OpenAiChatClient();
     }
 
     @Override
     public String describe() {
         return "llm:" + AgentConfig.model() + ":" + personaName;
+    }
+
+    @Override
+    public String greeting() {
+        return greeting == null || greeting.isBlank() ? AgentBrain.super.greeting() : greeting;
     }
 
     @Override
@@ -66,6 +79,9 @@ public class LlmAgentBrain implements AgentBrain {
         sb.append("You are ").append(personaName).append(", a player character in MapleStory v83.\n");
         if (personaDescription != null && !personaDescription.isBlank()) {
             sb.append(personaDescription.strip()).append('\n');
+        }
+        if (traits != null && !traits.isBlank()) {
+            sb.append("Personality traits: ").append(traits.strip()).append('\n');
         }
         sb.append("MapleStory is a 2D side-scrolling MMORPG; players chat in map chat, party chat and whispers, ")
                 .append("form parties, and fight monsters together.\n");

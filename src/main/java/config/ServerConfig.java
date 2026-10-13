@@ -344,4 +344,15 @@ public class ServerConfig {
     public boolean LLM_AGENT_AUTO_FLEE = false;
     public int LLM_AGENT_FLEE_PERCENT = 25;
     public boolean LLM_AGENT_FOLLOW_CHANNEL = false;
+    public boolean LLM_AGENT_PROACTIVE = false;
+    public boolean LLM_AGENT_GREET = true;
+    public boolean LLM_AGENT_MATCHMAKE = true;
+    public boolean LLM_AGENT_PATROL = false;
+    public long LLM_AGENT_GREET_COOLDOWN_MS = 600000L;
+    public long LLM_AGENT_MATCHMAKE_INTERVAL_MS = 60000L;
+    public long LLM_AGENT_PATROL_INTERVAL_MS = 8000L;
+    public String LLM_AGENT_GREETING = "";
+    public boolean LLM_AGENT_MEMORY_SUMMARIZE = true;
+    public int LLM_MAX_CALLS_PER_MIN = 60;
+    public boolean LLM_AGENT_NOTICE = false;
 }

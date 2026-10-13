@@ -24,7 +24,7 @@ public final class AgentBrainFactory {
                     if (prompt == null || prompt.isBlank()) {
                         prompt = persona.description();
                     }
-                    return new LlmAgentBrain(personaName, prompt);
+                    return new LlmAgentBrain(personaName, prompt, persona.greeting(), persona.traits());
                 }
                 return new LlmAgentBrain(personaName);
             } catch (Throwable t) {

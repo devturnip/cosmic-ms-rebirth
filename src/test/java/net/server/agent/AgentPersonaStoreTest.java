@@ -74,6 +74,40 @@ class AgentPersonaStoreTest {
     }
 
     @Test
+    void loadJsonParsesGreetingAndTraits() throws IOException {
+        Path file = Files.createTempFile("personas-", ".json");
+        try {
+            Files.writeString(file,
+                    "{\"alice\":{\"description\":\"helper\",\"greeting\":\"Hi there!\",\"traits\":\"cheerful, chatty\"}}",
+                    StandardCharsets.UTF_8);
+
+            AgentPersona alice = AgentPersonaStore.load(file.toString()).get("alice");
+
+            assertEquals("Hi there!", alice.greeting());
+            assertEquals("cheerful, chatty", alice.traits());
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
+    void loadYamlParsesGreetingAndTraits() throws IOException {
+        Path file = Files.createTempFile("personas-", ".yaml");
+        try {
+            Files.writeString(file,
+                    "alice:\n  description: helper\n  greeting: Yo!\n  traits: brave\n",
+                    StandardCharsets.UTF_8);
+
+            AgentPersona alice = AgentPersonaStore.load(file.toString()).get("alice");
+
+            assertEquals("Yo!", alice.greeting());
+            assertEquals("brave", alice.traits());
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
     void blankAndMissingPathsYieldEmptyMap() {
         assertTrue(AgentPersonaStore.load(null).isEmpty(), "null path");
         assertTrue(AgentPersonaStore.load("").isEmpty(), "empty path");

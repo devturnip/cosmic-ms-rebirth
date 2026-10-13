@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import server.maps.MapleMap;
 import service.NoteService;
 import tools.DatabaseConnection;
+import tools.PacketCreator;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -213,6 +214,11 @@ public class AgentManager {
             // follow (and any transition guard) would never fire.
             player.setMapTransitionComplete();
 
+            if (AgentConfig.notice() && player.getMap() != null) {
+                player.getMap().broadcastMessage(PacketCreator.serverNotice(6,
+                        player.getName() + " is an AI-controlled agent."));
+            }
+
             sessionsByCharacterId.put(player.getId(), session);
             log.info("Spawned agent {} (chr {}, world {}, channel {}) using brain {}",
                     player.getName(), player.getId(), world, channel, brain.describe());
@@ -261,6 +267,7 @@ public class AgentManager {
         final int oldChannel = old.getClient().getChannel();
         final int followTarget = old.getFollowTargetId();
         final boolean manualFollow = old.isManualFollow();
+        final boolean muted = old.isMuted();
 
         despawn(characterId);
         AgentSession session = spawn(name, world, channel, brain, memory);
@@ -274,6 +281,7 @@ public class AgentManager {
                 return null;
             }
         }
+        session.setMuted(muted); // moderation must survive a channel transfer
         if (followTarget >= 0) {
             if (manualFollow) {
                 session.setManualFollow(followTarget);
