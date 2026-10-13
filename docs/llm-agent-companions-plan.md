@@ -201,9 +201,9 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| **M5 — Provisioning** | `AgentProvisioner` + `DbAgentProvisioner` (account + recipe + delete), config, tests. | in progress |
-| **M6 — Discovery/spawn** | `/agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | in progress |
-| **M7 — Auto-party** | `CompanionPartyService` (form/join), guard cases. | in progress |
+| **M5 — Provisioning** | `AgentProvisioner` + `DbAgentProvisioner` (account + recipe + delete), config, tests. | done |
+| **M6 — Discovery/spawn** | `/agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | done |
+| **M7 — Auto-party** | `CompanionPartyService` (form/join), guard cases. | done |
 | **M8 — Fairness/lifecycle** | idle despawn, daily uptime cap, metrics/audit, opt-out interplay. | deferred |
 | **M9 — Quest/PQ audit** | Verify party-quest scripts tolerate companions; level-band/PQ eligibility rules; guide. | deferred |
 
@@ -226,3 +226,30 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   per level band may need a dedicated template file.
 - **Name prefix vs `canCreateChar`** — resolved by validating the base name and prepending the
   prefix server-side; revisit if the DB name column is ever widened.
+- **`characters.name` has no UNIQUE index** — concurrent provisions rely on a
+  `SELECT`-then-`INSERT` check (LOW, very unlikely with random names). A `UNIQUE KEY (name,
+  world)` migration would close it.
+- **Login-cache entry per ephemeral account** — `Server#deleteCharacterEntry` leaves an empty
+  `accountChars` entry for the deleted character's account (LOW, pre-existing; not touched to
+  avoid changing the human login-cache semantics).
+- **DB-provisioning path is not unit-tested** — it needs a live MySQL; the service/policy and
+  manager lifecycle are covered by fakes. A DB integration test is a follow-up.
+
+---
+
+## 9. Review history
+
+- **Pass 1** (`5eddcd054`): independent verifier. Fixed HIGH `transferChannel` dropping the
+  ephemeral/owner/provisioned state; MEDIUM per-player cap/cooldown TOCTOU (per-player
+  request lock + concurrency test); MEDIUM provisioned-character leak after an exception;
+  MEDIUM ephemeral rows surviving shutdown/GM despawn (AgentManager now deletes on despawn);
+  MEDIUM account deleted when the character delete failed; MEDIUM companion auto-loot; LOW
+  mid-transition guard. Added `AgentManagerCompanionLifecycleTest`.
+- **Pass 2** (`07bd27510` → fixes in the follow-up commit): re-verified items 1–5 and 7 as
+  correctly fixed. Found three more MEDIUMs, now fixed: (a) the auto-loot guard only covered the
+  server-driven path — brain-driven `PickupItem` is now dropped for ephemeral sessions in
+  `AgentActionDispatcher`; (b) `provision` held a pooled connection while `insertNewChar`/
+  `loadAccountCharacters` opened their own, which could deadlock the small pool — the connection
+  is now scoped tightly; (c) `AgentManager.despawn` ran the character-cascade delete while
+  holding the global monitor — removal is now under the monitor and deletion happens outside it
+  (`stop()` likewise). LOW: `requestLocks` became a fixed-size stripe array.

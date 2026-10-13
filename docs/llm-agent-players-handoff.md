@@ -17,9 +17,11 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **Branch:** `feature/llm-agent-players` (pushed, in sync with origin; working tree clean)
 - **HEAD:** `161cdcd81` — starter profile enabled in `config.yaml` (guide + opt-out committed
   just before it)
-- **Status:** M0–M4 done, plus a player-facing opt-out and a player/operator guide. The only
-  open items are foothold/rope pathing depth and Hurricane/Rapid Fire after-delay +
-  cast-animation fidelity — see **§11 Resuming the work** for a concrete checklist.
+- **Status:** M0–M7 done (agent engine M0–M4 + opt-out; player-facing **ephemeral
+  companions** M5–M7 via `/agents list|find|dismiss`). Remaining open items: companion
+  fairness/lifecycle depth (M8) and a party-quest compatibility audit (M9), plus
+  foothold/rope pathing depth and Hurricane/Rapid Fire after-delay + cast-animation fidelity —
+  see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
 - **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
   **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
   **starter profile enabled** (`USE_LLM_AGENTS: true` + auto-combat/sustain/heal/buff/loot/flee)
@@ -141,11 +143,17 @@ arrive via lightweight hooks (see §5).
 | `AgentPersona` | Persona record + JSON loader. |
 | `AgentPersonaStore` | Cached JSON/YAML persona file loading (case-insensitive lookup). |
 | `AgentConfig` | Typed access to `config.yaml` with safe defaults. |
+| `AgentProvisioner` | Interface + `ProvisionedAgent` record for server-owned ephemeral character provisioning. |
+| `DbAgentProvisioner` | JDBC implementation: dedicated account + recipe-built character; deletes both on despawn. |
+| `AgentCompanionService` | Player companion policy/orchestration (`/agents find|dismiss|list`), per-player caps/cooldown. |
+| `CompanionPartyService` | Forms/extend a party so a summoned companion joins the requester. |
+| `AgentRole` | Canonical companion roles → base job, complement mapping, aliases. |
 
 ### New (elsewhere)
 - `src/main/java/net/server/PlayerLoginService.java` — channel bootstrap **extracted** from
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
 - `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
+- `src/main/java/client/command/commands/gm0/AgentCompanionCommand.java` — player `/agents ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
 - `database/sql/migration/v0.16.0.sql` — `agent_optout` table.
 - `src/main/java/client/command/commands/gm0/AgentOptoutCommand.java` — player `/agentoptout`.
@@ -357,6 +365,13 @@ It already runs off the Netty loop.
 | `LLM_AGENT_MEMORY_SUMMARIZE` | `true` | Fold old dialogue into durable memory facts. |
 | `LLM_MAX_CALLS_PER_MIN` | `60` | Global cap on LLM requests per minute (0 = unlimited). |
 | `LLM_AGENT_NOTICE` | `false` | Broadcast a map notice that an agent is AI-controlled when it spawns. |
+| `LLM_AGENT_PLAYER_SPAWN` | `false` | Allow rank-0 players to summon ephemeral companions with `/agents find`. |
+| `LLM_AGENT_MAX_PER_PLAYER` | `1` | Max simultaneous companions summoned by one player. |
+| `LLM_AGENT_REQUEST_COOLDOWN_MS` | `60000` | Minimum ms between `/agents find` requests by one player. |
+| `LLM_AGENT_LEVEL_MATCH` | `EXACT` | `EXACT` (requester's level) or `BAND5`. |
+| `LLM_AGENT_AUTO_PARTY` | `true` | Auto form/join a party with the summoned companion. |
+| `LLM_AGENT_COMPLEMENT_JOB` | `true` | Prefer a role that complements the requester's job. |
+| `LLM_AGENT_ACCOUNT_PREFIX` | `agnt` | Prefix for server-owned accounts created for ephemeral companions. |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -585,11 +600,25 @@ this up cold:
 `handoff` + `plan` updated (and `guide` if user/operator-facing); worktree clean; committed and
 pushed with a `feat(agent):` / `fix(agent):` / `docs(agent):` message.
 
-### 11.4 Player-facing companions (M5+)
+### 11.4 Player-facing companions (M5–M7, shipped)
 
-The GM-only spawn model does not serve solo play. The player-facing layer — ephemeral,
-server-provisioned companions summoned by `/agents find` (auto level match, auto-follow,
-auto-party) — is specified in **`docs/llm-agent-companions-plan.md`**. It reuses this
-engine's `AgentManager`, `PlayerLoginService`, brains, party and opt-out machinery; the
-invariants in §4 still apply. Locked decisions: ephemeral by default (GM spawns stay
-persistent), shared exp/meso, random personas, companions-only, LLM brain.
+The GM-only spawn model does not serve solo play. Players can now summon **ephemeral,
+server-provisioned** companions with `/agents list|find|dismiss` (auto level match,
+auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. Key points:
+
+- `DbAgentProvisioner` allocates a dedicated server-owned account and builds the character
+  through the normal recipe path (`CharacterFactoryRecipe` + `insertNewChar`); a random
+  `[AI]`-prefixed name; level = requester's level; job complements the requester.
+- `AgentCompanionService` enforces the feature switch, eligibility (dead/mid-transition/
+  trade/cash-shop/event/opted-out), map, per-player cap, request cooldown and global
+  capacity, under a per-player lock.
+- Ephemeral sessions are flagged (`AgentSession#isEphemeral`) so memory is never persisted,
+  auto-loot is forced off, and `AgentManager.despawn` deletes the character (covering
+  `/agents dismiss`, GM `/agent despawn` and shutdown). `transferChannel` carries the
+  ephemeral/owner/provisioned state across a re-spawn.
+- New config: `LLM_AGENT_PLAYER_SPAWN` (default off), `…_MAX_PER_PLAYER`,
+  `…_REQUEST_COOLDOWN_MS`, `…_LEVEL_MATCH`, `…_AUTO_PARTY`, `…_COMPLEMENT_JOB`,
+  `…_ACCOUNT_PREFIX`.
+- Two independent verifier passes were completed; the fixes commit is `07bd27510`.
+  Deferred (M8/M9): idle despawn/uptime caps, metrics, and the party-quest script audit.
+  GM-spawned agents remain persistent and unchanged.

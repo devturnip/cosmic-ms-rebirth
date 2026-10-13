@@ -64,7 +64,13 @@ public class AgentActionDispatcher {
             case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
             case AgentAction.Follow follow -> follow(session, follow.targetName());
             case AgentAction.StopFollowing ignored -> session.clearFollow();
-            case AgentAction.PickupItem pickup -> pickupItemFor(session, pickup.objectId());
+            case AgentAction.PickupItem pickup -> {
+                // Ephemeral companions never loot: their inventory is destroyed with them, so the
+                // drop (and any party value) would be lost. Applies to brain-driven pickups too.
+                if (!session.isEphemeral()) {
+                    pickupItemFor(session, pickup.objectId());
+                }
+            }
             case AgentAction.UseItem use -> AgentCombat.useItem(session, use.itemId());
             case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
             case AgentAction.Attack attack -> AgentCombat.attack(session, attack.targetObjectId());

@@ -95,17 +95,25 @@ public class AgentManager {
                 AgentConfig.maxAgents(), tickMs, AgentConfig.perception());
     }
 
-    public synchronized void stop() {
-        if (ticker != null) {
-            ticker.shutdownNow();
-            ticker = null;
+    public void stop() {
+        final List<Integer> ids;
+        synchronized (this) {
+            if (ticker != null) {
+                ticker.shutdownNow();
+                ticker = null;
+            }
+            ids = new ArrayList<>(sessionsByCharacterId.keySet());
         }
-        for (Integer chrId : new ArrayList<>(sessionsByCharacterId.keySet())) {
+        // Despawn outside the monitor: deleting an ephemeral character does blocking DB I/O and
+        // must not stall other agents' spawn/despawn/transfer.
+        for (Integer chrId : ids) {
             despawn(chrId);
         }
-        if (brainPool != null) {
-            brainPool.shutdownNow();
-            brainPool = null;
+        synchronized (this) {
+            if (brainPool != null) {
+                brainPool.shutdownNow();
+                brainPool = null;
+            }
         }
     }
 
@@ -333,11 +341,12 @@ public class AgentManager {
         return session;
     }
 
-    public synchronized boolean despawn(int characterId) {
+    public boolean despawn(int characterId) {
         final AgentSession session = removeSession(characterId);
         if (session == null) {
             return false;
         }
+        // Delete outside the monitor: the character cascade is blocking DB I/O.
         destroyIfEphemeral(session.isEphemeral(), session.getProvisioned());
         return true;
     }
@@ -346,7 +355,7 @@ public class AgentManager {
      * Removes and disconnects a session <em>without</em> deleting an ephemeral character. Used by
      * channel transfer, which re-spawns the same character and must not delete it.
      */
-    private AgentSession removeSession(int characterId) {
+    private synchronized AgentSession removeSession(int characterId) {
         final AgentSession session = sessionsByCharacterId.remove(characterId);
         if (session == null) {
             return null;

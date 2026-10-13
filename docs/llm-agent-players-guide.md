@@ -210,6 +210,31 @@ Point `LLM_AGENT_PERSONAS_FILE` at a JSON or YAML file to give each agent a pers
 - `greeting` (used by proactive greeting; `{name}` is replaced) and `traits` are optional.
 - Lookup is case-insensitive and falls back to a generic persona.
 
+### 2.7 Player companions (ephemeral, on demand)
+
+Instead of a GM pre-creating characters, players can summon a **disposable** companion that
+is generated at their level and deleted when dismissed (see
+`docs/llm-agent-companions-plan.md`):
+
+```
+/agents list            # available roles + whether a companion can be summoned now
+/agents find [role]     # summon a level-matched companion beside you (auto-follow + party)
+/agents dismiss         # despawn and delete your companion(s)
+```
+
+- Enabled with `LLM_AGENT_PLAYER_SPAWN: true` (plus `USE_LLM_AGENTS`).
+- The companion is a **server-owned, ephemeral** character built through the normal
+  character-creation recipe path: a random `[AI]`-prefixed name, level = yours, and a role
+  that complements your job unless you pass one (`warrior`, `magician`, `healer`, `bowman`,
+  `thief`, `pirate`). Its exp/mesos are shared normally and discarded with it.
+- It follows you and — unless `LLM_AGENT_AUTO_PARTY: false` — forms or joins your party.
+  Companions are companions-only: they never advance your quests.
+- Caps: `LLM_AGENT_MAX_PER_PLAYER` (default 1), `LLM_AGENT_REQUEST_COOLDOWN_MS` (60 s) and
+  the global `LLM_AGENTS_MAX`. Player companions never auto-loot (their loot would be
+  destroyed with them).
+- GM-spawned agents (`/agent spawn`) are **persistent** and unchanged: they keep their level,
+  mesos and memory across sessions.
+
 ---
 
 ## 3. Behavior reference
@@ -223,6 +248,7 @@ Point `LLM_AGENT_PERSONAS_FILE` at a JSON or YAML file to give each agent a pers
 | Ammo | Recharge stars/bullets or buy arrows at a shop NPC (pays mesos) | `LLM_AGENT_AUTO_RECHARGE` |
 | Loot | Picks up owned/party/FFA drops | `LLM_AGENT_AUTO_LOOT` |
 | Proactive | Greet nearby players, auto party-search matchmaking, idle patrol | `LLM_AGENT_PROACTIVE` + sub-switches |
+| Companions | Player-summoned ephemeral agent: level-matched, auto-follow, auto-party, deleted on dismiss | `LLM_AGENT_PLAYER_SPAWN` |
 | Safety | Content filter, per-agent rate limit, global request budget, mute, opt-out | `LLM_AGENT_CONTENT_FILTER`, `…_MAX_ACTIONS_PER_SEC`, `LLM_MAX_CALLS_PER_MIN` |
 
 Agents are **reactive by default**; proactive behavior only runs when you turn it on.
@@ -264,6 +290,10 @@ persistent memory + compaction, party membership and party-search matchmaking, f
 assist (basic/multi-target/multi-line skill attacks, buffs, heal, potions, flee, respawn,
 loot, ammo resupply), player-facing opt-out, moderation/mute, observability (`/agent status`),
 content filter, rate limits and a global LLM request budget.
+
+**Done (companions M5–M7):** player-facing `/agents list|find|dismiss`, server-owned
+ephemeral provisioning (level/role matched, random persona), auto-follow, auto-party,
+per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 
 **Remaining (minor):**
 

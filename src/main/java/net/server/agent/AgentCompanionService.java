@@ -79,8 +79,24 @@ public class AgentCompanionService {
     private final CompanionPartyService partyService;
     private final LongSupplier clock;
     private final Map<Integer, Long> lastRequestAt = new ConcurrentHashMap<>();
-    /** Per-player request locks: serializes cap/cooldown checks with provisioning/spawn. */
-    private final Map<Integer, Object> requestLocks = new ConcurrentHashMap<>();
+    /**
+     * Fixed-size stripe locks: serialize per-player cap/cooldown checks with provisioning/spawn
+     * without an unbounded per-player map. Collisions only serialize unrelated players rarely.
+     */
+    private static final int REQUEST_LOCK_STRIPES = 64;
+    private final Object[] requestLocks = newLocks();
+
+    private static Object[] newLocks() {
+        final Object[] locks = new Object[REQUEST_LOCK_STRIPES];
+        for (int i = 0; i < locks.length; i++) {
+            locks[i] = new Object();
+        }
+        return locks;
+    }
+
+    private Object lockFor(int playerId) {
+        return requestLocks[(playerId & 0x7fffffff) % REQUEST_LOCK_STRIPES];
+    }
 
     public AgentCompanionService(AgentProvisioner provisioner, CompanionRuntime runtime,
                                  CompanionPartyService partyService, LongSupplier clock) {
@@ -114,7 +130,7 @@ public class AgentCompanionService {
         }
         // Serialize per player: the cap/cooldown check-then-act must not race concurrent requests,
         // and the (slow) provisioning must not let a second request squeeze past the cap.
-        synchronized (requestLocks.computeIfAbsent(player.getId(), k -> new Object())) {
+        synchronized (lockFor(player.getId())) {
             AgentProvisioner.ProvisionedAgent provisioned = null;
             boolean spawned = false;
             try {
@@ -212,7 +228,7 @@ public class AgentCompanionService {
         if (player == null) {
             return new Result(Status.NOT_ELIGIBLE, null, "No player.");
         }
-        synchronized (requestLocks.computeIfAbsent(player.getId(), k -> new Object())) {
+        synchronized (lockFor(player.getId())) {
             try {
                 final List<AgentSession> owned = runtime.despawnOwnedBy(player.getId());
                 if (owned == null || owned.isEmpty()) {

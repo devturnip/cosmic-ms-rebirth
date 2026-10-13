@@ -61,20 +61,28 @@ public class DbAgentProvisioner implements AgentProvisioner {
         int createdAccountId = -1;
         int createdCharacterId = -1;
         String createdName = null;
-        try (Connection con = DatabaseConnection.getConnection()) {
-            final int accountId = createAccount(con);
-            createdAccountId = accountId;
-            if (accountId <= 0) {
-                log.warn("Failed to create server-owned account for companion ({} level {})", job, safeLevel);
-                return null;
-            }
+        try {
+            final int accountId;
+            final String name;
+            // Scope this connection tightly: insertNewChar()/loadAccountCharacters() open their own
+            // connections, and the pool is small, so holding one while they block would deadlock
+            // concurrent /agents requests.
+            try (Connection con = DatabaseConnection.getConnection()) {
+                accountId = createAccount(con);
+                if (accountId <= 0) {
+                    log.warn("Failed to create server-owned account for companion ({} level {})", job, safeLevel);
+                    return null;
+                }
+                createdAccountId = accountId;
 
-            final String name = generateUniqueCharacterName(con);
-            createdName = name;
-            if (name == null) {
-                deleteAccount(con, accountId);
-                log.warn("Failed to find a unique companion name");
-                return null;
+                name = generateUniqueCharacterName(con);
+                if (name == null) {
+                    deleteAccount(con, accountId);
+                    createdAccountId = -1; // already cleaned up; do not delete twice in rollback
+                    log.warn("Failed to find a unique companion name");
+                    return null;
+                }
+                createdName = name;
             }
 
             final Client client = Client.createMock();
@@ -95,12 +103,14 @@ public class DbAgentProvisioner implements AgentProvisioner {
             equipFromRecipe(character, recipe);
 
             if (!character.insertNewChar(recipe)) {
-                deleteAccount(con, accountId);
                 log.warn("insertNewChar failed for companion {}", name);
-                return null;
+                return null; // rollback deletes the (empty) account
             }
             createdCharacterId = character.getId();
-            applyMeso(con, character.getId(), recipe.getMeso());
+
+            try (Connection con = DatabaseConnection.getConnection()) {
+                applyMeso(con, character.getId(), recipe.getMeso());
+            }
 
             // Populate the login-side account/character cache so Client#deleteCharacter is
             // authorized to remove the row again on dismiss.
