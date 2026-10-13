@@ -14,22 +14,28 @@ An agent is a real `Character` logged in through the same bootstrap a human uses
 inbound actions are synthesized packets dispatched through the **real handlers**, and
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
-- **Branch:** `feature/llm-agent-players` (pushed, in sync with origin; working tree clean)
-- **HEAD:** `161cdcd81` — starter profile enabled in `config.yaml` (guide + opt-out committed
-  just before it)
-- **Status:** M0–M7 done (agent engine M0–M4 + opt-out; player-facing **ephemeral
-  companions** M5–M7 via `@agents list|find|pause|resume|dismiss`). Also landed: hold-skill
-  attack pacing + ranged cast stance, foothold-aware platform stepping, and GM
-  `!agent pause|resume`. Remaining open items: a party-quest compatibility audit (M9) and
-  deeper pathing/cast fidelity —
-  see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
-- **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
-  **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
-  **starter profile enabled** (`USE_LLM_AGENTS: true` + auto-combat/sustain/heal/buff/loot/flee)
-  with blank `LLM_API_URL`/`LLM_MODEL`, so agents use the deterministic scripted brain until an
-  endpoint is configured.
-- **Build:** `mvn -q clean test` (green: 145 agent tests across 34 classes + full suite). Fast
-  loop: `mvn -q -Dtest='net.server.agent.*Test' test`.
+- **Branch:** `feature/llm-agent-players` (pushed, in sync with origin). **Not merged to
+  `master`** — a PR/merge is the final release step.
+- **HEAD:** `6c944199b` (companions, cosmetics, movement-animation fixes; full history in §10).
+- **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
+  shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
+  pursued; M9 (party-quest compatibility audit) is open. See §11 and
+  `docs/llm-agent-companions-plan.md`.
+- **Player commands (this server's headings):** players use **`@`** (`@agents list|find|pause|
+  resume|dismiss`, `@agentoptout`); GMs use **`!`** (`!agent spawn|…`). **`/…` is not a command
+  heading here** — a `/…` line from a non-GM is silently dropped.
+- **What a summoned companion is:** an ephemeral, server-owned character named `Agent-<FunWord>`
+  with a random hair/face/skin and cash outfit, built at the player's level with a real
+  job/skills/gear (`CompanionTemplate`), auto-following and auto-partying (level ≥ 10), deleted
+  on dismiss/GM-despawn/shutdown (plus a startup reaper for anything left behind).
+- **Defaults:** source ships off (`USE_LLM_AGENTS: false`), but the committed `config.yaml` has
+  the starter profile on (`USE_LLM_AGENTS: true`, auto-* on, `LLM_AGENT_PLAYER_SPAWN: true`).
+  **Secrets are read from the environment** (`LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL`,
+  `DB_USER`/`DB_PASS`); `.env` is gitignored and `config.yaml` has blank placeholders.
+- **Build:** `mvn -q clean test` (green). Fast loop: `mvn -q -Dtest='net.server.agent.*Test' test`.
+- **⚠ Open loose end:** temporary `[ATKDBG]` logging is in
+  `AbstractDealDamageHandler.parseDamage` pending the attack-animation stance capture — see
+  §11.1 and remove it before merging.
 
 ---
 
@@ -149,6 +155,8 @@ arrive via lightweight hooks (see §5).
 | `AgentCompanionService` | Player companion policy/orchestration (`@agents find|dismiss|list`), per-player caps/cooldown. |
 | `CompanionPartyService` | Forms/extend a party so a summoned companion joins the requester. |
 | `AgentRole` | Canonical companion roles → base job, complement mapping, aliases. |
+| `CompanionTemplate` | Level-appropriate build: advanced job tier, AP/HP/MP, WZ-resolved skill build, gear. |
+| `CompanionAppearance` | Random hair/face/skin + cash outfit; cached, warmed-off-path WZ candidate scan. |
 
 ### New (elsewhere)
 - `src/main/java/net/server/PlayerLoginService.java` — channel bootstrap **extracted** from
@@ -278,6 +286,22 @@ arrive via lightweight hooks (see §5).
 24. **Moderation survives transfers.** `AgentSession.setMuted` is an atomic volatile write;
     `AgentManager.transferChannel` captures and restores the muted flag. `dispatch` drops
     `Say`/`PartySay`/`Whisper` while muted **before** consuming rate budget or audit logging.
+25. **Client animation depends on the movement/attack `stance` byte and the fragment
+    duration/velocity.** Captured from a real client: walk `2`/`3`, stand `4`/`5`, rope/ladder
+    climb `16`. `AgentMovement` uses these, derives the fragment duration from the step at
+    `WALK_SPEED_PX_PER_SEC` (a fixed 120 ms made every step a dash), writes
+    `xwobble`/`ywobble` as pixels-per-second (0 = animate without translating), and broadcasts
+    an idle stance when the agent stops. Do not regress these without a client check.
+26. **Companions are server-owned and disposable.** `DbAgentProvisioner` creates a dedicated
+    `agnt%` account + character; `AgentManager.despawn`/`stop` delete them, and
+    `AgentManager.start()` reaps leftovers for ungraceful shutdowns. `CompanionAppearance`'s WZ
+    candidate scan must stay **cached and off the request path** (an inline O(n^2) `getAllItems()`
+    scan once hung `@agents find` while holding the per-player lock).
+27. **Secrets never live in the repo.** `LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL` and
+    `DB_USER`/`DB_PASS` are read from the environment (non-blank overrides `config.yaml`);
+    `.env` is gitignored. Do not put keys back into `config.yaml`.
+28. **In-game command headings are `@` (players) and `!` (GM).** A `/…` line is not dispatched
+    and is silently dropped by `GeneralChatHandler`; docs/usage strings must not use `/`.
 
 ---
 
@@ -324,9 +348,9 @@ It already runs off the Netty loop.
 | `LLM_AGENT_TICK_MS` | `2000` | Per-agent tick interval. |
 | `LLM_AGENT_PERCEPTION` | `BOUNDED` | `BOUNDED` (range-limited, fair-ish) or `OMNISCIENT` (dev). |
 | `LLM_AGENT_VIEW_RANGE` | `722500.0` | Squared view radius (850²) for BOUNDED. |
-| `LLM_API_URL` | `""` | OpenAI-compatible chat-completions endpoint. Blank ⇒ scripted brain. |
-| `LLM_API_KEY` | `""` | Bearer token (blank for local servers). |
-| `LLM_MODEL` | `""` | Model name. |
+| `LLM_API_URL` | `""` | OpenAI-compatible chat-completions endpoint. Blank ⇒ scripted brain. Env `LLM_API_URL` overrides. |
+| `LLM_API_KEY` | `""` | Bearer token. **Prefer the `LLM_API_KEY` env var** (`.env`, gitignored); never commit a key. |
+| `LLM_MODEL` | `""` | Model name. Env `LLM_MODEL` overrides. |
 | `LLM_MAX_CONCURRENT_CALLS` | `4` | Brain pool size / in-flight LLM requests. |
 | `LLM_AGENT_NAME_PREFIX` | `[AI]` | Label convention for agent names. |
 | `LLM_AGENT_CONTENT_FILTER` | `true` | Basic output filtering. |
@@ -373,6 +397,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AUTO_PARTY` | `true` | Auto form/join a party with the summoned companion. |
 | `LLM_AGENT_COMPLEMENT_JOB` | `true` | Prefer a role that complements the requester's job. |
 | `LLM_AGENT_ACCOUNT_PREFIX` | `agnt` | Prefix for server-owned accounts created for ephemeral companions. |
+| `LLM_AGENT_COMPANION_NAME_PREFIX` | `Agent-` | Name prefix for summonable companion characters (`Agent-<FunWord>`). |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -532,6 +557,37 @@ busy maps
 
 | Commit | Summary |
 | --- | --- |
+| `6c944199b` | agent: use the climb stance for vertical companion steps |
+| `911fe776c` | agent: load companion cash-outfit candidates off the request path (fixes a `find` hang) |
+| `057f3f043` | agent: normal walking pace; temporary stance capture |
+| `98531c6e2` | agent: `Agent-<FunWord>` names + randomized cosmetics |
+| `24a2fc239` | config: load LLM/DB secrets from the environment; gitignore `.env` |
+| `489475c62` | agent: reap orphaned companion accounts on startup |
+| `c4f60da43` | agent: broadcast movement velocity + idle stance so clients animate agents |
+| `60c7b98e7` | docs: sub-level-10 companion behavior |
+| `774ae8455` | agent: correct in-game command headings (`@` players / `!` GM) |
+| `6ce1c0114` | config: enable player-facing companions (`LLM_AGENT_PLAYER_SPAWN`) |
+| `070de1451` | agent: DB-backed provisioner integration test; fix live-path bugs |
+| `3a882270e` | docs: companion recipe breadth done |
+| `3b96e13d9` | agent: level-aware thief fallback weapon; harden WZ template test |
+| `3b8d163b7` | agent: correct companion skill ids and tier builds |
+| `57ba9bc70` | agent: align companion weapon types with granted skills |
+| `fcc453af7` | agent: level-appropriate companion templates (jobs, stats, skills, gear) |
+| `8d26ebf8c` | docs: record accepted anti-AFK posture (M8 not pursued) |
+| `265a5bc3a` | docs: `/agent tell` intentionally dropped |
+| `fc7037d96` | agent: serialize pause with transfers; strengthen tests; docs |
+| `30f64021d` | test(life): make `MobSkillFactoryTest` order-independent |
+| `29b42b4fc` | agent: player `@agents pause|resume` + GM `!agent pause|resume` |
+| `4855cf45d` | test: cover the spawn-during-stop guard |
+| `06e94082d` | agent: foothold-aware platform stepping |
+| `e4072e1d6` | agent: pace hold-skill attacks + fix ranged cast stance |
+| `5a0fabf88` | agent: pass-3 companion fixes (account orphan, despawn tombstone, stop guard) |
+| `472c6b6dc` | agent: pass-2 companion fixes (loot gate, pool liveness, despawn monitor) |
+| `07bd27510` | agent: companion lifecycle / TOCTOU / auto-loot review fixes |
+| `5eddcd054` | agent: player-facing ephemeral companions (`@agents`) |
+| `d1a1f0f7b` | agent: companion config keys + `AgentProvisioner` seam |
+| `b73658cc0` | docs: player-facing companion plan (M5+) |
+| `b11c957de` | docs: add a fresh-agent resume section to the handoff |
 | `161cdcd81` | config: enable the agent starter profile from the guide |
 | `e3013298c` | docs: docker does not auto-run migrations |
 | `69205e862` | docs: add a player/operator usage guide |
@@ -566,80 +622,101 @@ Base branch: `master`. Continue on `feature/llm-agent-players` (it is pushed and
 
 ## 11. Resuming the work (fresh-agent checklist)
 
-M0–M4 plus the player opt-out are implemented, reviewed, tested and pushed. If you are picking
-this up cold:
+The engine (M0–M4), the player opt-out, and player-facing ephemeral companions (M5–M7) are
+implemented, reviewed, tested and pushed. If you are picking this up cold:
 
 1. Read `docs/llm-agent-players-guide.md` (behavior + commands), then this file (§2 architecture,
-   §3 file map, §4 invariants, §5 recipes). The design/plan is `docs/llm-agent-players-plan.md`.
-2. Confirm the baseline: `mvn -q clean test` (green; 145 agent tests). Fast loop:
+   §3 file map, §4 invariants, §5 recipes). Companions have their own design doc:
+   `docs/llm-agent-companions-plan.md`.
+2. Confirm the baseline: `mvn -q clean test` (green). Fast loop:
    `mvn -q -Dtest='net.server.agent.*Test' test`. Compile only: `mvn -q -DskipTests compile`.
+   The live-path integration test is opt-in:
+   `mvn -q -Dagent.it.db.port=3307 -Dtest=DbAgentProvisionerIT test`.
 3. Implement on this branch. Follow the repo's review pattern: implement → run an *independent*
    read-only verifier pass (spawn a subagent) → fix HIGH/MEDIUM findings → update docs →
-   commit → push.
+   commit → push. Local secrets (LLM API key, DB password) come from `.env` (gitignored) — copy
+   `.env.example`; see §11.2.
 
-### 11.1 The only open work
-
-> Status note: since this table was written, the following landed on this branch: player-facing
-> **ephemeral companions** (`@agents`, M5–M7, see `docs/llm-agent-companions-plan.md`),
-> **hold-skill attack pacing + ranged cast stance**, **foothold-aware platform stepping**, and
-> **`@agents pause|resume`** (GM `!agent pause|resume`). The rows below reflect what is still
-> genuinely open.
+### 11.1 Open work
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); `FootholdTree` | **Partially done:** `moveToSmart` is now foothold-aware (walks along the current foothold and drops to the landing foothold via `FootholdTree.findBelow`/`getAllFootholds`), falling back to the old clamped stepping when footholds are absent. Still open: a full foothold **graph** search and any rope/ladder model (the server has none, and `MovePlayerHandler` is client-authoritative on position, so this is largely cosmetic). |
-| **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`attackDelayMs`, `buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | **Partially done:** hold skills now use a fixed minimum interval when the WZ cooldown is 0, and the ranged packet's `stance` mirrors `rangedirection` for them. Still open: exact per-weapon attack-speed and per-skill cast-animation fidelity. |
-| **`!agent tell`** | `AgentCommand` | Intentionally dropped: `pause`/`resume` shipped (player `@agents pause|resume`, GM `!agent pause|resume`); the operator-only `tell` directive was judged marginal and its prototype discarded. |
-| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested), `AgentManager.transferChannel` (no unit test — needs a spawn/DB seam) | Add seams/tests if you touch these paths. Companion provisioning is also only faked in tests, not DB-integration-tested. |
+| **Companion attack animation** (in progress) | `AgentCombat` (`buildAttackPacket`/`buildRangedAttackPacket`; the `stance` byte is hard-coded `4`) | From a player's POV the agent's attack animation is not shown (mobs still die). Capture a **real player's** attack packet — `[ATKDBG]` in `AbstractDealDamageHandler.parseDamage` logs `skill/stance/speed/display/direction` — and mirror those values for agents. Current agent values are `stance=4 speed=4 display=0 direction=0/1`. **Then remove the temporary `[ATKDBG]` logging.** |
+| **Companion movement animation** | `AgentMovement` | Done for the reported cases: walk stance `2/3`, stand `4/5`, climb `16` (captured from a real client), a normal walking pace (duration/velocity from the step), and an idle stance broadcast when the agent stops. Remaining: exact per-weapon attack speed. |
+| **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Foothold-aware stepping exists (walk along the current foothold, drop to the landing foothold). Still open: a full foothold graph search and a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). |
+| **M9 — party-quest compatibility audit** | `scripts/` PQ scripts | Verify a companion filling a party slot does not break PQ objective logic; decide which PQs allow companions. |
+| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
+| **`!agent tell`** | `AgentCommand` | Intentionally dropped (operator-only; marginal value). |
+| **M8 — idle despawn / uptime caps** | — | Intentionally not pursued; the accepted posture is per-player cap + request cooldown + no value transfer + no auto-loot. |
 
 ### 11.2 Environment state (as of the latest session)
 
-- **Database:** the project MySQL container is `cosmic-ms-rebirth-db-1` (`mysql:8.4.0`, host
-  port **3307** → container 3306, schema `cosmic`; root password in `config.yaml`). Both agent
-  tables are now applied and present: `agent_memory` (v0.15.0) and `agent_optout` (v0.16.0).
-  `docker compose`'s init dir (`database/sql`) does **not** run the `migration/` subdir, so
-  apply migrations manually:
+- **Run it:** `docker compose up --build -d` (services `maplestory` + `db`; DB host port
+  **3307** → container 3306, schema `cosmic`). `config.yaml` and `wz/` are volume-mounted, so a
+  config-only change just needs `docker compose up -d`; a code change needs `--build`. Logs:
+  `docker compose logs -f maplestory`.
+- **Secrets are environment-driven.** `AgentConfig` reads `LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL`
+  and `DatabaseConnection` reads `DB_USER`/`DB_PASS` from the environment (a non-blank env var
+  wins); `config.yaml` keeps blank placeholders. Put real values in `.env` (gitignored; copy
+  `.env.example`) and `docker-compose.yml` forwards them. **Never commit a key.**
+- **Database/migrations:** the agent tables are applied (`agent_memory` v0.15.0, `agent_optout`
+  v0.16.0). `docker compose`'s init dir does **not** run `database/sql/migration/`, so apply
+  them manually:
   ```bash
   docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.15.0.sql
   docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.16.0.sql
   ```
-  If you run the server **locally** (not via compose), note `config.yaml` uses `localhost:3306`
-  while the container maps host **3307** — point the JDBC URL at 3307, or run via
-  `docker compose` (which sets `DB_HOST=db`).
-- **Config:** `config.yaml` has the guide's starter profile enabled (`USE_LLM_AGENTS: true`,
-  auto-combat/sustain/heal/buff/loot/flee) with blank `LLM_API_URL`/`LLM_MODEL` ⇒ agents use
-  the **scripted** brain. Set an OpenAI-compatible endpoint for real LLM behavior.
-- **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree clean.
+  A local (non-compose) run needs the JDBC port changed to **3307** (`DB_URL_FORMAT`) unless the
+  host is `db` (compose).
+- **Config:** starter profile on (`USE_LLM_AGENTS: true`, auto-*, `LLM_AGENT_PLAYER_SPAWN: true`).
+  With a blank `LLM_API_URL` agents use the deterministic **scripted** brain; set an
+  OpenAI-compatible endpoint (via `.env`) for real LLM behavior.
+- **In-game commands:** players use `@agents ...`/`@agentoptout`; GMs use `!agent ...`.
+  **`/…` does not dispatch** on this server.
+- **Temporary diagnostics:** `[ATKDBG]` is logged from `AbstractDealDamageHandler.parseDamage`
+  (`System.out`) while the attack-animation stance is being captured — remove it once fixed.
+- **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree
+  clean; **not merged to `master`** yet.
 
 ### 11.3 Definition of done for a change
 
-`mvn -q clean test` green; an independent verifier pass with HIGH/MEDIUM findings addressed;
-`handoff` + `plan` updated (and `guide` if user/operator-facing); worktree clean; committed and
-pushed with a `feat(agent):` / `fix(agent):` / `docs(agent):` message.
+`mvn -q clean test` green (and the opt-in `DbAgentProvisionerIT` green if you touched
+provisioning); an independent verifier pass with HIGH/MEDIUM findings addressed; `handoff` +
+`plan` updated (and `guide` if user/operator-facing); no temporary diagnostic logging left in;
+no secrets committed (keys go in `.env`); worktree clean; committed and pushed with a
+`feat(agent):` / `fix(agent):` / `docs(agent):` message.
 
 ### 11.4 Player-facing companions (M5–M7, shipped)
 
-The GM-only spawn model does not serve solo play. Players can now summon **ephemeral,
-server-provisioned** companions with `@agents list|find|dismiss` (auto level match,
-auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. Key points:
+The GM-only spawn model does not serve solo play. Players summon **ephemeral, server-provisioned**
+companions with `@agents list|find|pause|resume|dismiss`; the full design is in
+**`docs/llm-agent-companions-plan.md`**. Key points:
 
-- `DbAgentProvisioner` allocates a dedicated server-owned account and builds the character
-  through the normal recipe path (`CharacterFactoryRecipe` + `insertNewChar`); a random
-  `[AI]`-prefixed name; level = requester's level; job complements the requester.
-- `AgentCompanionService` enforces the feature switch, eligibility (dead/mid-transition/
-  trade/cash-shop/event/opted-out), map, per-player cap, request cooldown and global
-  capacity, under a per-player lock.
+- `DbAgentProvisioner` allocates a dedicated server-owned account (`LLM_AGENT_ACCOUNT_PREFIX`,
+  default `agnt`) and builds the character through the normal recipe path
+  (`CharacterFactoryRecipe` + `insertNewChar`). The name is `Agent-<FunWord>`
+  (`LLM_AGENT_COMPANION_NAME_PREFIX`), level = requester's level, job = a role that complements
+  the requester unless one is passed (`CompanionTemplate` picks the advanced job/stats/skills/
+  gear for that level tier).
+- `CompanionAppearance` gives a random hair/face/skin and a random **cash** outfit. Cash items
+  are worn at `regular slot - 100` (hat -101 … weapon -111). The candidate scan is cached and
+  **warmed on a background thread at startup** — never call the WZ scan inline (an earlier
+  `getAllItems()`/`getItemData()` version was O(n²) and hung `find`).
+- `AgentCompanionService` enforces the feature switch, eligibility (dead / mid-transition /
+  trade / cash shop / event / opted-out), map, per-player cap, request cooldown and global
+  capacity, all under a per-player stripe lock.
 - Ephemeral sessions are flagged (`AgentSession#isEphemeral`) so memory is never persisted,
   auto-loot is forced off, and `AgentManager.despawn` deletes the character (covering
-  `@agents dismiss`, GM `!agent despawn` and shutdown). `transferChannel` carries the
-  ephemeral/owner/provisioned state across a re-spawn.
-- New config: `LLM_AGENT_PLAYER_SPAWN` (default off), `…_MAX_PER_PLAYER`,
-  `…_REQUEST_COOLDOWN_MS`, `…_LEVEL_MATCH`, `…_AUTO_PARTY`, `…_COMPLEMENT_JOB`,
-  `…_ACCOUNT_PREFIX`.
-- Two independent verifier passes were completed; the fixes commit is `07bd27510`.
-  Deferred: the party-quest script audit (M9); M8 idle despawn/uptime caps are intentionally not
-  pursued (accepted anti-AFK posture).
-  GM-spawned agents remain persistent and unchanged. Note the in-game headings: players use
-  `@agents ...` and `@agentoptout`; GMs use `!agent ...` (`/…` is not dispatched). Below level 10
-  a companion is a `BEGINNER` and auto-party is skipped (server starter-party gate) — it still
-  spawns and follows.
+  `@agents dismiss`, GM `!agent despawn` and `stop()`); `transferChannel` carries the
+  ephemeral/owner/provisioned/paused state across a re-spawn. `AgentManager.start()` also runs a
+  **startup reaper** that deletes leftover `agnt%` accounts (ungraceful shutdowns).
+- New config: `LLM_AGENT_PLAYER_SPAWN`, `…_MAX_PER_PLAYER`, `…_REQUEST_COOLDOWN_MS`,
+  `…_LEVEL_MATCH`, `…_AUTO_PARTY`, `…_COMPLEMENT_JOB`, `…_ACCOUNT_PREFIX`,
+  `…_COMPANION_NAME_PREFIX`.
+- **Live-path gotcha found by `DbAgentProvisionerIT`:** `Client.createMock()` has a null Netty
+  channel, so `insertNewChar`'s `sendPacket` used to NPE — `Client#writePacket` now drops the
+  packet when there is no channel.
+- Verified by multiple independent verifier passes (fixes in `07bd27510`, `472c6b6dc`,
+  `5a0fabf88`, `fc7037d96`) plus the DB integration test. Open: the attack-animation stance
+  (see §11.1); GM-spawned agents remain persistent and unchanged. Below level 10 a companion is
+  a `BEGINNER` and auto-party is skipped (server starter-party gate) but it still follows.

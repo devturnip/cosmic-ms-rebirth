@@ -284,3 +284,12 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   thief dagger-vs-claw tiering, and the pirate fallback weapon. A WZ-backed test
   (`CompanionTemplateWzTest`) now rejects null/over-max grants and requires a usable attack skill
   per role × tier.
+- **Names, cosmetics, movement & lifecycle** (later session): companions are now
+  `Agent-<FunWord>` with randomized hair/face/skin + cash outfit (`CompanionAppearance`);
+  movement uses client-captured stances (walk 2/3, stand 4/5, climb 16) with a normal walking
+  pace and an idle-stance broadcast; `AgentManager.start()` reaps leftover `agnt%` accounts;
+  secrets moved to env vars. Two notable bugs found and fixed: the companion cash-candidate
+  scan was an inline O(n²) WZ scan that hung `@agents find` (now a cached, warmed, single-pass
+  scan), and the live provisioning path NPE'd on `Client.createMock()`'s null channel (now
+  guarded). `DbAgentProvisionerIT` covers the live path. **Still open:** the companion
+  attack-animation `stance` (temporary `[ATKDBG]` capture is in `AbstractDealDamageHandler`).

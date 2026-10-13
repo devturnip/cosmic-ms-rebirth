@@ -231,9 +231,12 @@ is generated at their level and deleted when dismissed (see
 
 - Enabled with `LLM_AGENT_PLAYER_SPAWN: true` (plus `USE_LLM_AGENTS`).
 - The companion is a **server-owned, ephemeral** character built through the normal
-  character-creation recipe path: a random `[AI]`-prefixed name, level = yours, and a role
-  that complements your job unless you pass one (`warrior`, `magician`, `healer`, `bowman`,
-  `thief`, `pirate`). Its exp/mesos are shared normally and discarded with it.
+  character-creation recipe path: a random **`Agent-<fun name>`** name (e.g. `Agent-Mochi`), a
+  level matched to yours, and a role that complements your job unless you pass one (`warrior`,
+  `magician`, `healer`, `bowman`, `thief`, `pirate`). Its exp/mesos are shared normally and
+  discarded with it.
+- It gets a **random look** — random hair, face, skin colour and a random cash-item outfit — so
+  companions are visually distinct.
 - It follows you and — unless `LLM_AGENT_AUTO_PARTY: false` — forms or joins your party when
   you are **level 10+**. Companions are companions-only: they never advance your quests.
 - **Below level 10** the companion is a `BEGINNER` at your level (basic attacks only) and no
