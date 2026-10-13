@@ -142,6 +142,19 @@ public class AgentManager {
      */
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
                                            AgentMemory existingMemory) {
+        return spawn(characterName, world, channel, brain, existingMemory, false, -1);
+    }
+
+    /**
+     * Spawns a session that may be an ephemeral player companion. Ephemeral sessions never load
+     * or persist {@link AgentMemory} and record the requesting player for the per-player cap and
+     * {@code /agents dismiss}.
+     *
+     * @param ephemeral whether the character is a server-provisioned, disposable companion
+     * @param ownerPlayerId the requesting player's character id, or -1 for operator spawns
+     */
+    public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
+                                           AgentMemory existingMemory, boolean ephemeral, int ownerPlayerId) {
         if (!AgentConfig.enabled()) {
             log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
             return null;
@@ -210,8 +223,8 @@ public class AgentManager {
             client.updateLoginState(Client.LOGIN_LOGGEDIN);
 
             final AgentMemory memory = existingMemory != null ? existingMemory
-                    : (AgentConfig.memoryPersist() ? memoryStore.load(player.getId()) : new AgentMemory(player.getId()));
-            final AgentSession session = new AgentSession(client, player, brain, memory);
+                    : ((!ephemeral && AgentConfig.memoryPersist()) ? memoryStore.load(player.getId()) : new AgentMemory(player.getId()));
+            final AgentSession session = new AgentSession(client, player, brain, memory, ephemeral, ownerPlayerId);
             client.setPacketListener(packet -> {
                 // Outbound packets are currently dropped; retained as the seam for future
                 // faithful-transcript / packet-decoding perception.
@@ -310,7 +323,7 @@ public class AgentManager {
         session.shutdown();
         // Persist and disconnect outside any monitor: both can block on DB I/O, and the map
         // removal above is already atomic on the concurrent map.
-        if (AgentConfig.memoryPersist()) {
+        if (!session.isEphemeral() && AgentConfig.memoryPersist()) {
             memoryStore.save(session.getMemory());
         }
         try {
@@ -329,6 +342,41 @@ public class AgentManager {
             }
         }
         return false;
+    }
+
+    /** Number of live agent sessions summoned by {@code ownerPlayerId} (player companions). */
+    public int countOwnedBy(int ownerPlayerId) {
+        if (ownerPlayerId < 0) {
+            return 0;
+        }
+        int count = 0;
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.getOwnerPlayerId() == ownerPlayerId) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Despawns every live session summoned by {@code ownerPlayerId}.
+     *
+     * @return the sessions that were despawned (for the caller to delete their characters)
+     */
+    public List<AgentSession> despawnOwnedBy(int ownerPlayerId) {
+        if (ownerPlayerId < 0) {
+            return List.of();
+        }
+        List<AgentSession> owned = new ArrayList<>();
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.getOwnerPlayerId() == ownerPlayerId) {
+                owned.add(session);
+            }
+        }
+        for (AgentSession session : owned) {
+            despawn(session.getCharacterId());
+        }
+        return owned;
     }
 
     public Collection<AgentSession> getSessions() {

@@ -42,6 +42,10 @@ public class AgentSession {
     private volatile Character player;
     private final AgentBrain brain;
     private final AgentMemory memory;
+    /** Whether this session is an ephemeral player companion (memory is not persisted; dismiss deletes). */
+    private final boolean ephemeral;
+    /** Character id of the player who requested this companion, or -1 for GM/operator spawns. */
+    private final int ownerPlayerId;
     private final AgentActionDispatcher dispatcher = new AgentActionDispatcher();
 
     private final Queue<AgentEvent> inbox = new ConcurrentLinkedQueue<>();
@@ -68,10 +72,17 @@ public class AgentSession {
     private volatile boolean muted;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
+        this(client, player, brain, memory, false, -1);
+    }
+
+    public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory,
+                        boolean ephemeral, int ownerPlayerId) {
         this.client = client;
         this.player = player;
         this.brain = brain;
         this.memory = memory;
+        this.ephemeral = ephemeral;
+        this.ownerPlayerId = ownerPlayerId;
         final int id = THREAD_COUNTER.incrementAndGet();
         this.actionExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "agent-actions-" + id);
@@ -104,6 +115,16 @@ public class AgentSession {
 
     public AgentBrain getBrain() {
         return brain;
+    }
+
+    /** Whether this session is an ephemeral, player-summoned companion. */
+    public boolean isEphemeral() {
+        return ephemeral;
+    }
+
+    /** Character id of the player who summoned this companion, or -1 for operator spawns. */
+    public int getOwnerPlayerId() {
+        return ownerPlayerId;
     }
 
     public boolean isActive() {

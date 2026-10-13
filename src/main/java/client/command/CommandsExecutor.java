@@ -26,6 +26,7 @@ package client.command;
 import client.Client;
 import client.command.commands.gm0.ChangeLanguageCommand;
 import client.command.commands.gm0.AgentOptoutCommand;
+import client.command.commands.gm0.AgentCompanionCommand;
 import client.command.commands.gm0.DisposeCommand;
 import client.command.commands.gm0.DropLimitCommand;
 import client.command.commands.gm0.EnableAuthCommand;
@@ -358,6 +359,7 @@ public class CommandsExecutor {
         addCommand("gacha", GachaCommand.class);
         addCommand("dispose", DisposeCommand.class);
         addCommand("agentoptout", AgentOptoutCommand.class);
+        addCommand("agents", AgentCompanionCommand.class);
         addCommand("changel", ChangeLanguageCommand.class);
         addCommand("equiplv", EquipLvCommand.class);
         addCommand("showrates", ShowRatesCommand.class);
