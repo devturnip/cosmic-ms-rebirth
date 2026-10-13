@@ -72,6 +72,8 @@ public class AgentSession {
     private volatile long lastPatrolAt;
     /** When muted, the agent's chat actions are dropped (GM moderation). */
     private volatile boolean muted;
+    /** Whether a movement step ran in the current behaviour tick (drives idle-stance sync). */
+    private volatile boolean movedThisTick;
     /** When paused, the agent skips all decisions and server-driven behaviour until resumed. */
     private volatile boolean paused;
 
@@ -199,6 +201,11 @@ public class AgentSession {
             actionsThisSecond.set(0);
         }
         return actionsThisSecond.incrementAndGet() <= AgentConfig.maxActionsPerSecond();
+    }
+
+    /** Records that a movement step ran, so the tick will not overwrite it with an idle stance. */
+    public void markMoved() {
+        movedThisTick = true;
     }
 
     public int getFollowTargetId() {
@@ -340,6 +347,7 @@ public class AgentSession {
             }
             return;
         }
+        movedThisTick = false;
         if (followTargetId >= 0 && AgentConfig.followEnabled()) {
             runSafely("follow", this::followStep);
             if (!active.get()) {
@@ -371,6 +379,10 @@ public class AgentSession {
         }
         if (AgentConfig.proactive()) {
             runSafely("proactive", this::proactiveStep);
+        }
+        if (!movedThisTick) {
+            // No movement this tick: tell clients the agent is idle so the last walk animation ends.
+            AgentMovement.broadcastIdle(this);
         }
     }
 

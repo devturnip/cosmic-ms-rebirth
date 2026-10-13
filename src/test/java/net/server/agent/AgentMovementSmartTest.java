@@ -14,6 +14,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -73,6 +74,52 @@ class AgentMovementSmartTest {
         AgentMovement.moveToSmart(session, new Point(300, 10), AgentMovement.MAX_STEP);
 
         assertEquals(new Point(AgentMovement.MAX_STEP, 10), captureMove(session));
+    }
+
+    @Test
+    void moveToWritesANonZeroVelocitySoClientsInterpolate() {
+        AgentSession session = sessionAt(0, 0);
+
+        AgentMovement.moveTo(session, 150, 0, 150);
+
+        ArgumentCaptor<InPacket> captor = ArgumentCaptor.forClass(InPacket.class);
+        verify(session).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), captor.capture());
+        InPacket packet = captor.getValue();
+        packet.skip(HEADER_BYTES);
+        packet.skip(1); // numCommands
+        packet.skip(1); // command type
+        packet.skip(4); // x, y
+        int vx = packet.readShort();
+        assertNotEquals(0, vx, "a walking step must carry a non-zero x velocity");
+    }
+
+    @Test
+    void broadcastIdleResetsAWalkStance() {
+        Character chr = Mockito.mock(Character.class);
+        MapleMap map = Mockito.mock(MapleMap.class);
+        AgentSession session = Mockito.mock(AgentSession.class);
+        when(session.getPlayer()).thenReturn(chr);
+        when(chr.getMap()).thenReturn(map);
+        when(chr.getStance()).thenReturn(2); // walk right
+        when(chr.isFacingLeft()).thenReturn(false);
+
+        AgentMovement.broadcastIdle(session);
+
+        verify(chr).broadcastStance(4); // stand, facing right
+    }
+
+    @Test
+    void broadcastIdleDoesNothingWhenAlreadyStanding() {
+        Character chr = Mockito.mock(Character.class);
+        MapleMap map = Mockito.mock(MapleMap.class);
+        AgentSession session = Mockito.mock(AgentSession.class);
+        when(session.getPlayer()).thenReturn(chr);
+        when(chr.getMap()).thenReturn(map);
+        when(chr.getStance()).thenReturn(4); // already stand
+
+        AgentMovement.broadcastIdle(session);
+
+        verify(chr, Mockito.never()).broadcastStance(Mockito.anyInt());
     }
 
     @Test

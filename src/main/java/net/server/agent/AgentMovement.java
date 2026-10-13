@@ -26,6 +26,9 @@ import java.awt.Rectangle;
 public final class AgentMovement {
     private static final int WALK_STANCE_RIGHT = 2;
     private static final int WALK_STANCE_LEFT = 3;
+    /** Idle/stand stances (see {@code StatEffect}): even = facing right, odd = facing left. */
+    private static final int STAND_STANCE_RIGHT = 4;
+    private static final int STAND_STANCE_LEFT = 5;
     private static final short DEFAULT_DURATION = 120;
     static final int MAX_STEP = 150;
     /** Vertical gap beyond which two positions are treated as different platforms. */
@@ -198,7 +201,25 @@ public final class AgentMovement {
         }
         Point clamped = clampToMap(chr, targetX, targetY);
         int stance = current != null && clamped.x < current.x ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT;
-        session.dispatchInbound(RecvOpcode.MOVE_PLAYER, buildMovePacket(clamped.x, clamped.y, stance));
+        session.dispatchInbound(RecvOpcode.MOVE_PLAYER,
+                buildMovePacket(clamped.x, clamped.y, stance, current == null ? clamped.x : current.x,
+                        current == null ? clamped.y : current.y));
+        session.markMoved();
+    }
+
+    /**
+     * Returns the agent to its idle stance so other clients stop showing the last walk animation.
+     * Only does anything while the character is still in a walk stance.
+     */
+    public static void broadcastIdle(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        int stance = chr.getStance();
+        if (stance == WALK_STANCE_RIGHT || stance == WALK_STANCE_LEFT) {
+            chr.broadcastStance(chr.isFacingLeft() ? STAND_STANCE_LEFT : STAND_STANCE_RIGHT);
+        }
     }
 
     /**
@@ -326,14 +347,25 @@ public final class AgentMovement {
 
     /** Builds a single-command absolute movement packet. Package-private for testing. */
     static InPacket buildMovePacket(int x, int y, int stance) {
+        return buildMovePacket(x, y, stance, x, y);
+    }
+
+    /**
+     * Builds a single-command absolute movement packet with the movement velocity derived from the
+     * step and the fragment duration ({@code xwobble}/{@code ywobble} are pixels-per-second; the
+     * client uses them to interpolate, and zero makes a character animate without translating).
+     */
+    static InPacket buildMovePacket(int x, int y, int stance, int fromX, int fromY) {
+        int vx = (int) Math.round((x - fromX) * 1000.0 / DEFAULT_DURATION);
+        int vy = (int) Math.round((y - fromY) * 1000.0 / DEFAULT_DURATION);
         OutPacket out = new ByteBufOutPacket();
         out.skip(9); // timestamp/header bytes; MovePlayerHandler skips these and never echoes them
         out.writeByte(1); // a single movement command
         out.writeByte(0); // 0 = normal/absolute movement
         out.writeShort(x);
         out.writeShort(y);
-        out.writeShort(0); // xwobble
-        out.writeShort(0); // ywobble
+        out.writeShort(vx); // xwobble (pixels/second)
+        out.writeShort(vy); // ywobble (pixels/second)
         out.writeShort(0); // foothold (ignored by updatePosition for absolute moves)
         out.writeByte(stance);
         out.writeShort(DEFAULT_DURATION);
