@@ -29,7 +29,12 @@ public final class AgentMovement {
     /** Idle/stand stances (see {@code StatEffect}): even = facing right, odd = facing left. */
     private static final int STAND_STANCE_RIGHT = 4;
     private static final int STAND_STANCE_LEFT = 5;
-    private static final short DEFAULT_DURATION = 120;
+    /**
+     * Base walk speed in pixels/second. The movement fragment's duration is derived from the step
+     * distance at this speed (a fixed 120 ms made every step a short dash), and the fragment
+     * velocity is the same value, so clients interpolate at a normal walking pace.
+     */
+    private static final double WALK_SPEED_PX_PER_SEC = 125.0;
     static final int MAX_STEP = 150;
     /** Vertical gap beyond which two positions are treated as different platforms. */
     static final int PLATFORM_TOLERANCE = 80;
@@ -351,13 +356,19 @@ public final class AgentMovement {
     }
 
     /**
-     * Builds a single-command absolute movement packet with the movement velocity derived from the
-     * step and the fragment duration ({@code xwobble}/{@code ywobble} are pixels-per-second; the
-     * client uses them to interpolate, and zero makes a character animate without translating).
+     * Builds a single-command absolute movement packet. The fragment duration is the time to cover
+     * the step at {@link #WALK_SPEED_PX_PER_SEC} (capped at one tick), and the velocity
+     * ({@code xwobble}/{@code ywobble}, pixels/second) matches it, so the client walks at a normal
+     * pace instead of dashing the whole step in a fixed 120 ms.
      */
     static InPacket buildMovePacket(int x, int y, int stance, int fromX, int fromY) {
-        int vx = (int) Math.round((x - fromX) * 1000.0 / DEFAULT_DURATION);
-        int vy = (int) Math.round((y - fromY) * 1000.0 / DEFAULT_DURATION);
+        int dx = x - fromX;
+        int dy = y - fromY;
+        double distance = Math.hypot(dx, dy);
+        int maxDuration = (int) Math.max(1L, Math.min(AgentConfig.tickMs(), 4000L));
+        int duration = (int) Math.max(1L, Math.min(maxDuration, Math.round(distance / WALK_SPEED_PX_PER_SEC * 1000.0)));
+        int vx = (int) Math.round(dx * 1000.0 / duration);
+        int vy = (int) Math.round(dy * 1000.0 / duration);
         OutPacket out = new ByteBufOutPacket();
         out.skip(9); // timestamp/header bytes; MovePlayerHandler skips these and never echoes them
         out.writeByte(1); // a single movement command
@@ -368,8 +379,14 @@ public final class AgentMovement {
         out.writeShort(vy); // ywobble (pixels/second)
         out.writeShort(0); // foothold (ignored by updatePosition for absolute moves)
         out.writeByte(stance);
-        out.writeShort(DEFAULT_DURATION);
+        out.writeShort(duration);
 
         return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
+    }
+
+    /** Largest step (per axis) that keeps a follow walk at a normal pace across one tick. */
+    public static int walkStepPerTick() {
+        return (int) Math.max(1L, Math.min(400L,
+                Math.round(WALK_SPEED_PX_PER_SEC * AgentConfig.tickMs() / 1000.0)));
     }
 }

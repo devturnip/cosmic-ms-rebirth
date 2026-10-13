@@ -434,7 +434,7 @@ public class AgentSession {
         }
         Character target = p.getMap().getCharacterById(targetId);
         if (target != null && target.getMapId() == p.getMapId()) {
-            AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
+            AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), AgentMovement.walkStepPerTick());
             return;
         }
         // Not on this map: resolve through the world (target may be on another map or channel).

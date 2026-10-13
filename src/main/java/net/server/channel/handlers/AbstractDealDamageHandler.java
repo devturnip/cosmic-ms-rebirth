@@ -673,6 +673,10 @@ public abstract class AbstractDealDamageHandler extends AbstractPacketHandler {
             p.skip(4);
         }
 
+        System.out.println("[ATKDBG] who=" + chr.getName() + " skill=" + ret.skill + " stance=" + ret.stance
+                + " speed=" + ret.speed + " display=" + ret.display + " direction=" + ret.direction
+                + " rangedir=" + ret.rangedirection + " nad=" + ret.numAttackedAndDamage);
+
         // Find the base damage to base futher calculations on.
         // Several skills have their own formula in this section.
         long calcDmgMax;
