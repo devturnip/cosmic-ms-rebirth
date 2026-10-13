@@ -52,6 +52,8 @@ public class AgentManager {
     private final AgentOptoutStore optoutStore = new AgentOptoutStore();
     /** Character ids that have opted out of AI-agent interaction (see /agentoptout). */
     private final Set<Integer> optedOut = ConcurrentHashMap.newKeySet();
+    /** Serializes the startup opt-out load against concurrent toggles (avoids a load/toggle race). */
+    private final Object optoutLock = new Object();
 
     private ExecutorService brainPool;
     private ScheduledExecutorService ticker;
@@ -76,7 +78,9 @@ public class AgentManager {
             t.setDaemon(true);
             return t;
         };
-        optedOut.addAll(optoutStore.loadAll());
+        synchronized (optoutLock) {
+            optedOut.addAll(optoutStore.loadAll());
+        }
         brainPool = Executors.newFixedThreadPool(AgentConfig.maxConcurrentCalls(), daemonFactory);
         ticker = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "agent-ticker");
@@ -359,7 +363,9 @@ public class AgentManager {
 
     /** Sets the opt-out state for a player and persists it (best-effort; DB errors are logged). */
     public void setOptedOut(int characterId, boolean value) {
-        applyOptedOut(characterId, value);
+        synchronized (optoutLock) {
+            applyOptedOut(characterId, value);
+        }
         optoutStore.set(characterId, value);
     }
 
