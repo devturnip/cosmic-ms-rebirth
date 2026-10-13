@@ -108,6 +108,24 @@ class AgentPersonaStoreTest {
     }
 
     @Test
+    void jsonAndYamlJoinArrayTraitsTheSameWay() throws IOException {
+        Path json = Files.createTempFile("personas-", ".json");
+        Path yaml = Files.createTempFile("personas-", ".yaml");
+        try {
+            Files.writeString(json,
+                    "{\"alice\":{\"traits\":[\"cheerful\",\"chatty\"]}}", StandardCharsets.UTF_8);
+            Files.writeString(yaml,
+                    "alice:\n  traits:\n    - cheerful\n    - chatty\n", StandardCharsets.UTF_8);
+
+            assertEquals("cheerful, chatty", AgentPersonaStore.load(json.toString()).get("alice").traits());
+            assertEquals("cheerful, chatty", AgentPersonaStore.load(yaml.toString()).get("alice").traits());
+        } finally {
+            Files.deleteIfExists(json);
+            Files.deleteIfExists(yaml);
+        }
+    }
+
+    @Test
     void blankAndMissingPathsYieldEmptyMap() {
         assertTrue(AgentPersonaStore.load(null).isEmpty(), "null path");
         assertTrue(AgentPersonaStore.load("").isEmpty(), "empty path");

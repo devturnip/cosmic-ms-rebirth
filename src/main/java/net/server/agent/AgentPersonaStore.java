@@ -144,7 +144,21 @@ public final class AgentPersonaStore {
                 value(map.get("greeting")), value(map.get("traits"))));
     }
 
+    /** Scalars stringify directly; collections join with ", " to match the JSON loader. */
     private static String value(Object raw) {
-        return raw == null ? "" : String.valueOf(raw);
+        if (raw == null) {
+            return "";
+        }
+        if (raw instanceof java.util.Collection<?> collection) {
+            StringBuilder joined = new StringBuilder();
+            for (Object element : collection) {
+                if (joined.length() > 0) {
+                    joined.append(", ");
+                }
+                joined.append(element);
+            }
+            return joined.toString();
+        }
+        return String.valueOf(raw);
     }
 }

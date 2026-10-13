@@ -37,8 +37,14 @@ public class OpenAiChatClient {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ArrayNode toolsSchema;
 
+    /** Test seam: clears the rolling budget window. */
+    static synchronized void resetBudgetForTest() {
+        budgetWindowStart = 0;
+        budgetCount = 0;
+    }
+
     /** Global cost control: caps LLM requests per minute across all agents. */
-    private static synchronized boolean tryConsumeCallBudget() {
+    static synchronized boolean tryConsumeCallBudget() {
         int cap = AgentConfig.maxCallsPerMinute();
         if (cap <= 0) {
             return true; // unlimited

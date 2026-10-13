@@ -74,10 +74,37 @@ public record AgentPersona(String name, String description, String systemPrompt,
         if (name == null || name.isBlank()) {
             return;
         }
-        String description = node.path("description").isTextual() ? node.get("description").asText() : "";
-        String systemPrompt = node.path("systemPrompt").isTextual() ? node.get("systemPrompt").asText() : "";
-        String greeting = node.path("greeting").isTextual() ? node.get("greeting").asText() : "";
-        String traits = node.path("traits").isTextual() ? node.get("traits").asText() : "";
+        String description = textOrJoin(node.path("description"));
+        String systemPrompt = textOrJoin(node.path("systemPrompt"));
+        String greeting = textOrJoin(node.path("greeting"));
+        String traits = textOrJoin(node.path("traits"));
         personas.put(name, new AgentPersona(name, description, systemPrompt, greeting, traits));
+    }
+
+    /**
+     * Coerces a scalar to its text, or joins an array of scalars with ", " — matching how the
+     * YAML loader stringifies list values, so the same persona behaves identically in both
+     * formats.
+     */
+    private static String textOrJoin(JsonNode node) {
+        if (node == null) {
+            return "";
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node.isArray()) {
+            StringBuilder joined = new StringBuilder();
+            for (JsonNode element : node) {
+                if (element.isValueNode()) {
+                    if (joined.length() > 0) {
+                        joined.append(", ");
+                    }
+                    joined.append(element.asText());
+                }
+            }
+            return joined.toString();
+        }
+        return "";
     }
 }
