@@ -584,3 +584,12 @@ this up cold:
 `mvn -q clean test` green; an independent verifier pass with HIGH/MEDIUM findings addressed;
 `handoff` + `plan` updated (and `guide` if user/operator-facing); worktree clean; committed and
 pushed with a `feat(agent):` / `fix(agent):` / `docs(agent):` message.
+
+### 11.4 Player-facing companions (M5+)
+
+The GM-only spawn model does not serve solo play. The player-facing layer — ephemeral,
+server-provisioned companions summoned by `/agents find` (auto level match, auto-follow,
+auto-party) — is specified in **`docs/llm-agent-companions-plan.md`**. It reuses this
+engine's `AgentManager`, `PlayerLoginService`, brains, party and opt-out machinery; the
+invariants in §4 still apply. Locked decisions: ephemeral by default (GM spawns stay
+persistent), shared exp/meso, random personas, companions-only, LLM brain.

@@ -565,3 +565,14 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 
 **Tests**
 - `src/test/java/net/server/agent/...` using existing `testutil`.
+
+---
+
+## 8. Player-facing companions (M5+)
+
+The shipped engine is an operator tool: agents are pre-existing logged-out characters and
+only a GM can spawn them, which does not serve solo play. The player-facing layer
+(`/agents find|list|dismiss`, ephemeral server-provisioned characters, auto-party) is
+specified in **`docs/llm-agent-companions-plan.md`**. It reuses the same `AgentManager`,
+`PlayerLoginService`, brains, party and opt-out machinery documented above; no engine
+invariants in the handoff change.
