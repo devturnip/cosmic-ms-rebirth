@@ -175,9 +175,6 @@ public abstract class AbstractMovementPacketHandler extends AbstractPacketHandle
                     byte newstate = p.readByte();
                     target.setStance(newstate);
                     p.readShort(); //duration
-                    if (target instanceof client.Character ch) {
-                        log.info("[MVDBG] cmd={} x={} y={} stance={} who={}", command, xpos, ypos, newstate, ch.getName());
-                    }
                     break;
                 }
                 case 1:
@@ -195,9 +192,6 @@ public abstract class AbstractMovementPacketHandler extends AbstractPacketHandle
                     byte newstate = p.readByte();
                     target.setStance(newstate);
                     p.readShort(); //duration
-                    if (target instanceof client.Character ch) {
-                        log.info("[MVDBG] cmd={} REL stance={} who={}", command, newstate, ch.getName());
-                    }
                     break;
                 }
                 case 3:

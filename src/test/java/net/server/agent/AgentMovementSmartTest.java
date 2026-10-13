@@ -94,6 +94,24 @@ class AgentMovementSmartTest {
     }
 
     @Test
+    void verticalStepUsesTheClimbStance() {
+        AgentSession session = sessionAt(0, 0);
+
+        AgentMovement.moveTo(session, 0, 200, 200);
+
+        ArgumentCaptor<InPacket> captor = ArgumentCaptor.forClass(InPacket.class);
+        verify(session).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), captor.capture());
+        InPacket packet = captor.getValue();
+        packet.skip(HEADER_BYTES);
+        packet.skip(1); // numCommands
+        packet.skip(1); // command type
+        packet.skip(4); // x, y
+        packet.skip(4); // vx, vy
+        packet.skip(2); // foothold
+        assertEquals(16, packet.readByte(), "a vertical step should use the rope/ladder climb stance");
+    }
+
+    @Test
     void broadcastIdleResetsAWalkStance() {
         Character chr = Mockito.mock(Character.class);
         MapleMap map = Mockito.mock(MapleMap.class);

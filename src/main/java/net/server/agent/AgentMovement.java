@@ -29,6 +29,8 @@ public final class AgentMovement {
     /** Idle/stand stances (see {@code StatEffect}): even = facing right, odd = facing left. */
     private static final int STAND_STANCE_RIGHT = 4;
     private static final int STAND_STANCE_LEFT = 5;
+    /** Rope/ladder climb stance (captured from a real client climbing). */
+    private static final int CLIMB_STANCE = 16;
     /**
      * Base walk speed in pixels/second. The movement fragment's duration is derived from the step
      * distance at this speed (a fixed 120 ms made every step a short dash), and the fragment
@@ -205,10 +207,17 @@ public final class AgentMovement {
             }
         }
         Point clamped = clampToMap(chr, targetX, targetY);
-        int stance = current != null && clamped.x < current.x ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT;
+        final int fromX = current == null ? clamped.x : current.x;
+        final int fromY = current == null ? clamped.y : current.y;
+        // Vertical-dominant steps read as rope/ladder climbing; horizontal ones as walking.
+        int stance;
+        if (Math.abs(clamped.y - fromY) > Math.abs(clamped.x - fromX)) {
+            stance = CLIMB_STANCE;
+        } else {
+            stance = clamped.x < fromX ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT;
+        }
         session.dispatchInbound(RecvOpcode.MOVE_PLAYER,
-                buildMovePacket(clamped.x, clamped.y, stance, current == null ? clamped.x : current.x,
-                        current == null ? clamped.y : current.y));
+                buildMovePacket(clamped.x, clamped.y, stance, fromX, fromY));
         session.markMoved();
     }
 
@@ -222,7 +231,7 @@ public final class AgentMovement {
             return;
         }
         int stance = chr.getStance();
-        if (stance == WALK_STANCE_RIGHT || stance == WALK_STANCE_LEFT) {
+        if (stance == WALK_STANCE_RIGHT || stance == WALK_STANCE_LEFT || stance == CLIMB_STANCE) {
             chr.broadcastStance(chr.isFacingLeft() ? STAND_STANCE_LEFT : STAND_STANCE_RIGHT);
         }
     }

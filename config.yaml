@@ -492,12 +492,12 @@ server:
     LLM_AGENT_AUTO_LOOT: true           #Auto-pick up nearby drops the agent owns (or free drops) after combat.
     LLM_AGENT_AOE_ATTACK: false         #Allow a multi-target skill attack to hit several nearby monsters at once.
     LLM_AGENT_AOE_MAX_TARGETS: 6        #Upper bound on monsters hit by one multi-target attack.
-    LLM_AGENT_FOLLOW_WARP: false        #Warp the agent to its follow target's map when they leave the current map.
+    LLM_AGENT_FOLLOW_WARP: true        #Warp the agent to its follow target's map when they leave the current map.
     LLM_AGENT_AUTO_RECHARGE: false      #Allow ranged agents to recharge ammo (meso cost) at a nearby shop NPC.
     LLM_AGENT_RECHARGE_RANGE_SQ: 150000.0 #Squared distance within which an NPC can act as a recharge shop (~387px).
     LLM_AGENT_AUTO_FLEE: true           #Retreat from monsters when HP drops below LLM_AGENT_FLEE_PERCENT.
     LLM_AGENT_FLEE_PERCENT: 25          #Flee when HP is below this percentage (only with LLM_AGENT_AUTO_FLEE).
-    LLM_AGENT_FOLLOW_CHANNEL: false     #Follow the party leader across channels (re-logs the agent on the target channel).
+    LLM_AGENT_FOLLOW_CHANNEL: true     #Follow the party leader across channels (re-logs the agent on the target channel).
     LLM_AGENT_PROACTIVE: false          #Master switch for proactive (non-reactive) agent behavior.
     LLM_AGENT_GREET: true               #With PROACTIVE on, greet nearby players once each.
     LLM_AGENT_MATCHMAKE: true           #With PROACTIVE on, auto-register for party search (auto-invites nearby solos).
