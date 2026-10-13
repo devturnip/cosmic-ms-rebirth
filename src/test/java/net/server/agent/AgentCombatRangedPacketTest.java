@@ -9,6 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Verifies the byte layout of {@link AgentCombat#buildRangedAttackPacket(int, int, int)} against
  * the {@code ranged} branch of {@code AbstractDealDamageHandler#parseDamage}, including the extra
  * 4-byte block read for Hurricane-like skills and the charge int for charge-list skills.
+ * <p>
+ * Real clients send {@code stance = 0} and {@code speed = 6} for attacks (captured live); the
+ * client picks the attack animation from the skill/weapon, so the stance must not be a movement
+ * stance.
  */
 class AgentCombatRangedPacketTest {
 
@@ -20,15 +24,12 @@ class AgentCombatRangedPacketTest {
      * id; {@code rangedExtra} adds the 4-byte block skipped after the fixed ranged header.
      */
     private static void assertRangedLayout(InPacket packet, int skillId, boolean charge, boolean rangedExtra) {
-        assertRangedLayout(packet, skillId, charge, rangedExtra, 0, 0, 4);
+        assertRangedLayout(packet, skillId, charge, rangedExtra, 0, 0);
     }
 
-    /**
-     * Decodes the ranged layout in parse-order with explicit direction/rangedirection/stance.
-     * For hold skills stance mirrors rangedirection; other ranged skills keep stance 4.
-     */
+    /** Decodes the ranged layout in parse-order with explicit direction/rangedirection. */
     private static void assertRangedLayout(InPacket packet, int skillId, boolean charge, boolean rangedExtra,
-            int direction, int rangedirection, int stance) {
+            int direction, int rangedirection) {
         assertEquals(0, packet.readUnsignedByte(), "unknown prefix byte");
         assertEquals(0x11, packet.readUnsignedByte(), "1 attacked, 1 damage line");
         assertEquals(skillId, packet.readInt(), "skill id");
@@ -38,9 +39,9 @@ class AgentCombatRangedPacketTest {
         packet.skip(8); // fixed 8-byte block
         assertEquals(0, packet.readUnsignedByte(), "display");
         assertEquals(direction, packet.readUnsignedByte(), "direction");
-        assertEquals(stance, packet.readUnsignedByte(), "stance");
+        assertEquals(0, packet.readUnsignedByte(), "stance (real clients send 0)");
         assertEquals(0, packet.readUnsignedByte(), "unused");
-        assertEquals(4, packet.readUnsignedByte(), "speed");
+        assertEquals(6, packet.readUnsignedByte(), "speed (real clients send 6)");
         assertEquals(0, packet.readUnsignedByte(), "unused (ranged)");
         assertEquals(rangedirection, packet.readUnsignedByte(), "rangedirection");
         packet.skip(7); // fixed ranged block
@@ -69,26 +70,24 @@ class AgentCombatRangedPacketTest {
         byte[] raw = packet.getBytes();
 
         assertEquals(58, raw.length, "total packet length with extra block");
-        // A hold skill rebroadcasts stance = rangedirection, here both 0.
-        assertRangedLayout(packet, 3121004, false, true, 0, 0, 0);
+        assertRangedLayout(packet, 3121004, false, true);
         assertEquals(0, packet.available(), "packet should be fully consumed");
     }
 
     @Test
-    void buildRangedAttackPacketHoldSkillStanceMirrorsDirection() {
+    void buildRangedAttackPacketUsesAttackStanceZeroForHoldSkillsToo() {
         InPacket packet = AgentCombat.buildRangedAttackPacket(3121004, TARGET_OID, DAMAGE, 1, 1);
 
-        // direction 1 (left) => stance and rangedirection both 1 for Hurricane.
-        assertRangedLayout(packet, 3121004, false, true, 1, 1, 1);
+        // direction/rangedirection 1, but the stance byte stays the attack stance 0.
+        assertRangedLayout(packet, 3121004, false, true, 1, 1);
         assertEquals(0, packet.available(), "packet should be fully consumed");
     }
 
     @Test
-    void buildRangedAttackPacketNormalSkillKeepsStanceFour() {
+    void buildRangedAttackPacketNormalSkillUsesStanceZero() {
         InPacket packet = AgentCombat.buildRangedAttackPacket(0, TARGET_OID, DAMAGE, 1, 1);
 
-        // direction/rangedirection 1, but a normal ranged attack keeps stance 4.
-        assertRangedLayout(packet, 0, false, false, 1, 1, 4);
+        assertRangedLayout(packet, 0, false, false, 1, 1);
         assertEquals(0, packet.available(), "packet should be fully consumed");
     }
 
@@ -99,7 +98,7 @@ class AgentCombatRangedPacketTest {
 
         // Big Bang is on the charge list, so parseDamage reads an extra int before the header.
         assertEquals(58, raw.length, "total packet length with charge int");
-        assertRangedLayout(packet, 2121001, true, false, 0, 0, 4);
+        assertRangedLayout(packet, 2121001, true, false);
         assertEquals(0, packet.available(), "packet should be fully consumed");
     }
 }

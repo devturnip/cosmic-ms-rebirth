@@ -25,9 +25,9 @@ class AgentCombatMultiTargetPacketTest {
         packet.skip(8); // fixed 8-byte block
         assertEquals(0, packet.readUnsignedByte(), "display");
         assertEquals(0, packet.readUnsignedByte(), "direction");
-        assertEquals(4, packet.readUnsignedByte(), "stance");
+        assertEquals(0, packet.readUnsignedByte(), "stance");
         assertEquals(0, packet.readUnsignedByte(), "unused");
-        assertEquals(4, packet.readUnsignedByte(), "speed");
+        assertEquals(6, packet.readUnsignedByte(), "speed");
         packet.skip(4); // unknown
         for (int oid : List.of(11, 22, 33)) {
             assertEquals(oid, packet.readInt(), "target oid");

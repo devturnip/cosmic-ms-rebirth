@@ -1015,12 +1015,11 @@ public final class AgentCombat {
         out.skip(8);
         out.writeByte(0);   // display
         out.writeByte(dir); // direction (0 = right, 1 = left)
-        // parseDamage reads stance here but RangedAttackHandler rebroadcasts Hurricane-family
-        // skills with stance = rangedirection, so mirror that for the hold skills; other ranged
-        // skills keep the normal stance 4.
-        out.writeByte(RANGED_EXTRA_SKILLS.contains(skillId) ? dir : 4); // stance
+        // Real clients send stance 0 for attacks (captured from a live client); the client picks
+        // the attack animation from the skill/weapon, so this must NOT be a movement stance (2..5).
+        out.writeByte(0);   // stance
         out.writeByte(0);   // (ranged: unused)
-        out.writeByte(4);   // speed
+        out.writeByte(6);   // speed
         out.writeByte(0);   // (ranged: unused)
         out.writeByte(dir); // rangedirection
         out.skip(7);
@@ -1093,9 +1092,9 @@ public final class AgentCombat {
         out.skip(8);                            // fixed 8-byte block
         out.writeByte(0);                       // display
         out.writeByte(direction & 0xFF);        // direction (0 = right, 1 = left)
-        out.writeByte(4);                       // stance
+        out.writeByte(0);                       // stance (captured from a real client)
         out.writeByte(0);                       // (non-ranged unused)
-        out.writeByte(4);                       // speed
+        out.writeByte(6);                       // speed
         out.skip(4);                            // unknown
         for (int targetObjectId : targets) {
             out.writeInt(targetObjectId);

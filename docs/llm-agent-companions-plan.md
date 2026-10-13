@@ -291,5 +291,5 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   secrets moved to env vars. Two notable bugs found and fixed: the companion cash-candidate
   scan was an inline O(n²) WZ scan that hung `@agents find` (now a cached, warmed, single-pass
   scan), and the live provisioning path NPE'd on `Client.createMock()`'s null channel (now
-  guarded). `DbAgentProvisionerIT` covers the live path. **Still open:** the companion
-  attack-animation `stance` (temporary `[ATKDBG]` capture is in `AbstractDealDamageHandler`).
+  guarded). `DbAgentProvisionerIT` covers the live path. The companion **attack animation** is
+  fixed by mirroring the captured client attack stance (`0`) and speed (`6`).

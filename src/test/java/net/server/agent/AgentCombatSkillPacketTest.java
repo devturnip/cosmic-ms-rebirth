@@ -31,9 +31,9 @@ class AgentCombatSkillPacketTest {
         packet.skip(8); // fixed 8-byte block
         assertEquals(0, packet.readUnsignedByte(), "display");
         assertEquals(0, packet.readUnsignedByte(), "direction");
-        assertEquals(4, packet.readUnsignedByte(), "stance");
+        assertEquals(0, packet.readUnsignedByte(), "stance");
         assertEquals(0, packet.readUnsignedByte(), "unused");
-        assertEquals(4, packet.readUnsignedByte(), "speed");
+        assertEquals(6, packet.readUnsignedByte(), "speed");
         packet.skip(4); // unknown
         assertEquals(TARGET_OID, packet.readInt(), "target oid");
         packet.skip(14); // per-target unknown block

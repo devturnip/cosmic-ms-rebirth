@@ -33,9 +33,9 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
   **Secrets are read from the environment** (`LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL`,
   `DB_USER`/`DB_PASS`); `.env` is gitignored and `config.yaml` has blank placeholders.
 - **Build:** `mvn -q clean test` (green). Fast loop: `mvn -q -Dtest='net.server.agent.*Test' test`.
-- **⚠ Open loose end:** temporary `[ATKDBG]` logging is in
-  `AbstractDealDamageHandler.parseDamage` pending the attack-animation stance capture — see
-  §11.1 and remove it before merging.
+- **Client animation:** companion walk/stand/climb stances and the attack stance (`0`)/speed
+  (`6`) were captured from a real client and are mirrored in `AgentMovement`/`AgentCombat`. Do
+  not regress them without a client check (see §4.25).
 
 ---
 
@@ -641,8 +641,7 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Companion attack animation** (in progress) | `AgentCombat` (`buildAttackPacket`/`buildRangedAttackPacket`; the `stance` byte is hard-coded `4`) | From a player's POV the agent's attack animation is not shown (mobs still die). Capture a **real player's** attack packet — `[ATKDBG]` in `AbstractDealDamageHandler.parseDamage` logs `skill/stance/speed/display/direction` — and mirror those values for agents. Current agent values are `stance=4 speed=4 display=0 direction=0/1`. **Then remove the temporary `[ATKDBG]` logging.** |
-| **Companion movement animation** | `AgentMovement` | Done for the reported cases: walk stance `2/3`, stand `4/5`, climb `16` (captured from a real client), a normal walking pace (duration/velocity from the step), and an idle stance broadcast when the agent stops. Remaining: exact per-weapon attack speed. |
+| **Companion animation** | `AgentMovement`, `AgentCombat` | Done: walk stance `2/3`, stand `4/5`, climb `16`, attack stance `0`/speed `6` (all captured from a real client); normal walking pace (duration/velocity from the step); idle stance broadcast when the agent stops. Remaining: exact per-weapon attack speed (currently the captured `6`). |
 | **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Foothold-aware stepping exists (walk along the current foothold, drop to the landing foothold). Still open: a full foothold graph search and a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). |
 | **M9 — party-quest compatibility audit** | `scripts/` PQ scripts | Verify a companion filling a party slot does not break PQ objective logic; decide which PQs allow companions. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
@@ -673,8 +672,8 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
   OpenAI-compatible endpoint (via `.env`) for real LLM behavior.
 - **In-game commands:** players use `@agents ...`/`@agentoptout`; GMs use `!agent ...`.
   **`/…` does not dispatch** on this server.
-- **Temporary diagnostics:** `[ATKDBG]` is logged from `AbstractDealDamageHandler.parseDamage`
-  (`System.out`) while the attack-animation stance is being captured — remove it once fixed.
+- **Temporary diagnostics:** none currently (the `[ATKDBG]` movement/attack capture was removed
+  after the animation stances were fixed).
 - **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree
   clean; **not merged to `master`** yet.
 
