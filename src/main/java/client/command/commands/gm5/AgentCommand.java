@@ -30,7 +30,7 @@ import server.ThreadManager;
 
 public class AgentCommand extends Command {
     {
-        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|pause|resume|optout ...");
+        setDescription("Manage in-process LLM agents. Usage: !agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|pause|resume|optout ...");
     }
 
     @Override
@@ -57,7 +57,7 @@ public class AgentCommand extends Command {
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
-            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name> | pause <name> | resume <name> | optout <player>");
+            player.message("Usage: !agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name> | pause <name> | resume <name> | optout <player>");
             return;
         }
 
@@ -69,7 +69,7 @@ public class AgentCommand extends Command {
                     return;
                 }
                 if (params.length < 2) {
-                    player.message("Usage: /agent spawn <characterName>");
+                    player.message("Usage: !agent spawn <characterName>");
                     return;
                 }
                 String name = params[1];
@@ -82,7 +82,7 @@ public class AgentCommand extends Command {
             }
             case "despawn" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent despawn <characterName>");
+                    player.message("Usage: !agent despawn <characterName>");
                     return;
                 }
                 String name = params[1];
@@ -105,7 +105,7 @@ public class AgentCommand extends Command {
             }
             case "say" -> {
                 if (params.length < 3) {
-                    player.message("Usage: /agent say <characterName> <message>");
+                    player.message("Usage: !agent say <characterName> <message>");
                     return;
                 }
                 String name = params[1];
@@ -114,7 +114,7 @@ public class AgentCommand extends Command {
             }
             case "follow" -> {
                 if (params.length < 3) {
-                    player.message("Usage: /agent follow <agentName> <playerName>");
+                    player.message("Usage: !agent follow <agentName> <playerName>");
                     return;
                 }
                 player.message(manager.setFollow(params[1], params[2], c.getWorld())
@@ -123,14 +123,14 @@ public class AgentCommand extends Command {
             }
             case "stopfollow" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent stopfollow <agentName>");
+                    player.message("Usage: !agent stopfollow <agentName>");
                     return;
                 }
                 player.message(manager.clearFollow(params[1]) ? "Agent '" + params[1] + "' will stop following." : "No active agent named '" + params[1] + "'.");
             }
             case "search" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent search <agentName>");
+                    player.message("Usage: !agent search <agentName>");
                     return;
                 }
                 player.message(manager.registerForPartySearch(params[1], c.getWorld())
@@ -139,7 +139,7 @@ public class AgentCommand extends Command {
             }
             case "status" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent status <agentName>");
+                    player.message("Usage: !agent status <agentName>");
                     return;
                 }
                 AgentSession session = findSession(manager, params[1]);
@@ -169,7 +169,7 @@ public class AgentCommand extends Command {
             }
             case "optout" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent optout <playerName>");
+                    player.message("Usage: !agent optout <playerName>");
                     return;
                 }
                 Character target = player.getWorldServer().getPlayerStorage().getCharacterByName(params[1]);
@@ -184,7 +184,7 @@ public class AgentCommand extends Command {
             }
             case "mute", "unmute" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent mute|unmute <agentName>");
+                    player.message("Usage: !agent mute|unmute <agentName>");
                     return;
                 }
                 AgentSession session = findSession(manager, params[1]);
@@ -199,7 +199,7 @@ public class AgentCommand extends Command {
             }
             case "pause", "resume" -> {
                 if (params.length < 2) {
-                    player.message("Usage: /agent pause|resume <agentName>");
+                    player.message("Usage: !agent pause|resume <agentName>");
                     return;
                 }
                 AgentSession session = findSession(manager, params[1]);

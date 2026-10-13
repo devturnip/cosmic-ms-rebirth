@@ -18,9 +18,9 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **HEAD:** `161cdcd81` — starter profile enabled in `config.yaml` (guide + opt-out committed
   just before it)
 - **Status:** M0–M7 done (agent engine M0–M4 + opt-out; player-facing **ephemeral
-  companions** M5–M7 via `/agents list|find|pause|resume|dismiss`). Also landed: hold-skill
+  companions** M5–M7 via `@agents list|find|pause|resume|dismiss`). Also landed: hold-skill
   attack pacing + ranged cast stance, foothold-aware platform stepping, and GM
-  `/agent pause|resume`. Remaining open items: a party-quest compatibility audit (M9) and
+  `!agent pause|resume`. Remaining open items: a party-quest compatibility audit (M9) and
   deeper pathing/cast fidelity —
   see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
 - **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
@@ -54,12 +54,12 @@ Exercise agents in-game:
    llama.cpp/vLLM). Leave URL blank to use the deterministic `ScriptedAgentBrain`.
 2. Create/choose a character in world 0 (name it with the `[AI]` prefix by convention).
 3. Log in as a GM (rank 5+) and run:
-   - `/agent spawn <name>` — brings the character online as an agent
-   - `/agent list`
-   - `/agent say <name> <text>` — GM instruction to the brain
-   - `/agent follow <name> <playerName>` / `/agent stopfollow <name>`
-   - `/agent search <name>` — register as a party-search leader (solos can find it)
-   - `/agent despawn <name>`
+   - `!agent spawn <name>` — brings the character online as an agent
+   - `!agent list`
+   - `!agent say <name> <text>` — GM instruction to the brain
+   - `!agent follow <name> <playerName>` / `!agent stopfollow <name>`
+   - `!agent search <name>` — register as a party-search leader (solos can find it)
+   - `!agent despawn <name>`
 
 ---
 
@@ -67,7 +67,7 @@ Exercise agents in-game:
 
 ```
                     ┌──────────────────────────────────────────────┐
-                    │                 AgentManager                 │  net/server/agent/AgentManager.java
+                    │                 AgentManager                 │  net/server!agent/AgentManager.java
                     │  registry · ticker · brain pool · event路由  │
                     └───────────────┬──────────────────────────────┘
                                     │ owns 1..N
@@ -112,13 +112,13 @@ arrive via lightweight hooks (see §5).
   agent happen there, serialized.
 - `AgentManager` ticker (single thread) calls `AgentSession#tick` every `LLM_AGENT_TICK_MS`.
 - `spawn` is `synchronized` on `AgentManager`; `despawn` uses the concurrent map's atomic
-  remove and does its DB I/O outside any monitor. `/agent` runs on `ThreadManager`.
+  remove and does its DB I/O outside any monitor. `!agent` runs on `ThreadManager`.
 
 ---
 
 ## 3. File map
 
-### New (all under `src/main/java/net/server/agent/`)
+### New (all under `src/main/java/net/server!agent/`)
 | File | Responsibility |
 | --- | --- |
 | `AgentManager` | Singleton: start/stop, spawn/despawn, event routing hooks, party-search + follow control, ticker + brain pool. |
@@ -146,19 +146,19 @@ arrive via lightweight hooks (see §5).
 | `AgentConfig` | Typed access to `config.yaml` with safe defaults. |
 | `AgentProvisioner` | Interface + `ProvisionedAgent` record for server-owned ephemeral character provisioning. |
 | `DbAgentProvisioner` | JDBC implementation: dedicated account + recipe-built character; deletes both on despawn. |
-| `AgentCompanionService` | Player companion policy/orchestration (`/agents find|dismiss|list`), per-player caps/cooldown. |
+| `AgentCompanionService` | Player companion policy/orchestration (`@agents find|dismiss|list`), per-player caps/cooldown. |
 | `CompanionPartyService` | Forms/extend a party so a summoned companion joins the requester. |
 | `AgentRole` | Canonical companion roles → base job, complement mapping, aliases. |
 
 ### New (elsewhere)
 - `src/main/java/net/server/PlayerLoginService.java` — channel bootstrap **extracted** from
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
-- `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
-- `src/main/java/client/command/commands/gm0/AgentCompanionCommand.java` — player `/agents ...`.
+- `src/main/java/client/command/commands/gm5/AgentCommand.java` — `!agent ...`.
+- `src/main/java/client/command/commands/gm0/AgentCompanionCommand.java` — player `@agents ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
 - `database/sql/migration/v0.16.0.sql` — `agent_optout` table.
-- `src/main/java/client/command/commands/gm0/AgentOptoutCommand.java` — player `/agentoptout`.
-- `src/test/java/net/server/agent/*` — 23 test classes (85 tests).
+- `src/main/java/client/command/commands/gm0/AgentOptoutCommand.java` — player `@agentoptout`.
+- `src/test/java/net/server!agent/*` — 23 test classes (85 tests).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -190,7 +190,7 @@ arrive via lightweight hooks (see §5).
 1. **`PlayerLoginService.finishLogin` is a byte-for-byte extraction** of the old
    `PlayerLoggedinHandler` body. If you change login behavior, change it there.
 2. **Never block a Netty event loop.** Agent work runs on `brainPool`/`actionExecutor`/
-   `ThreadManager`. `/agent` is offloaded via `ThreadManager`.
+   `ThreadManager`. `!agent` is offloaded via `ThreadManager`.
 3. **All agent chat goes through `sanitize()`**, which clamps to 127 chars and strips
    leading `/ @ !` — otherwise the agent can execute server commands or self-disconnect
    (autoban on >127-char chat). Do not bypass.
@@ -205,7 +205,7 @@ arrive via lightweight hooks (see §5).
    no teleport from hallucinated coordinates.
 7. **Item pickup validates** the handler's range box (`|dx|≤800`, `|dy|≤600`) and ownership.
 8. **Follow state is recomputed after party mutations** (`refreshAutoFollow`), and a manual
-   `/agent follow` is sticky via `AgentSession.isManualFollow()`.
+   `!agent follow` is sticky via `AgentSession.isManualFollow()`.
 9. **`AgentMemory` is synchronized**; `AgentManager` maps are `ConcurrentHashMap`.
 10. `AgentAction` is a **sealed interface** — adding a record requires updating the
     exhaustive `switch` in `AgentActionDispatcher#dispatch` (and the LLM tool mapping if
@@ -319,7 +319,7 @@ It already runs off the Netty loop.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `USE_LLM_AGENTS` | `false` | Master switch (gates auto-start **and** `/agent spawn`). |
+| `USE_LLM_AGENTS` | `false` | Master switch (gates auto-start **and** `!agent spawn`). |
 | `LLM_AGENTS_MAX` | `4` | Max simultaneous agents. |
 | `LLM_AGENT_TICK_MS` | `2000` | Per-agent tick interval. |
 | `LLM_AGENT_PERCEPTION` | `BOUNDED` | `BOUNDED` (range-limited, fair-ish) or `OMNISCIENT` (dev). |
@@ -366,9 +366,9 @@ It already runs off the Netty loop.
 | `LLM_AGENT_MEMORY_SUMMARIZE` | `true` | Fold old dialogue into durable memory facts. |
 | `LLM_MAX_CALLS_PER_MIN` | `60` | Global cap on LLM requests per minute (0 = unlimited). |
 | `LLM_AGENT_NOTICE` | `false` | Broadcast a map notice that an agent is AI-controlled when it spawns. |
-| `LLM_AGENT_PLAYER_SPAWN` | `false` | Allow rank-0 players to summon ephemeral companions with `/agents find`. |
+| `LLM_AGENT_PLAYER_SPAWN` | `false` | Allow rank-0 players to summon ephemeral companions with `@agents find`. |
 | `LLM_AGENT_MAX_PER_PLAYER` | `1` | Max simultaneous companions summoned by one player. |
-| `LLM_AGENT_REQUEST_COOLDOWN_MS` | `60000` | Minimum ms between `/agents find` requests by one player. |
+| `LLM_AGENT_REQUEST_COOLDOWN_MS` | `60000` | Minimum ms between `@agents find` requests by one player. |
 | `LLM_AGENT_LEVEL_MATCH` | `EXACT` | `EXACT` (requester's level) or `BAND5`. |
 | `LLM_AGENT_AUTO_PARTY` | `true` | Auto form/join a party with the summoned companion. |
 | `LLM_AGENT_COMPLEMENT_JOB` | `true` | Prefer a role that complements the requester's job. |
@@ -409,21 +409,21 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 ```
 `AgentOptoutStore` loads the whole set into `AgentManager` at start and toggles rows on
-`/agentoptout`; failures are logged, never thrown.
+`@agentoptout`; failures are logged, never thrown.
 
 ---
 
 ## 8. What's done vs. not
 
 **Done**
-- M0: headless puppet player, real bootstrap, `/agent spawn`.
+- M0: headless puppet player, real bootstrap, `!agent spawn`.
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader (same-map walk +
   cross-map warp), party-search listing.
 - M4: opt-in proactive behavior (greet once per nearby player, auto party-search
   matchmaking that invites nearby solos, idle patrol), persona `greeting`/`traits`,
   memory compaction (single rolling summary fact), a global `LLM_MAX_CALLS_PER_MIN` request
-  budget, `/agent status|mute|unmute`, and an optional map AI notice.
+  budget, `!agent status|mute|unmute`, and an optional map AI notice.
 - M3 (complete): monster/item/NPC perception, clamped foothold-aware movement, follow
   (same-map walking, portal-based cross-map travel, opt-in cross-channel re-login), item
   pickup, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks with
@@ -432,7 +432,7 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   facing, local skill cooldowns + HP/MP-cost gating, auto-flee, ammo perception
   (`rangedWeapon`/`ammoCount`/`outOfAmmo`) and shop resupply (recharge stars/bullets, buy
   arrows), plus LLM `follow`/`stop_following` movement tools.
-- Player-facing opt-out: `/agentoptout` (rank 0) and GM `/agent optout <player>` suppress
+- Player-facing opt-out: `@agentoptout` (rank 0) and GM `!agent optout <player>` suppress
   agent greetings, party-search invites, whispers, party invites, party chat and follow;
   persisted in `agent_optout` and loaded at start.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
@@ -446,9 +446,9 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
   per-skill cast-animation fidelity remain approximate.
-- **`/agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
-  prototype was discarded). `/agents pause|resume` and GM `/agent pause|resume` **are implemented**.
-- **Player-facing companions (M5–M7):** implemented (`/agents list|find|pause|resume|dismiss`)
+- **`!agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
+  prototype was discarded). `@agents pause|resume` and GM `!agent pause|resume` **are implemented**.
+- **Player-facing companions (M5–M7):** implemented (`@agents list|find|pause|resume|dismiss`)
   with level-appropriate builds (`CompanionTemplate`: job tiers, AP, skills, gear);
   see **`docs/llm-agent-companions-plan.md`**. M9 (party-quest audit) remains open; M8 (idle
   despawn/uptime caps) is intentionally not pursued — the per-player cap + request cooldown +
@@ -489,7 +489,7 @@ HIGH/MEDIUM findings were addressed:
 - **Player opt-out**: two verifier passes. Fixed: party chat (both directions) and follow were
   un-gated bypasses (party chat now checks the speaker and drops party-say when a member has
   opted out; follow resolves and refuses opted-out targets, including auto-follow); the
-  `/agentoptout` command no longer does JDBC on the Netty loop (offloaded to `ThreadManager`);
+  `@agentoptout` command no longer does JDBC on the Netty loop (offloaded to `ThreadManager`);
   `AgentOptoutStore` catches `Exception` (not `Throwable`) and uses `ON DUPLICATE KEY UPDATE`;
   and the greet test was a false positive (it never stubbed `isGreetDue`).
 - **M4** (proactive matchmaking, personas, memory compaction, cost controls, notice, mute):
@@ -519,7 +519,7 @@ HIGH/MEDIUM findings were addressed:
   required ammo among learned attack skills; honoured Shadow Claw alongside Soul Arrow; and added
   `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
-Known low-risk remainder: `/agent search` and auto-matchmaking enable party-search
+Known low-risk remainder: `!agent search` and auto-matchmaking enable party-search
 auto-invites (documented); movement is clamped, foothold-aware waypoint stepping, not a full
 foothold/rope pathfinder
 (no rope/ladder model exists server-side); and there is latent cross-thread map mutation on very
@@ -580,16 +580,16 @@ this up cold:
 ### 11.1 The only open work
 
 > Status note: since this table was written, the following landed on this branch: player-facing
-> **ephemeral companions** (`/agents`, M5–M7, see `docs/llm-agent-companions-plan.md`),
+> **ephemeral companions** (`@agents`, M5–M7, see `docs/llm-agent-companions-plan.md`),
 > **hold-skill attack pacing + ranged cast stance**, **foothold-aware platform stepping**, and
-> **`/agents pause|resume`** (GM `/agent pause|resume`). The rows below reflect what is still
+> **`@agents pause|resume`** (GM `!agent pause|resume`). The rows below reflect what is still
 > genuinely open.
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
 | **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); `FootholdTree` | **Partially done:** `moveToSmart` is now foothold-aware (walks along the current foothold and drops to the landing foothold via `FootholdTree.findBelow`/`getAllFootholds`), falling back to the old clamped stepping when footholds are absent. Still open: a full foothold **graph** search and any rope/ladder model (the server has none, and `MovePlayerHandler` is client-authoritative on position, so this is largely cosmetic). |
 | **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`attackDelayMs`, `buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | **Partially done:** hold skills now use a fixed minimum interval when the WZ cooldown is 0, and the ranged packet's `stance` mirrors `rangedirection` for them. Still open: exact per-weapon attack-speed and per-skill cast-animation fidelity. |
-| **`/agent tell`** | `AgentCommand` | Intentionally dropped: `pause`/`resume` shipped (player `/agents pause|resume`, GM `/agent pause|resume`); the operator-only `tell` directive was judged marginal and its prototype discarded. |
+| **`!agent tell`** | `AgentCommand` | Intentionally dropped: `pause`/`resume` shipped (player `@agents pause|resume`, GM `!agent pause|resume`); the operator-only `tell` directive was judged marginal and its prototype discarded. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested), `AgentManager.transferChannel` (no unit test — needs a spawn/DB seam) | Add seams/tests if you touch these paths. Companion provisioning is also only faked in tests, not DB-integration-tested. |
 
 ### 11.2 Environment state (as of the latest session)
@@ -620,7 +620,7 @@ pushed with a `feat(agent):` / `fix(agent):` / `docs(agent):` message.
 ### 11.4 Player-facing companions (M5–M7, shipped)
 
 The GM-only spawn model does not serve solo play. Players can now summon **ephemeral,
-server-provisioned** companions with `/agents list|find|dismiss` (auto level match,
+server-provisioned** companions with `@agents list|find|dismiss` (auto level match,
 auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. Key points:
 
 - `DbAgentProvisioner` allocates a dedicated server-owned account and builds the character
@@ -631,7 +631,7 @@ auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. 
   capacity, under a per-player lock.
 - Ephemeral sessions are flagged (`AgentSession#isEphemeral`) so memory is never persisted,
   auto-loot is forced off, and `AgentManager.despawn` deletes the character (covering
-  `/agents dismiss`, GM `/agent despawn` and shutdown). `transferChannel` carries the
+  `@agents dismiss`, GM `!agent despawn` and shutdown). `transferChannel` carries the
   ephemeral/owner/provisioned state across a re-spawn.
 - New config: `LLM_AGENT_PLAYER_SPAWN` (default off), `…_MAX_PER_PLAYER`,
   `…_REQUEST_COOLDOWN_MS`, `…_LEVEL_MATCH`, `…_AUTO_PARTY`, `…_COMPLEMENT_JOB`,

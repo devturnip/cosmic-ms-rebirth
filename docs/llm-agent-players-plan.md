@@ -39,12 +39,12 @@ Delivered:
   tool calling and fail-safe fallback to the scripted brain.
 - [x] Persistent memory (`AgentMemoryStore` + `agent_memory` table, migration `v0.15.0.sql`).
 - [x] Chat/party/whisper/party-invite hooks route events to agents.
-- [x] `/agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|optout` GM
-  command (rank 5), plus the player `/agentoptout` command (rank 0).
+- [x] `!agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|optout` GM
+  command (rank 5), plus the player `@agentoptout` command (rank 0).
 - [x] Config keys in `ServerConfig` + `config.yaml`; `AgentManager` start/stop in `Server`.
 - [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize,
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
-- [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
+- [x] M2: party-search registration (`!agent search`), follow-the-leader (auto + `!agent follow`),
   party-update and map-change perception events, and cross-map follow via warp
   (`LLM_AGENT_FOLLOW_WARP`).
 - [x] M3 (complete): monster/item/NPC perception, clamped foothold-aware movement, item
@@ -69,13 +69,13 @@ Not yet implemented (hardening / fidelity remainder):
 
 - [x] M4: proactive behavior (opt-in) — greet nearby players, auto party-search matchmaking
   (auto-invites nearby solos), idle patrol; persona `greeting`/`traits`; memory compaction;
-  `LLM_MAX_CALLS_PER_MIN` global request budget; `/agent status|mute|unmute`; optional map AI
+  `LLM_MAX_CALLS_PER_MIN` global request budget; `!agent status|mute|unmute`; optional map AI
   notice.
 - [ ] Deeper pathing: movement is clamped waypoint stepping (per-axis clamped, horizontal
   alignment before drops), not a full foothold/rope pathfinder; portal travel is used for
   cross-map follow, with party-warp fallback.
 - [ ] Hurricane/Rapid Fire after-delay timing and cast animation/stance fidelity (minor).
-- [x] Player-facing opt-out: `/agentoptout` (self) and GM `/agent optout <player>` suppress
+- [x] Player-facing opt-out: `@agentoptout` (self) and GM `!agent optout <player>` suppress
   agent greetings, party-search invites, whispers, party invites, party chat and follow;
   persisted in the `agent_optout` table (`database/sql/migration/v0.16.0.sql`).
 
@@ -245,7 +245,7 @@ Agent is an in-process `AgentClient extends Client`:
   - never participates in the Netty pipeline.
 
 ### 5.2 `AgentManager` (lifecycle + registry)
-- New package: `net/server/agent/` (or `agent/`).
+- New package: `net/server!agent/` (or `agent/`).
 - Responsibilities:
   - `spawn(agentId/spec)` / `despawn(agentId)`; keep `Map<String, AgentSession>`.
   - start/stop with `Server` (`Server.init()` / `shutdown()`).
@@ -257,7 +257,7 @@ Agent is an in-process `AgentClient extends Client`:
 
 ### 5.3 Agent bootstrap (login without a socket)
 - Extract the ~300-line `PlayerLoggedinHandler.handlePacket` body into a
-  reusable service, e.g. `net/server/agent/AgentLoginService` or
+  reusable service, e.g. `net/server!agent/AgentLoginService` or
   `PlayerLoginService.login(Client, Character, channel, world)`.
   - This is the single largest refactor and the riskiest step; do it first and
     keep the handler behavior byte-for-byte identical (it can call the service).
@@ -378,7 +378,7 @@ real client (minus HWID/session gates).
   account+character, or a pool of pre-seeded agent accounts.
 - Internal flag: add agents to `AgentManager` registry and persist a marker
   (new `accounts`/`characters` column or a `temp_data`/`agent_registry` key) so
-  they survive restarts and so `/agent` commands target them reliably.
+  they survive restarts and so `!agent` commands target them reliably.
 - Labeling (Q8, decided): the client cannot easily render a "bot" tag, so agents
   are **named distinguishably** (e.g. a configurable prefix/suffix such as
   `[AI]` or a name pool) so players can tell them apart. The same label is used
@@ -418,10 +418,10 @@ LLM_AGENT_MEMORY_PERSIST: true         # persist long-term memory per character
 ```
 
 ### 5.12 GM / admin commands
-- `/agent spawn <persona> [mapid]`, `/agent despawn <name|id>`,
-  `/agent list`, `/agent say <name> <msg>` (inject as agent chat),
-  `/agent tell <name> <msg>` (out-of-band instruction to the brain),
-  `/agent mute`, `/agent pause`.
+- `!agent spawn <persona> [mapid]`, `!agent despawn <name|id>`,
+  `!agent list`, `!agent say <name> <msg>` (inject as agent chat),
+  `!agent tell <name> <msg>` (out-of-band instruction to the brain),
+  `!agent mute`, `!agent pause`.
 - Follow the existing `CommandsExecutor` pattern (new `gm`-level command class).
 
 ---
@@ -434,7 +434,7 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 - Extract `PlayerLoggedinHandler` bootstrap into a reusable service.
 - Add overridable write hook to `Client`; add `AgentClient` + `createAgent`.
 - Add `AgentManager` skeleton, `AgentEventBus`, spigot `writePacket` capture.
-- `/agent spawn` creates a real headless character in the current map.
+- `!agent spawn` creates a real headless character in the current map.
 - Verify from a real client: the agent appears, moves (synthetic `MOVE_PLAYER`),
   and chats (synthetic `GENERAL_CHAT`).
 - **Exit criteria:** a scripted agent can be seen and heard by a normal client.
@@ -446,7 +446,7 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 - Actions: general chat, party chat, whisper, emote; movement optional.
 - Bounded scheduler + per-agent serialization; config; logging.
 - **Exit criteria:** a solo player can hold a coherent conversation with an
-  agent in a map, and `/agent tell` can steer it.
+  agent in a map, and `!agent tell` can steer it.
 
 ### M2 — Party membership
 - Perception: party invite, party update, leader change.
@@ -466,8 +466,8 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 - Proactive: greet nearby players, auto party-search matchmaking (invites nearby solos),
   idle patrol.
 - Persona `greeting`/`traits`; memory summarization/compaction.
-- Moderation hardening and cost controls: player opt-out, `/agent mute|unmute`,
-  `/agent status`, `LLM_MAX_CALLS_PER_MIN`, optional AI notice; observability via `/agent`.
+- Moderation hardening and cost controls: player opt-out, `!agent mute|unmute`,
+  `!agent status`, `LLM_MAX_CALLS_PER_MIN`, optional AI notice; observability via `!agent`.
 - **Exit criteria:** solo players are matched with agents without manual GM intervention.
 
 > Status: implemented behind `LLM_AGENT_PROACTIVE` (default off). With it off, agents remain
@@ -504,9 +504,9 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 | Toxic / off-character output | Medium | Length clamp, content filter, kill switch, audit log |
 | Anti-cheat false positives | Medium | Explicit, registry-gated bypass; keep gameplay validations |
 | Agents corrupt party/PQ invariants | Medium | Route actions through real handlers; add tests |
-| Agents mistaken for / trusted as humans | Medium | Distinct naming/labeling (Q8); optional `/agent` opt-out notice |
+| Agents mistaken for / trusted as humans | Medium | Distinct naming/labeling (Q8); optional `!agent` opt-out notice |
 | DB noise / test characters | Low | Config-gated provisioning; dedicated agent accounts; cleanup command |
-| Upstream non-goal conflict | Low | Default-off flag; isolate in `net/server/agent/` package |
+| Upstream non-goal conflict | Low | Default-off flag; isolate in `net/server!agent/` package |
 | Packet decode effort creep | Medium | Prefer explicit hooks + state snapshots over decoding all outbound packets |
 
 ---
@@ -534,18 +534,18 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 ## 10. File-level touchpoints (anticipated, no code yet)
 
 **New**
-- `src/main/java/net/server/agent/AgentManager.java`
-- `src/main/java/net/server/agent/AgentMemoryStore.java` (+ `agent_memory` table / migration)
-- `src/main/java/net/server/agent/AgentPerception.java` (bounded/omniscient snapshot)
-- `src/main/java/net/server/agent/AgentSession.java`
-- `src/main/java/net/server/agent/AgentClient.java` (or under `client/`)
-- `src/main/java/net/server/agent/AgentEventBus.java`
-- `src/main/java/net/server/agent/AgentObservation.java`
-- `src/main/java/net/server/agent/AgentActionDispatcher.java`
-- `src/main/java/net/server/agent/brain/AgentBrain.java`
-- `src/main/java/net/server/agent/brain/LlmAgentBrain.java`
-- `src/main/java/net/server/agent/brain/ScriptedAgentBrain.java`
-- `src/main/java/net/server/agent/AgentLoginService.java` (extracted bootstrap)
+- `src/main/java/net/server!agent/AgentManager.java`
+- `src/main/java/net/server!agent/AgentMemoryStore.java` (+ `agent_memory` table / migration)
+- `src/main/java/net/server!agent/AgentPerception.java` (bounded/omniscient snapshot)
+- `src/main/java/net/server!agent/AgentSession.java`
+- `src/main/java/net/server!agent/AgentClient.java` (or under `client/`)
+- `src/main/java/net/server!agent/AgentEventBus.java`
+- `src/main/java/net/server!agent/AgentObservation.java`
+- `src/main/java/net/server!agent/AgentActionDispatcher.java`
+- `src/main/java/net/server!agent/brain/AgentBrain.java`
+- `src/main/java/net/server!agent/brain/LlmAgentBrain.java`
+- `src/main/java/net/server!agent/brain/ScriptedAgentBrain.java`
+- `src/main/java/net/server!agent/AgentLoginService.java` (extracted bootstrap)
 - `src/main/java/client/command/commands/gmN/AgentCommand.java`
 - `docs/llm-agent-players-plan.md` (this file)
 
@@ -564,7 +564,7 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 - `config.yaml` — new agent keys.
 
 **Tests**
-- `src/test/java/net/server/agent/...` using existing `testutil`.
+- `src/test/java/net/server!agent/...` using existing `testutil`.
 
 ---
 
@@ -572,7 +572,7 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 
 The shipped engine is an operator tool: agents are pre-existing logged-out characters and
 only a GM can spawn them, which does not serve solo play. The player-facing layer
-(`/agents find|list|dismiss`, ephemeral server-provisioned characters, auto-party) is
+(`@agents find|list|dismiss`, ephemeral server-provisioned characters, auto-party) is
 specified in **`docs/llm-agent-companions-plan.md`**. It reuses the same `AgentManager`,
 `PlayerLoginService`, brains, party and opt-out machinery documented above; no engine
 invariants in the handoff change.

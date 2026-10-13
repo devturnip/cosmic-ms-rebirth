@@ -9,7 +9,7 @@ document only covers the *player-facing* layer on top of the existing agent engi
 ## 0. Problem
 
 The shipped agent feature is an **operator tool**: agents are pre-existing logged-out
-characters and only a GM can bring them online (`/agent spawn`). That defeats the purpose of
+characters and only a GM can bring them online (`!agent spawn`). That defeats the purpose of
 solo play, which needs a player to be able to get a level-appropriate companion on demand.
 
 Three concrete gaps:
@@ -25,7 +25,7 @@ Three concrete gaps:
 
 | # | Decision | Consequence |
 | --- | --- | --- |
-| 1 | **Ephemeral by default**; GM-spawned agents stay persistent | Player companions are created on demand and deleted on dismiss. The GM path (`/agent spawn <name>`) keeps the current persistent-character behaviour. |
+| 1 | **Ephemeral by default**; GM-spawned agents stay persistent | Player companions are created on demand and deleted on dismiss. The GM path (`!agent spawn <name>`) keeps the current persistent-character behaviour. |
 | 2 | Ephemeral agents do not need to keep progression; GM-spawned agents keep earned level/mesos | No pooled-level drift problem: a companion is generated at the requester's level and its exp/meso die with it. |
 | 3 | **Exp/meso are shared normally** (ordinary party split) | No special suppression. Fairness rests on ephemeral lifecycle + anti-AFK guards, not on value redirection. |
 | 4 | **Random names/personas** | Provisioner invents a name and samples a persona/traits set. |
@@ -43,7 +43,7 @@ human player's account.
 ## 2. Architecture
 
 ```
- player: /agents find [role]
+ player: @agents find [role]
         │
         ▼
  AgentCompanionCommand  (rank 0, client/command/commands/gm0)
@@ -113,7 +113,7 @@ One account per live companion (v83 permits a single logged-in session per accou
 ### 3.3 Template
 
 - Level = requester's level (exact) by default; `LLM_AGENT_LEVEL_MATCH` allows `BAND5`.
-- Job/role = explicit `/agents find <role>`, else auto-complement the requester's job
+- Job/role = explicit `@agents find <role>`, else auto-complement the requester's job
   (warrior→cleric/healer, mage→warrior, archer→warrior, thief→warrior, pirate→warrior),
   else random.
 - Stats/AP/SP/skills/gear/potions/ammo come from a per-(role, level-band) recipe table. First
@@ -132,17 +132,17 @@ One account per live companion (v83 permits a single logged-in session per accou
 
 ---
 
-## 4. Player command: `/agents`
+## 4. Player command: `@agents`
 
 Rank 0 (`gm0`), registered in `CommandsExecutor`. Runs off the Netty loop via `ThreadManager`
 (provisioning does DB I/O). Anonymous-GM rule: never block the event loop.
 
 | Subcommand | Behaviour |
 | --- | --- |
-| `/agents list` | Show available roles and whether a companion can be summoned now (feature on, capacity, cooldown). |
-| `/agents find [role]` | Validate → provision → spawn beside the player → follow → party. |
-| `/agents dismiss` | Despawn + destroy the requester's companion(s). |
-| `/agents pause` / `/agents resume` | Suspend/resume the requester's companion(s) without dismissing them (inbox preserved; GM `/agent pause\|resume` works for any agent). |
+| `@agents list` | Show available roles and whether a companion can be summoned now (feature on, capacity, cooldown). |
+| `@agents find [role]` | Validate → provision → spawn beside the player → follow → party. |
+| `@agents dismiss` | Despawn + destroy the requester's companion(s). |
+| `@agents pause` / `@agents resume` | Suspend/resume the requester's companion(s) without dismissing them (inbox preserved; GM `!agent pause\|resume` works for any agent). |
 
 ### `find` validation order
 
@@ -189,7 +189,7 @@ Rank 0 (`gm0`), registered in `CommandsExecutor`. Runs off the Netty loop via `T
 ## 6. Config (new keys)
 
 ```
-LLM_AGENT_PLAYER_SPAWN         false   # expose /agents to players
+LLM_AGENT_PLAYER_SPAWN         false   # expose @agents to players
 LLM_AGENT_MAX_PER_PLAYER       1
 LLM_AGENT_REQUEST_COOLDOWN_MS  60000
 LLM_AGENT_LEVEL_MATCH          EXACT   # EXACT | BAND5
@@ -205,7 +205,7 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | **M5 — Provisioning** | `AgentProvisioner` + `DbAgentProvisioner` (account + recipe + delete), config, tests. | done |
-| **M6 — Discovery/spawn** | `/agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | done |
+| **M6 — Discovery/spawn** | `@agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | done |
 | **M7 — Auto-party** | `CompanionPartyService` (form/join), guard cases. | done |
 | **M8 — Fairness/lifecycle** | idle despawn, daily uptime cap, metrics/audit, opt-out interplay. | not required (accepted posture) |
 | **M9 — Quest/PQ audit** | Verify party-quest scripts tolerate companions; level-band/PQ eligibility rules; guide. | deferred |
@@ -224,8 +224,8 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   `Character` idle signal / reap hook would be needed if this is ever revisited.)
 - **PQ script audit** (M9) — some v83 party-quest scripts assume human players; companions may
   break objective logic even though they can fill slots.
-- **Persistent vs ephemeral toggle for GM spawns** — `/agent spawn` keeps the persistent
-  character path; a future `/agent spawn --ephemeral` could unify both.
+- **Persistent vs ephemeral toggle for GM spawns** — `!agent spawn` keeps the persistent
+  character path; a future `!agent spawn --ephemeral` could unify both.
 - **Recipe breadth** — **done.** `CompanionTemplate` builds a level-appropriate character:
   job advancement by tier (10/30/70/120), all AP spent, HP/MP per role, real skill builds per
   job tier (WZ-resolved, capped to `Skill#getMaxLevel()`, with a usable attack skill at every
@@ -267,7 +267,7 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   during `stop()`).
 - **Merged engine workstreams** (same branch, after the companion review): hold-skill attack
   pacing + ranged cast stance (`AgentCombat`), foothold-aware platform stepping (`AgentMovement`),
-  and player `/agents pause|resume` + GM `/agent pause|resume`. Their shared code is what
+  and player `@agents pause|resume` + GM `!agent pause|resume`. Their shared code is what
   companions run on, so the improvements apply to them automatically. A pre-existing
   order-dependent `MobSkillFactoryTest` assertion was made provider-independent (the factory's WZ
   provider is a JVM-wide static, so the test must not assume the temp test WZ won the race).

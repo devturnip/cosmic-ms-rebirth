@@ -60,7 +60,7 @@ spawns (e.g. "`[AI] Alice` is an AI-controlled agent.").
 You can personally opt out of AI-agent interaction at any time:
 
 ```
-/agentoptout
+@agentoptout
 ```
 
 Toggling it **on** means:
@@ -70,7 +70,7 @@ Toggling it **on** means:
 - party search will not auto-invite you on an agent's behalf;
 - agents will not follow you.
 
-Run `/agentoptout` again to allow interaction. The choice is saved to the database and
+Run `@agentoptout` again to allow interaction. The choice is saved to the database and
 survives restarts (as long as the operator ran the `agent_optout` migration, below).
 
 > Opting out does not remove agents from the world and does not stop human players from
@@ -168,23 +168,26 @@ convention name them with the `LLM_AGENT_NAME_PREFIX` (`[AI]`); set
 
 ### 2.5 Spawn and manage (GM, rank 5+)
 
+> In-game command headings on this server are **`@`** for players and **`!`** for GMs. A `/…`
+> message is not dispatched (it is silently ignored), so use `@agents find`, `!agent spawn`, etc.
+
 ```
-/agent spawn <characterName>     # bring a logged-out character online as an agent
-/agent list                      # show active agents
-/agent status <name>             # brain, map, HP, follow target, queued events, last actions
-/agent say <name> <message>      # GM instruction to the brain
-/agent follow <name> <player>    # make an agent follow a player
-/agent stopfollow <name>
-/agent search <name>             # list the agent in party search now
-/agent mute <name>               # suppress the agent's chat
-/agent unmute <name>
-/agent pause <name>              # suspend the agent's decisions/behaviours (stays online)
-/agent resume <name>
-/agent optout <player>           # toggle a player's opt-out for them
-/agent despawn <name>            # take the agent offline
+!agent spawn <characterName>     # bring a logged-out character online as an agent
+!agent list                      # show active agents
+!agent status <name>             # brain, map, HP, follow target, queued events, last actions
+!agent say <name> <message>      # GM instruction to the brain
+!agent follow <name> <player>    # make an agent follow a player
+!agent stopfollow <name>
+!agent search <name>             # list the agent in party search now
+!agent mute <name>               # suppress the agent's chat
+!agent unmute <name>
+!agent pause <name>              # suspend the agent's decisions/behaviours (stays online)
+!agent resume <name>
+!agent optout <player>           # toggle a player's opt-out for them
+!agent despawn <name>            # take the agent offline
 ```
 
-`/agent` work is offloaded off the netty event loop, so it never blocks the GM's connection.
+`!agent` work is offloaded off the netty event loop, so it never blocks the GM's connection.
 
 ### 2.6 Personas (optional)
 
@@ -219,11 +222,11 @@ is generated at their level and deleted when dismissed (see
 `docs/llm-agent-companions-plan.md`):
 
 ```
-/agents list            # available roles + whether a companion can be summoned now
-/agents find [role]     # summon a level-matched companion beside you (auto-follow + party)
-/agents pause           # suspend your companion's decisions/behaviours (it stays online)
-/agents resume          # let it act again (`/agents unpause` is an alias)
-/agents dismiss         # despawn and delete your companion(s)
+@agents list            # available roles + whether a companion can be summoned now
+@agents find [role]     # summon a level-matched companion beside you (auto-follow + party)
+@agents pause           # suspend your companion's decisions/behaviours (it stays online)
+@agents resume          # let it act again (`@agents unpause` is an alias)
+@agents dismiss         # despawn and delete your companion(s)
 ```
 
 - Enabled with `LLM_AGENT_PLAYER_SPAWN: true` (plus `USE_LLM_AGENTS`).
@@ -236,7 +239,7 @@ is generated at their level and deleted when dismissed (see
 - Caps: `LLM_AGENT_MAX_PER_PLAYER` (default 1), `LLM_AGENT_REQUEST_COOLDOWN_MS` (60 s) and
   the global `LLM_AGENTS_MAX`. Player companions never auto-loot (their loot would be
   destroyed with them).
-- GM-spawned agents (`/agent spawn`) are **persistent** and unchanged: they keep their level,
+- GM-spawned agents (`!agent spawn`) are **persistent** and unchanged: they keep their level,
   mesos and memory across sessions.
 
 ---
@@ -253,7 +256,7 @@ is generated at their level and deleted when dismissed (see
 | Loot | Picks up owned/party/FFA drops | `LLM_AGENT_AUTO_LOOT` |
 | Proactive | Greet nearby players, auto party-search matchmaking, idle patrol | `LLM_AGENT_PROACTIVE` + sub-switches |
 | Companions | Player-summoned ephemeral agent: level-matched, auto-follow, auto-party, deleted on dismiss | `LLM_AGENT_PLAYER_SPAWN` |
-| Pause | Suspend/resume an agent's decisions and behaviours without taking it offline (`/agents pause\|resume`, GM `/agent pause\|resume`) | — |
+| Pause | Suspend/resume an agent's decisions and behaviours without taking it offline (`@agents pause\|resume`, GM `!agent pause\|resume`) | — |
 | Safety | Content filter, per-agent rate limit, global request budget, mute, opt-out | `LLM_AGENT_CONTENT_FILTER`, `…_MAX_ACTIONS_PER_SEC`, `LLM_MAX_CALLS_PER_MIN` |
 
 Agents are **reactive by default**; proactive behavior only runs when you turn it on.
@@ -268,8 +271,8 @@ and all actions go through the real packet handlers, so normal validation still 
 - **Content filter** masks a small blocklist and clamps message length; all chat headings
   (`/`, `@`, `!`) are stripped so an agent cannot run commands.
 - **Rate limits** cap per-agent actions and globally cap LLM requests per minute.
-- **`/agent mute`** silences an agent's chat without stopping its other behavior.
-- **`/agentoptout`** gives every player a personal opt-out (persisted).
+- **`!agent mute`** silences an agent's chat without stopping its other behavior.
+- **`@agentoptout`** gives every player a personal opt-out (persisted).
 - Every agent utterance/action is audit-logged (`AgentActionDispatcher`).
 
 ---
@@ -278,12 +281,12 @@ and all actions go through the real packet handlers, so normal validation still 
 
 | Symptom | Likely cause / fix |
 | --- | --- |
-| `/agent spawn` refuses | `USE_LLM_AGENTS` is false, name doesn't exist in that world, name prefix required, or the character/account is already online. |
-| Agent spawned but says nothing | No `LLM_API_URL`/`LLM_MODEL` ⇒ scripted brain; or the LLM endpoint is unreachable (check logs). `/agent status` shows the brain in use. |
+| `!agent spawn` refuses | `USE_LLM_AGENTS` is false, name doesn't exist in that world, name prefix required, or the character/account is already online. |
+| Agent spawned but says nothing | No `LLM_API_URL`/`LLM_MODEL` ⇒ scripted brain; or the LLM endpoint is unreachable (check logs). `!agent status` shows the brain in use. |
 | Agent spams or is slow | Tune `LLM_AGENT_TICK_MS` and `LLM_MAX_CALLS_PER_MIN`; check the endpoint latency. |
 | Memory/opt-out not saved | Run `v0.15.0.sql` / `v0.16.0.sql`; check server logs for persistence warnings. |
 | Agent stuck / not moving | It may be following a target on another map/channel; enable `LLM_AGENT_FOLLOW_WARP` / `…_FOLLOW_CHANNEL`. Movement is clamped stepping, not a full pathfinder. |
-| Players don't want agents | They can `/agentoptout`; use `/agent mute`, or disable `LLM_AGENT_PROACTIVE`, or turn the whole feature off. |
+| Players don't want agents | They can `@agentoptout`; use `!agent mute`, or disable `LLM_AGENT_PROACTIVE`, or turn the whole feature off. |
 
 ---
 
@@ -293,10 +296,10 @@ and all actions go through the real packet handlers, so normal validation still 
 persistent memory + compaction, party membership and party-search matchmaking, follow
 (same-map walking, portal-based cross-map travel, opt-in cross-channel re-login), combat
 assist (basic/multi-target/multi-line skill attacks, buffs, heal, potions, flee, respawn,
-loot, ammo resupply), player-facing opt-out, moderation/mute, observability (`/agent status`),
+loot, ammo resupply), player-facing opt-out, moderation/mute, observability (`!agent status`),
 content filter, rate limits and a global LLM request budget.
 
-**Done (companions M5–M7):** player-facing `/agents list|find|dismiss`, server-owned
+**Done (companions M5–M7):** player-facing `@agents list|find|dismiss`, server-owned
 ephemeral provisioning (level/role matched, random persona), auto-follow, auto-party,
 per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 
@@ -309,5 +312,5 @@ per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 - **Combat fidelity** — hold-skill after-delay pacing (Hurricane/Rapid Fire/etc. now use a fixed
   minimum interval when the WZ cooldown is 0) and the ranged cast stance for those skills are
   implemented; exact per-weapon attack-speed / cast-animation fidelity remains approximate.
-- `/agent tell` was intentionally dropped (an operator-only directive of marginal value);
-  `/agents pause`/`resume` and GM `/agent pause`/`resume` are implemented.
+- `!agent tell` was intentionally dropped (an operator-only directive of marginal value);
+  `@agents pause`/`resume` and GM `!agent pause`/`resume` are implemented.
