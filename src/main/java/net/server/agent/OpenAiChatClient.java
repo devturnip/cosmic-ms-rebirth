@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Minimal OpenAI-compatible chat-completions client built on the Java 21
@@ -28,6 +29,9 @@ public class OpenAiChatClient {
     private static final int MAX_ERROR_BODY_CHARS = 500;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
+    /** Matches a version-only base path such as {@code /v1} or {@code /v1beta}. */
+    private static final Pattern VERSION_BASE_PATH = Pattern.compile("/v\\d+[a-z0-9]*");
 
     /** Rolling one-minute window for the global request budget. */
     private static long budgetWindowStart;
@@ -75,7 +79,7 @@ public class OpenAiChatClient {
      *                          an unparseable response body.
      */
     public ChatResult chat(String systemPrompt, String userPrompt) {
-        String apiUrl = AgentConfig.apiUrl();
+        String apiUrl = resolveEndpoint(AgentConfig.apiUrl());
         if (apiUrl.isBlank()) {
             throw new RuntimeException("LLM API URL is not configured");
         }
@@ -135,6 +139,33 @@ public class OpenAiChatClient {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to parse LLM response: " + truncate(responseBody), e);
         }
+    }
+
+    /**
+     * Resolves a configured {@code LLM_API_URL} to a chat-completions endpoint. A bare API base
+     * (for example {@code https://api.deepseek.com} or {@code https://api.deepseek.com/v1}) gets
+     * {@code /chat/completions} appended, because posting to the base URL returns HTTP 404. A URL
+     * that already names a path is left untouched so custom and Azure-style endpoints keep working.
+     */
+    static String resolveEndpoint(String apiUrl) {
+        if (apiUrl == null) {
+            return "";
+        }
+        String trimmed = apiUrl.strip();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        String base = trimmed.replaceAll("/+$", "");
+        String path;
+        try {
+            path = URI.create(base).getPath();
+        } catch (IllegalArgumentException e) {
+            return trimmed; // let the request builder surface the malformed URL
+        }
+        if (path == null || path.isEmpty() || "/".equals(path) || VERSION_BASE_PATH.matcher(path).matches()) {
+            return base + "/chat/completions";
+        }
+        return base;
     }
 
     private ChatResult parseResponse(String responseBody) throws JsonProcessingException {
