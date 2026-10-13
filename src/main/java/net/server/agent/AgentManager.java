@@ -450,7 +450,8 @@ public class AgentManager {
      *
      * @return the number of owned sessions whose pause state actually changed
      */
-    public int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
+    /** Suspends/resumes every live companion owned by a player; synchronized with transfers. */
+    public synchronized int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
         if (ownerPlayerId < 0) {
             return 0;
         }
@@ -465,7 +466,8 @@ public class AgentManager {
     }
 
     /** Number of live sessions summoned by {@code ownerPlayerId} that are currently paused. */
-    public int pausedOwnedBy(int ownerPlayerId) {
+    /** How many live companions owned by a player are paused. */
+    public synchronized int pausedOwnedBy(int ownerPlayerId) {
         if (ownerPlayerId < 0) {
             return 0;
         }

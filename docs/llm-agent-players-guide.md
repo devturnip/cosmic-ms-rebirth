@@ -178,6 +178,8 @@ convention name them with the `LLM_AGENT_NAME_PREFIX` (`[AI]`); set
 /agent search <name>             # list the agent in party search now
 /agent mute <name>               # suppress the agent's chat
 /agent unmute <name>
+/agent pause <name>              # suspend the agent's decisions/behaviours (stays online)
+/agent resume <name>
 /agent optout <player>           # toggle a player's opt-out for them
 /agent despawn <name>            # take the agent offline
 ```
@@ -219,6 +221,8 @@ is generated at their level and deleted when dismissed (see
 ```
 /agents list            # available roles + whether a companion can be summoned now
 /agents find [role]     # summon a level-matched companion beside you (auto-follow + party)
+/agents pause           # suspend your companion's decisions/behaviours (it stays online)
+/agents resume          # let it act again (`/agents unpause` is an alias)
 /agents dismiss         # despawn and delete your companion(s)
 ```
 
@@ -249,6 +253,7 @@ is generated at their level and deleted when dismissed (see
 | Loot | Picks up owned/party/FFA drops | `LLM_AGENT_AUTO_LOOT` |
 | Proactive | Greet nearby players, auto party-search matchmaking, idle patrol | `LLM_AGENT_PROACTIVE` + sub-switches |
 | Companions | Player-summoned ephemeral agent: level-matched, auto-follow, auto-party, deleted on dismiss | `LLM_AGENT_PLAYER_SPAWN` |
+| Pause | Suspend/resume an agent's decisions and behaviours without taking it offline (`/agents pause\|resume`, GM `/agent pause\|resume`) | — |
 | Safety | Content filter, per-agent rate limit, global request budget, mute, opt-out | `LLM_AGENT_CONTENT_FILTER`, `…_MAX_ACTIONS_PER_SEC`, `LLM_MAX_CALLS_PER_MIN` |
 
 Agents are **reactive by default**; proactive behavior only runs when you turn it on.
@@ -297,8 +302,12 @@ per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 
 **Remaining (minor):**
 
-- **Pathing depth** — movement is clamped waypoint stepping with portal travel; there is no
-  full foothold/rope pathfinder (the server models no ropes/ladders and is client-authoritative
-  on position).
-- **Combat fidelity** — Hurricane/Rapid Fire after-delay timing and cast-animation stance.
-- `/agent tell` and `/agent pause` are not implemented (`mute`/`unmute` are).
+- **Pathing depth** — movement is clamped waypoint stepping with portal travel **and now
+  foothold-aware platform stepping** (`AgentMovement` consults `FootholdTree` to walk along the
+  current foothold before dropping to the landing foothold); there is still no full foothold/rope
+  graph search and the server models no ropes/ladders.
+- **Combat fidelity** — hold-skill after-delay pacing (Hurricane/Rapid Fire/etc. now use a fixed
+  minimum interval when the WZ cooldown is 0) and the ranged cast stance for those skills are
+  implemented; exact per-weapon attack-speed / cast-animation fidelity remains approximate.
+- `/agent tell` (an out-of-band GM directive distinct from `/agent say`) is not implemented on
+  this branch; `/agents pause`/`resume` and GM `/agent pause`/`resume` are.

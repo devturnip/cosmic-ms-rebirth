@@ -107,11 +107,17 @@ class AgentManagerCompanionLifecycleTest {
         stopping.setAccessible(true);
         boolean original = stopping.getBoolean(manager);
         stopping.setBoolean(manager, true);
+        Field tickerField = AgentManager.class.getDeclaredField("ticker");
+        tickerField.setAccessible(true);
+        Object originalTicker = tickerField.get(manager);
+        tickerField.set(manager, null);
         try {
-            // Refused before any DB lookup, so a concurrent spawn cannot restart the ticker mid-stop.
+            // Refused before any DB lookup, and must not call start() to recreate the ticker.
             assertNull(manager.spawn("[AI]Nobody", 0, 1, new ScriptedAgentBrain("test")));
+            assertNull(tickerField.get(manager), "spawn must not restart the ticker while stopping");
         } finally {
             stopping.setBoolean(manager, original);
+            tickerField.set(manager, originalTicker);
         }
     }
 

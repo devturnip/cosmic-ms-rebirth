@@ -142,6 +142,7 @@ Rank 0 (`gm0`), registered in `CommandsExecutor`. Runs off the Netty loop via `T
 | `/agents list` | Show available roles and whether a companion can be summoned now (feature on, capacity, cooldown). |
 | `/agents find [role]` | Validate → provision → spawn beside the player → follow → party. |
 | `/agents dismiss` | Despawn + destroy the requester's companion(s). |
+| `/agents pause` / `/agents resume` | Suspend/resume the requester's companion(s) without dismissing them (inbox preserved; GM `/agent pause\|resume` works for any agent). |
 
 ### `find` validation order
 
@@ -259,3 +260,9 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   GM despawn→respawn race (a `pendingEphemeralDeletes` tombstone is now set under the monitor and
   checked by `spawn`, plus a `stopping` guard so a concurrent spawn cannot restart the ticker
   during `stop()`).
+- **Merged engine workstreams** (same branch, after the companion review): hold-skill attack
+  pacing + ranged cast stance (`AgentCombat`), foothold-aware platform stepping (`AgentMovement`),
+  and player `/agents pause|resume` + GM `/agent pause|resume`. Their shared code is what
+  companions run on, so the improvements apply to them automatically. A pre-existing
+  order-dependent `MobSkillFactoryTest` assertion was made provider-independent (the factory's WZ
+  provider is a JVM-wide static, so the test must not assume the temp test WZ won the race).

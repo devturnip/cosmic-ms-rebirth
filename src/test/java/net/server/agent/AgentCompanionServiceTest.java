@@ -299,6 +299,21 @@ class AgentCompanionServiceTest {
     }
 
     @Test
+    void pausingTwiceIsIdempotentAndReported() {
+        assertTrue(service.find(player, null).ok());
+        assertEquals(AgentCompanionService.Status.PAUSED, service.pause(player, true).status());
+
+        AgentCompanionService.Result again = service.pause(player, true);
+        assertEquals(AgentCompanionService.Status.PAUSED, again.status());
+        assertEquals("Your companion is already paused.", again.message());
+
+        assertEquals(AgentCompanionService.Status.RESUMED, service.pause(player, false).status());
+        AgentCompanionService.Result notPaused = service.pause(player, false);
+        assertEquals(AgentCompanionService.Status.RESUMED, notPaused.status());
+        assertEquals("Your companion is not paused.", notPaused.message());
+    }
+
+    @Test
     void pauseIsDisabledWithTheFeature() {
         YamlConfig.config.server.LLM_AGENT_PLAYER_SPAWN = false;
         runtime.registerOwned(PLAYER_ID, session); // even a live companion cannot be toggled
@@ -420,6 +435,10 @@ class AgentCompanionServiceTest {
         public int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
             if (ownerPlayerId < 0) {
                 return 0;
+            }
+            boolean wasPaused = pausedOwners.contains(ownerPlayerId);
+            if (paused == wasPaused) {
+                return 0; // already in the requested state
             }
             if (paused) {
                 pausedOwners.add(ownerPlayerId);

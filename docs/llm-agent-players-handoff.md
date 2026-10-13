@@ -18,9 +18,10 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **HEAD:** `161cdcd81` — starter profile enabled in `config.yaml` (guide + opt-out committed
   just before it)
 - **Status:** M0–M7 done (agent engine M0–M4 + opt-out; player-facing **ephemeral
-  companions** M5–M7 via `/agents list|find|dismiss`). Remaining open items: companion
-  fairness/lifecycle depth (M8) and a party-quest compatibility audit (M9), plus
-  foothold/rope pathing depth and Hurricane/Rapid Fire after-delay + cast-animation fidelity —
+  companions** M5–M7 via `/agents list|find|pause|resume|dismiss`). Also landed: hold-skill
+  attack pacing + ranged cast stance, foothold-aware platform stepping, and GM
+  `/agent pause|resume`. Remaining open items: companion fairness/lifecycle depth (M8) and a
+  party-quest compatibility audit (M9), `/agent tell`, and deeper pathing/cast fidelity —
   see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
 - **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
   **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
@@ -439,10 +440,17 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 
 **Not done (next work)** — see **§11** for file pointers and suggested approaches.
 - **Pathing depth:** movement is clamped waypoint stepping (per-axis clamped, horizontal
-  alignment before drops) with portal travel for cross-map follow; it is not a full
-  foothold/rope pathfinder (no rope/ladder model exists server-side); patrol randomizes X only.
-- **Combat fidelity:** Hurricane/Rapid Fire after-delay timing and cast-animation stance.
-- **`/agent tell` / `/agent pause`:** not implemented (`mute`/`unmute` are).
+  alignment before drops) with portal travel for cross-map follow **and now foothold-aware
+  platform stepping**; it is not a full foothold graph search and there is no rope/ladder model
+  server-side; patrol randomizes X only.
+- **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
+  Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
+  per-skill cast-animation fidelity remain approximate.
+- **`/agent tell`:** not implemented (a parked prototype exists); `/agents pause|resume` and GM
+  `/agent pause|resume` **are implemented**.
+- **Player-facing companions (M5–M7):** implemented (`/agents list|find|pause|resume|dismiss`);
+  see **`docs/llm-agent-companions-plan.md`**. M8 (idle despawn/uptime caps) and M9 (party-quest
+  audit) remain open.
 - **Persistence guidance:** the two agent migrations are manual (like other repo migrations);
   without them, memory/opt-out changes simply do not survive a restart.
 
@@ -510,9 +518,10 @@ HIGH/MEDIUM findings were addressed:
   `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
 Known low-risk remainder: `/agent search` and auto-matchmaking enable party-search
-auto-invites (documented); `/agent tell`/`pause` are not implemented (`mute`/`unmute` are);
-movement is clamped waypoint stepping, not a full foothold/rope pathfinder (no rope/ladder
-model exists server-side); and there is latent cross-thread map mutation on very busy maps
+auto-invites (documented); `/agent tell` is not implemented (`pause`/`resume` and `mute`/`unmute`
+are); movement is clamped, foothold-aware waypoint stepping, not a full foothold/rope pathfinder
+(no rope/ladder model exists server-side); and there is latent cross-thread map mutation on very
+busy maps
 (soak-test target; map collections use read/write locks).
 
 ---
@@ -568,12 +577,18 @@ this up cold:
 
 ### 11.1 The only open work
 
+> Status note: since this table was written, the following landed on this branch: player-facing
+> **ephemeral companions** (`/agents`, M5–M7, see `docs/llm-agent-companions-plan.md`),
+> **hold-skill attack pacing + ranged cast stance**, **foothold-aware platform stepping**, and
+> **`/agents pause|resume`** (GM `/agent pause|resume`). The rows below reflect what is still
+> genuinely open.
+
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); maybe `FootholdTree` | Movement is clamped per-axis waypoint stepping with horizontal-align-before-drop; cross-map follow walks to an open portal then falls back to a party warp. There is **no rope/ladder model server-side** and `MovePlayerHandler` is client-authoritative on position (it just sets x/y), so a full pathfinder is mostly cosmetic. `Foothold` exposes `getX1/X2/Y1/Y2`, `calculateFooting(x)`, `getNext/getPrev`; `FootholdTree` has `findBelow/findWall` but **no** enumeration — add `getAllFootholds()` if you build a graph. |
-| **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`damageLines`, `buildAttackPacket`/`buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | `StatEffect` exposes no `getAfterDelay()` in this codebase; if pacing is needed, use `AgentSession.isSkillReady`/`markSkillUsed`. Packet `stance` is hard-coded `4` (Hurricane rebroadcasts stance = rangedirection). |
-| **`/agent tell` / `/agent pause`** | `AgentCommand`, `AgentManager` | `mute`/`unmute` exist; `pause` would suspend decisions (e.g. an `AgentSession` "paused" flag checked in `tick`), `tell` would be an out-of-band instruction distinct from `say`. |
-| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested — need registered sessions), `AgentManager.transferChannel` (no integration test) | Add seams/tests if you touch these paths. |
+| **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); `FootholdTree` | **Partially done:** `moveToSmart` is now foothold-aware (walks along the current foothold and drops to the landing foothold via `FootholdTree.findBelow`/`getAllFootholds`), falling back to the old clamped stepping when footholds are absent. Still open: a full foothold **graph** search and any rope/ladder model (the server has none, and `MovePlayerHandler` is client-authoritative on position, so this is largely cosmetic). |
+| **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`attackDelayMs`, `buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | **Partially done:** hold skills now use a fixed minimum interval when the WZ cooldown is 0, and the ranged packet's `stance` mirrors `rangedirection` for them. Still open: exact per-weapon attack-speed and per-skill cast-animation fidelity. |
+| **`/agent tell`** | `AgentCommand` | `pause`/`resume` now exist (player `/agents pause|resume`, GM `/agent pause|resume`). `tell` (an out-of-band GM directive distinct from `/agent say`) is still not implemented; a parked, unmerged `ws/agent-tell-pause` branch has a prototype. |
+| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested), `AgentManager.transferChannel` (no unit test — needs a spawn/DB seam) | Add seams/tests if you touch these paths. Companion provisioning is also only faked in tests, not DB-integration-tested. |
 
 ### 11.2 Environment state (as of the latest session)
 
