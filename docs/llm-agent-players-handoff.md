@@ -14,20 +14,19 @@ An agent is a real `Character` logged in through the same bootstrap a human uses
 inbound actions are synthesized packets dispatched through the **real handlers**, and
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
-- **Branch:** `feature/llm-agent-players`
-- **HEAD:** tip of `feature/llm-agent-players` (latest: player-facing opt-out; previous: M4 —
-  proactive matchmaking, personas, cost controls, moderation/observability)
-- **Status:** M0–M4 done. M1–M3 cover reactive chat/party/combat/movement (multi-line +
-  multi-target attacks, buffs, heal, potions, respawn, looting, facing, local cooldowns,
-  HP/MP-cost gating, flee, ammo resupply, portal/channel follow). M4 adds opt-in proactive
-  behavior (greet nearby players, auto party-search matchmaking, patrol), persona
-  greeting/traits, memory compaction, a global LLM request budget, `/agent status|mute|unmute`,
-  an optional AI-agent map notice, and a player-facing `/agentoptout` (persisted in
-  `agent_optout`). Remaining: deeper foothold/rope pathing and after-delay/cast-animation
-  fidelity.
-- **Default:** feature is **off** (`USE_LLM_AGENTS: false`); proactive behavior is **off**
-  (`LLM_AGENT_PROACTIVE: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 145 agent tests across 34 classes + existing suite).
+- **Branch:** `feature/llm-agent-players` (pushed, in sync with origin; working tree clean)
+- **HEAD:** `161cdcd81` — starter profile enabled in `config.yaml` (guide + opt-out committed
+  just before it)
+- **Status:** M0–M4 done, plus a player-facing opt-out and a player/operator guide. The only
+  open items are foothold/rope pathing depth and Hurricane/Rapid Fire after-delay +
+  cast-animation fidelity — see **§11 Resuming the work** for a concrete checklist.
+- **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
+  **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
+  **starter profile enabled** (`USE_LLM_AGENTS: true` + auto-combat/sustain/heal/buff/loot/flee)
+  with blank `LLM_API_URL`/`LLM_MODEL`, so agents use the deterministic scripted brain until an
+  endpoint is configured.
+- **Build:** `mvn -q clean test` (green: 145 agent tests across 34 classes + full suite). Fast
+  loop: `mvn -q -Dtest='net.server.agent.*Test' test`.
 
 ---
 
@@ -423,11 +422,12 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
-**Not done (next work)**
+**Not done (next work)** — see **§11** for file pointers and suggested approaches.
 - **Pathing depth:** movement is clamped waypoint stepping (per-axis clamped, horizontal
   alignment before drops) with portal travel for cross-map follow; it is not a full
   foothold/rope pathfinder (no rope/ladder model exists server-side); patrol randomizes X only.
 - **Combat fidelity:** Hurricane/Rapid Fire after-delay timing and cast-animation stance.
+- **`/agent tell` / `/agent pause`:** not implemented (`mute`/`unmute` are).
 - **Persistence guidance:** the two agent migrations are manual (like other repo migrations);
   without them, memory/opt-out changes simply do not survive a restart.
 
@@ -506,6 +506,10 @@ model exists server-side); and there is latent cross-thread map mutation on very
 
 | Commit | Summary |
 | --- | --- |
+| `161cdcd81` | config: enable the agent starter profile from the guide |
+| `e3013298c` | docs: docker does not auto-run migrations |
+| `69205e862` | docs: add a player/operator usage guide |
+| `4f3b6fa62` | docs: reconcile handoff/plan with the shipped opt-out |
 | `b8a9d8105` | opt-out: serialize startup load against toggles |
 | `a757e52e5` | docs: document the player opt-out |
 | `9a1067173` | player-facing opt-out from AI-agent interaction |
@@ -530,5 +534,53 @@ model exists server-side); and there is latent cross-thread map mutation on very
 | `653f8fb77` | foundation (M0/M1 scaffold) |
 | `9ad2b2d6c` | base (upstream `master`) |
 
-Base branch: `master`. Suggested next branch: continue on `feature/llm-agent-players` or
-branch `feature/llm-agent-combat` off it.
+Base branch: `master`. Continue on `feature/llm-agent-players` (it is pushed and in sync).
+
+---
+
+## 11. Resuming the work (fresh-agent checklist)
+
+M0–M4 plus the player opt-out are implemented, reviewed, tested and pushed. If you are picking
+this up cold:
+
+1. Read `docs/llm-agent-players-guide.md` (behavior + commands), then this file (§2 architecture,
+   §3 file map, §4 invariants, §5 recipes). The design/plan is `docs/llm-agent-players-plan.md`.
+2. Confirm the baseline: `mvn -q clean test` (green; 145 agent tests). Fast loop:
+   `mvn -q -Dtest='net.server.agent.*Test' test`. Compile only: `mvn -q -DskipTests compile`.
+3. Implement on this branch. Follow the repo's review pattern: implement → run an *independent*
+   read-only verifier pass (spawn a subagent) → fix HIGH/MEDIUM findings → update docs →
+   commit → push.
+
+### 11.1 The only open work
+
+| Item | Where | Notes / suggested approach |
+| --- | --- | --- |
+| **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); maybe `FootholdTree` | Movement is clamped per-axis waypoint stepping with horizontal-align-before-drop; cross-map follow walks to an open portal then falls back to a party warp. There is **no rope/ladder model server-side** and `MovePlayerHandler` is client-authoritative on position (it just sets x/y), so a full pathfinder is mostly cosmetic. `Foothold` exposes `getX1/X2/Y1/Y2`, `calculateFooting(x)`, `getNext/getPrev`; `FootholdTree` has `findBelow/findWall` but **no** enumeration — add `getAllFootholds()` if you build a graph. |
+| **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`damageLines`, `buildAttackPacket`/`buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | `StatEffect` exposes no `getAfterDelay()` in this codebase; if pacing is needed, use `AgentSession.isSkillReady`/`markSkillUsed`. Packet `stance` is hard-coded `4` (Hurricane rebroadcasts stance = rangedirection). |
+| **`/agent tell` / `/agent pause`** | `AgentCommand`, `AgentManager` | `mute`/`unmute` exist; `pause` would suspend decisions (e.g. an `AgentSession` "paused" flag checked in `tick`), `tell` would be an out-of-band instruction distinct from `say`. |
+| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested — need registered sessions), `AgentManager.transferChannel` (no integration test) | Add seams/tests if you touch these paths. |
+
+### 11.2 Environment state (as of the latest session)
+
+- **Database:** the project MySQL container is `cosmic-ms-rebirth-db-1` (`mysql:8.4.0`, host
+  port **3307** → container 3306, schema `cosmic`; root password in `config.yaml`). Both agent
+  tables are now applied and present: `agent_memory` (v0.15.0) and `agent_optout` (v0.16.0).
+  `docker compose`'s init dir (`database/sql`) does **not** run the `migration/` subdir, so
+  apply migrations manually:
+  ```bash
+  docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.15.0.sql
+  docker exec -i cosmic-ms-rebirth-db-1 mysql -uroot -p<pw> cosmic < database/sql/migration/v0.16.0.sql
+  ```
+  If you run the server **locally** (not via compose), note `config.yaml` uses `localhost:3306`
+  while the container maps host **3307** — point the JDBC URL at 3307, or run via
+  `docker compose` (which sets `DB_HOST=db`).
+- **Config:** `config.yaml` has the guide's starter profile enabled (`USE_LLM_AGENTS: true`,
+  auto-combat/sustain/heal/buff/loot/flee) with blank `LLM_API_URL`/`LLM_MODEL` ⇒ agents use
+  the **scripted** brain. Set an OpenAI-compatible endpoint for real LLM behavior.
+- **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree clean.
+
+### 11.3 Definition of done for a change
+
+`mvn -q clean test` green; an independent verifier pass with HIGH/MEDIUM findings addressed;
+`handoff` + `plan` updated (and `guide` if user/operator-facing); worktree clean; committed and
+pushed with a `feat(agent):` / `fix(agent):` / `docs(agent):` message.
