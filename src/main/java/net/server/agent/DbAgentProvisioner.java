@@ -119,7 +119,7 @@ public class DbAgentProvisioner implements AgentProvisioner {
 
             if (!character.insertNewChar(recipe)) {
                 log.warn("insertNewChar failed for companion {}", name);
-                rollbackProvision(createdCharacterId, createdAccountId, name, safeLevel, job);
+                rollbackProvision(createdCharacterId, createdAccountId, name, safeLevel, job, world);
                 return null;
             }
             createdCharacterId = character.getId();
@@ -134,19 +134,19 @@ public class DbAgentProvisioner implements AgentProvisioner {
 
             log.info("Provisioned companion {} (chr {}, acc {}, {} level {}) on map {} world {}",
                     name, character.getId(), accountId, build.job(), safeLevel, mapId, world);
-            return new ProvisionedAgent(character.getId(), accountId, name, safeLevel, build.job().getId());
+            return new ProvisionedAgent(character.getId(), accountId, name, safeLevel, build.job().getId(), world);
         } catch (Throwable t) {
             log.error("Failed to provision companion ({} level {}, map {}, world {})", job, safeLevel, mapId, world, t);
-            rollbackProvision(createdCharacterId, createdAccountId, createdName, safeLevel, job);
+            rollbackProvision(createdCharacterId, createdAccountId, createdName, safeLevel, job, world);
             return null;
         }
     }
 
     /** Best-effort rollback of a partially provisioned companion (never throws). */
-    private void rollbackProvision(int characterId, int accountId, String name, int level, Job job) {
+    private void rollbackProvision(int characterId, int accountId, String name, int level, Job job, int world) {
         try {
             if (characterId > 0) {
-                destroy(new ProvisionedAgent(characterId, accountId, name == null ? "?" : name, level, job.getId()));
+                destroy(new ProvisionedAgent(characterId, accountId, name == null ? "?" : name, level, job.getId(), world));
             } else if (accountId > 0) {
                 try (Connection con = DatabaseConnection.getConnection()) {
                     deleteAccount(con, accountId);
@@ -166,6 +166,10 @@ public class DbAgentProvisioner implements AgentProvisioner {
         try {
             final Client client = Client.createMock();
             client.setAccID(agent.accountId());
+            // The mock client defaults to world -123, so Party#leaveParty would resolve a null
+            // World and NPE while removing the companion from its party. Point it at the world
+            // the character actually lives in before deleting.
+            client.setWorld(agent.world());
             // Client#deleteCharacter is gated by Server#haveCharacterEntry; load the account into
             // the login cache first so the delete is authorized for this server-owned account.
             Server.getInstance().loadAccountCharacters(client);
@@ -223,12 +227,12 @@ public class DbAgentProvisioner implements AgentProvisioner {
             final List<int[]> rows = new ArrayList<>();
             try (Connection con = DatabaseConnection.getConnection();
                  PreparedStatement ps = con.prepareStatement(
-                         "SELECT a.id AS acc, c.id AS chr FROM accounts a " +
+                         "SELECT a.id AS acc, c.id AS chr, c.world AS world FROM accounts a " +
                                  "LEFT JOIN characters c ON c.accountid = a.id WHERE a.name LIKE ?")) {
                 ps.setString(1, AgentConfig.accountPrefix() + "%");
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        rows.add(new int[]{rs.getInt("acc"), rs.getInt("chr")});
+                        rows.add(new int[]{rs.getInt("acc"), rs.getInt("chr"), rs.getInt("world")});
                     }
                 }
             }
@@ -237,7 +241,7 @@ public class DbAgentProvisioner implements AgentProvisioner {
                 if (row[1] > 0) {
                     // Companion accounts hold at most one character (characterslots=1). destroy()
                     // deletes the character cascade and then the account.
-                    destroy(new ProvisionedAgent(row[1], row[0], "?", 1, 0));
+                    destroy(new ProvisionedAgent(row[1], row[0], "?", 1, 0, row[2]));
                     reaped++;
                 } else {
                     emptyAccounts.add(row[0]);

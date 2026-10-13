@@ -58,9 +58,16 @@ public class AgentCompanionCommand extends Command {
             }
             case "find" -> {
                 final String role = params.length >= 2 ? params[1] : null;
+                // Acknowledge immediately: provisioning creates a character and can take seconds.
+                player.message(role == null
+                        ? "Searching for a companion near your level..."
+                        : "Searching for a " + role + " companion...");
                 player.message(service.find(player, role).message());
             }
-            case "dismiss" -> player.message(service.dismiss(player).message());
+            case "dismiss" -> {
+                player.message("Dismissing your companion...");
+                player.message(service.dismiss(player).message());
+            }
             case "pause" -> player.message(service.pause(player, true).message());
             case "resume", "unpause" -> player.message(service.pause(player, false).message());
             default -> player.message("Usage: @agents list | find [role] | dismiss | pause | resume");

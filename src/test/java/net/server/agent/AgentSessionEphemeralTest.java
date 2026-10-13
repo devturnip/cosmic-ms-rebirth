@@ -22,7 +22,7 @@ class AgentSessionEphemeralTest {
         AgentSession session = new AgentSession(new AgentClient(-1, null, 0, 0), null,
                 new ScriptedAgentBrain("Test"), new AgentMemory(1), true, 42);
         AgentProvisioner.ProvisionedAgent provisioned =
-                new AgentProvisioner.ProvisionedAgent(7, 8, "[AI]P", 12, 0);
+                new AgentProvisioner.ProvisionedAgent(7, 8, "[AI]P", 12, 0, 0);
 
         session.setProvisioned(provisioned);
 

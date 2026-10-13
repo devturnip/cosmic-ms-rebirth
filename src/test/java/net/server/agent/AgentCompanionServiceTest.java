@@ -171,7 +171,8 @@ class AgentCompanionServiceTest {
 
         assertTrue(result.ok());
         assertEquals(1, provisioner.provisionCalls);
-        assertEquals(Job.CLERIC, provisioner.lastJob, "a warrior should be complemented by a healer");
+        assertTrue(Set.of(Job.CLERIC, Job.MAGICIAN, Job.BOWMAN, Job.THIEF, Job.PIRATE).contains(provisioner.lastJob),
+                "a warrior should be complemented by a different class, was " + provisioner.lastJob);
         assertEquals(1, runtime.spawnCalls);
         assertTrue(runtime.lastEphemeral);
         assertEquals(PLAYER_ID, runtime.lastOwner);
@@ -338,7 +339,7 @@ class AgentCompanionServiceTest {
 
     private static final class FakeProvisioner implements AgentProvisioner {
         AgentProvisioner.ProvisionedAgent next =
-                new AgentProvisioner.ProvisionedAgent(4242, 24, "[AI]Nova", 30, Job.CLERIC.getId());
+                new AgentProvisioner.ProvisionedAgent(4242, 24, "[AI]Nova", 30, Job.CLERIC.getId(), 0);
         AgentProvisioner.ProvisionedAgent lastProvisioned;
         final List<AgentProvisioner.ProvisionedAgent> destroyed = new ArrayList<>();
         Runnable onProvision;

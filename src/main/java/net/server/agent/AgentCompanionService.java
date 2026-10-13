@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 
 /**
@@ -223,7 +224,8 @@ public class AgentCompanionService {
                     log.warn("Companion {} spawned but auto-party failed", provisioned.name(), t);
                 }
                 return new Result(Status.OK, session,
-                        "Summoned " + provisioned.name() + " (" + role.roleName() + ", level " + level + ").");
+                        "Summoned " + provisioned.name() + " (" + role.roleName() + ", level " + level
+                                + "). It will follow you.");
             } catch (Throwable t) {
                 if (!spawned && provisioned != null) {
                     provisioner.destroy(provisioned); // do not orphan a provisioned character
@@ -341,9 +343,12 @@ public class AgentCompanionService {
         return level;
     }
 
-    /** Role that complements {@code playerJob} (see {@link AgentRole#complement(client.Job)}). */
-    static AgentRole complementRole(client.Job playerJob) {
-        return AgentRole.complement(playerJob);
+    /**
+     * Ordered complement roles for {@code playerJob} (every role but the player's own; see
+     * {@link AgentRole#complements(client.Job)}).
+     */
+    static List<AgentRole> complementRoles(client.Job playerJob) {
+        return AgentRole.complements(playerJob);
     }
 
     private AgentRole chooseRole(Character player, String requestedRole) {
@@ -359,8 +364,15 @@ public class AgentCompanionService {
         }
 
         if (AgentConfig.complementJob()) {
-            final AgentRole complement = complementRole(player.getJob());
-            if (!hasAvailable || available.contains(complement.roleName())) {
+            // Every role except the player's own; keep only the ones this provisioner can build.
+            final List<AgentRole> eligible = new ArrayList<>();
+            for (AgentRole partner : complementRoles(player.getJob())) {
+                if (!hasAvailable || available.contains(partner.roleName())) {
+                    eligible.add(partner);
+                }
+            }
+            final AgentRole complement = AgentRole.pickComplement(eligible, ThreadLocalRandom.current());
+            if (complement != null) {
                 return complement;
             }
         }

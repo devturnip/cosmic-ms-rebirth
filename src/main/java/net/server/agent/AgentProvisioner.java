@@ -17,10 +17,12 @@ import java.util.List;
 public interface AgentProvisioner {
 
     /**
-     * A freshly provisioned companion. {@code characterId} is the generated character row id and
-     * {@code accountId} is the dedicated server-owned account it lives on.
+     * A freshly provisioned companion. {@code characterId} is the generated character row id,
+     * {@code accountId} is the dedicated server-owned account it lives on, and {@code world} is
+     * the world it was created in (needed so its connection-less mock client can resolve the
+     * world server when the character is deleted again).
      */
-    record ProvisionedAgent(int characterId, int accountId, String name, int level, int jobId) {
+    record ProvisionedAgent(int characterId, int accountId, String name, int level, int jobId, int world) {
         public boolean isValid() {
             return characterId > 0 && accountId > 0 && name != null && !name.isBlank();
         }

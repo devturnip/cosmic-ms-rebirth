@@ -76,7 +76,7 @@ class AgentManagerCompanionLifecycleTest {
     @Test
     void despawnDeletesAnEphemeralCompanion() throws Exception {
         AgentProvisioner.ProvisionedAgent provisioned =
-                new AgentProvisioner.ProvisionedAgent(9001, 55, "[AI]Test", 30, 2);
+                new AgentProvisioner.ProvisionedAgent(9001, 55, "[AI]Test", 30, 2, 0);
         inject(9001, "[AI]Test", true, 777, provisioned);
         FakeProvisioner fake = new FakeProvisioner();
         swapProvisioner(fake);
