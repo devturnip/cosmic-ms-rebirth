@@ -52,6 +52,10 @@ public class AgentManager {
     private final AgentOptoutStore optoutStore = new AgentOptoutStore();
     /** Deletes ephemeral companion characters when their session ends (GM despawn, shutdown). */
     private volatile AgentProvisioner provisioner = new DbAgentProvisioner();
+    /** Characters whose ephemeral row is mid-deletion; {@code spawn} refuses them until it finishes. */
+    private final Set<Integer> pendingEphemeralDeletes = ConcurrentHashMap.newKeySet();
+    /** Set while {@link #stop()} is tearing down, so a concurrent spawn cannot restart the ticker. */
+    private volatile boolean stopping;
     /** Character ids that have opted out of AI-agent interaction (see /agentoptout). */
     private final Set<Integer> optedOut = ConcurrentHashMap.newKeySet();
     /** Serializes the startup opt-out load against concurrent toggles (avoids a load/toggle race). */
@@ -75,6 +79,7 @@ public class AgentManager {
         if (ticker != null) {
             return;
         }
+        stopping = false;
         final ThreadFactory daemonFactory = r -> {
             Thread t = new Thread(r, "agent-brain");
             t.setDaemon(true);
@@ -98,6 +103,7 @@ public class AgentManager {
     public void stop() {
         final List<Integer> ids;
         synchronized (this) {
+            stopping = true;
             if (ticker != null) {
                 ticker.shutdownNow();
                 ticker = null;
@@ -179,6 +185,10 @@ public class AgentManager {
             log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
             return null;
         }
+        if (stopping) {
+            log.warn("Refusing to spawn agent {}: AgentManager is stopping", characterName);
+            return null;
+        }
         if (ticker == null) {
             start(); // defensive: ensure the tick loop/pool exist even if server auto-start was skipped
         }
@@ -194,6 +204,10 @@ public class AgentManager {
         }
         if (sessionsByCharacterId.containsKey(record.characterId())) {
             log.warn("Character {} is already an active agent", characterName);
+            return null;
+        }
+        if (pendingEphemeralDeletes.contains(record.characterId())) {
+            log.warn("Refusing to spawn agent {}: its character is being deleted", characterName);
             return null;
         }
 
@@ -316,7 +330,7 @@ public class AgentManager {
         final AgentProvisioner.ProvisionedAgent provisioned = old.getProvisioned();
 
         // Remove without deleting the ephemeral character: it is re-spawned on the new channel.
-        removeSession(characterId);
+        removeSession(characterId, false);
         AgentSession session = spawn(name, world, channel, brain, memory, ephemeral, ownerPlayerId, provisioned);
         if (session == null) {
             // A failed transfer must never silently delete the agent: re-spawn on the old channel.
@@ -342,23 +356,35 @@ public class AgentManager {
     }
 
     public boolean despawn(int characterId) {
-        final AgentSession session = removeSession(characterId);
+        final AgentSession session = removeSession(characterId, true);
         if (session == null) {
             return false;
         }
-        // Delete outside the monitor: the character cascade is blocking DB I/O.
-        destroyIfEphemeral(session.isEphemeral(), session.getProvisioned());
+        // Delete outside the monitor: the character cascade is blocking DB I/O. The pending marker
+        // set in removeSession makes a concurrent spawn of the same character refuse, so the row
+        // can never be deleted out from under a freshly re-spawned session.
+        try {
+            destroyIfEphemeral(session.isEphemeral(), session.getProvisioned());
+        } finally {
+            pendingEphemeralDeletes.remove(characterId);
+        }
         return true;
     }
 
     /**
      * Removes and disconnects a session <em>without</em> deleting an ephemeral character. Used by
      * channel transfer, which re-spawns the same character and must not delete it.
+     *
+     * @param markDestruction when true, tombstone the character id so a concurrent spawn refuses it
+     *                        until {@link #despawn(int)} finishes the delete
      */
-    private synchronized AgentSession removeSession(int characterId) {
+    private synchronized AgentSession removeSession(int characterId, boolean markDestruction) {
         final AgentSession session = sessionsByCharacterId.remove(characterId);
         if (session == null) {
             return null;
+        }
+        if (markDestruction && session.isEphemeral() && session.getProvisioned() != null) {
+            pendingEphemeralDeletes.add(characterId);
         }
         session.shutdown();
         // Persist and disconnect outside any monitor: both can block on DB I/O, and the map

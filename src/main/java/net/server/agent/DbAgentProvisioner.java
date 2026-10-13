@@ -104,7 +104,8 @@ public class DbAgentProvisioner implements AgentProvisioner {
 
             if (!character.insertNewChar(recipe)) {
                 log.warn("insertNewChar failed for companion {}", name);
-                return null; // rollback deletes the (empty) account
+                rollbackProvision(createdCharacterId, createdAccountId, name, safeLevel, job);
+                return null;
             }
             createdCharacterId = character.getId();
 

@@ -253,3 +253,9 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   is now scoped tightly; (c) `AgentManager.despawn` ran the character-cascade delete while
   holding the global monitor — removal is now under the monitor and deletion happens outside it
   (`stop()` likewise). LOW: `requestLocks` became a fixed-size stripe array.
+- **Pass 3** (follow-up commit): verified the loot gate, connection scoping, monitor discipline
+  and stripe locks. Fixed two more MEDIUMs: the `insertNewChar`-false path could orphan the new
+  account (now calls `rollbackProvision`), and moving the delete outside the monitor reopened a
+  GM despawn→respawn race (a `pendingEphemeralDeletes` tombstone is now set under the monitor and
+  checked by `spawn`, plus a `stopping` guard so a concurrent spawn cannot restart the ticker
+  during `stop()`).
