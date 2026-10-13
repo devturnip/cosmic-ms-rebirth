@@ -76,6 +76,13 @@ public final class AgentCombat {
             5221004,  // Rapid Fire
             13111002  // KoC Hurricane
     );
+
+    /**
+     * Minimum interval between casts of a hold skill (Hurricane family) that carries no WZ
+     * cooldown. Without this the agent would machine-gun the skill every tick, which is far
+     * faster than the client's real after-delay.
+     */
+    private static final long HOLD_SKILL_AFTER_DELAY_MS = 200;
     private AgentCombat() {
     }
 
@@ -443,7 +450,7 @@ public final class AgentCombat {
                     buildAttackPacket(skillId, targetObjectId, damage, lines, direction));
         }
         if (handled) {
-            session.markSkillUsed(skillId, skillCooldownMs(chr, skillId));
+            session.markSkillUsed(skillId, attackDelayMs(chr, skillId));
         }
     }
 
@@ -558,7 +565,7 @@ public final class AgentCombat {
                     buildAttackPacket(skillId, valid, damage, lines, direction));
         }
         if (handled) {
-            session.markSkillUsed(skillId, skillCooldownMs(chr, skillId));
+            session.markSkillUsed(skillId, attackDelayMs(chr, skillId));
         }
     }
 
@@ -606,6 +613,20 @@ public final class AgentCombat {
         Skill skill = SkillFactory.getSkill(skillId);
         StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
         return effect == null ? 0L : Math.max(0, effect.getCooldown()) * 1000L;
+    }
+
+    /**
+     * Minimum interval before the same skill may be used again. Prefers the WZ cooldown when
+     * present; otherwise hold skills (Hurricane family, which carry no WZ cooldown) get a fixed
+     * after-delay and every other skill is unthrottled (0). Used to pace
+     * {@code AgentSession#markSkillUsed}.
+     */
+    static long attackDelayMs(Character chr, int skillId) {
+        long cooldown = skillCooldownMs(chr, skillId);
+        if (cooldown > 0) {
+            return cooldown;
+        }
+        return RANGED_EXTRA_SKILLS.contains(skillId) ? HOLD_SKILL_AFTER_DELAY_MS : 0L;
     }
 
     /**
@@ -994,7 +1015,10 @@ public final class AgentCombat {
         out.skip(8);
         out.writeByte(0);   // display
         out.writeByte(dir); // direction (0 = right, 1 = left)
-        out.writeByte(4);   // stance
+        // parseDamage reads stance here but RangedAttackHandler rebroadcasts Hurricane-family
+        // skills with stance = rangedirection, so mirror that for the hold skills; other ranged
+        // skills keep the normal stance 4.
+        out.writeByte(RANGED_EXTRA_SKILLS.contains(skillId) ? dir : 4); // stance
         out.writeByte(0);   // (ranged: unused)
         out.writeByte(4);   // speed
         out.writeByte(0);   // (ranged: unused)
