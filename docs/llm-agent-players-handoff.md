@@ -2,6 +2,7 @@
 
 Audience: a fresh engineer or AI agent picking this work up cold.
 Read this first, then `docs/llm-agent-players-plan.md` (the full design/plan).
+For a player/operator-facing walkthrough, see `docs/llm-agent-players-guide.md`.
 
 ---
 
