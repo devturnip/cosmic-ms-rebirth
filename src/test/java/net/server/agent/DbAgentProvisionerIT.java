@@ -62,6 +62,9 @@ class DbAgentProvisionerIT {
         // WZ data drives weapon selection and the starting equip/item ids.
         SkillFactory.loadAllSkills();
         ItemInformationProvider.getInstance();
+        // Cash-outfit candidates are loaded off the provisioning path at runtime; prime them here
+        // so the provisioning assertions can see the cash outfit.
+        CompanionAppearance.primeCashCandidates();
 
         // A live server has at least one World; the login-side account/character cache that
         // Client#deleteCharacter authorizes against is only populated through a World.

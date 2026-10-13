@@ -100,6 +100,8 @@ public class AgentManager {
                 AgentConfig.maxAgents(), tickMs, AgentConfig.perception());
         // A previous run may have been killed before it could delete its ephemeral companions.
         provisioner.reapOrphans();
+        // Warm the cosmetic cash-item cache off the request path (the WZ scan is one-time).
+        CompanionAppearance.warmCashCandidatesAsync();
     }
 
     public void stop() {

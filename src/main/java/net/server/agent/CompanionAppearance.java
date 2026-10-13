@@ -2,13 +2,14 @@ package net.server.agent;
 
 import client.SkinColor;
 import constants.inventory.EquipSlot;
+import provider.Data;
 import provider.DataDirectoryEntry;
 import provider.DataEntry;
 import provider.DataFileEntry;
+import provider.DataProvider;
 import provider.DataProviderFactory;
+import provider.DataTool;
 import provider.wz.WZFiles;
-import server.ItemInformationProvider;
-import tools.Pair;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -47,6 +48,8 @@ final class CompanionAppearance {
     private static volatile List<Integer> hairIdCache;
     private static volatile List<Integer> faceIdCache;
     private static volatile List<CashEquip> cashCandidateCache;
+    private static final Object CASH_LOAD_LOCK = new Object();
+    private static volatile boolean cashLoadStarted;
 
     private final List<Integer> hairIds;
     private final List<Integer> faceIds;
@@ -137,16 +140,40 @@ final class CompanionAppearance {
     }
 
     /**
-     * Cash equips from the item-name list, each paired with its worn position. Cached because the
-     * scan touches every known equip id.
+     * Cash equips from the equip WZ data, each paired with its worn position. The first call is a
+     * single bounded pass over the equip directories; until it completes, provisioning uses no cash
+     * outfit rather than blocking on the scan.
      */
     static List<CashEquip> cashCandidates() {
         List<CashEquip> cached = cashCandidateCache;
-        if (cached == null) {
-            cached = loadCashCandidates();
-            cashCandidateCache = cached;
+        if (cached != null) {
+            return cached;
         }
-        return cached;
+        warmCashCandidatesAsync();
+        return List.of();
+    }
+
+    /** Loads the cash candidates into the cache exactly once (idempotent, thread-safe). */
+    static void primeCashCandidates() {
+        synchronized (CASH_LOAD_LOCK) {
+            if (cashCandidateCache == null) {
+                cashCandidateCache = loadCashCandidates();
+            }
+            cashLoadStarted = true;
+        }
+    }
+
+    /** Warms the cash cache on a daemon thread so a player's first summon never blocks on WZ I/O. */
+    static void warmCashCandidatesAsync() {
+        synchronized (CASH_LOAD_LOCK) {
+            if (cashLoadStarted) {
+                return;
+            }
+            cashLoadStarted = true;
+        }
+        final Thread loader = new Thread(CompanionAppearance::primeCashCandidates, "companion-cash-cache");
+        loader.setDaemon(true);
+        loader.start();
     }
 
     /** Enumerates the {@code .img} file names in a Character.wz directory as numeric ids. */
@@ -169,21 +196,32 @@ final class CompanionAppearance {
         return List.copyOf(ids);
     }
 
+    /**
+     * Single pass over the equip directories ({@code Character.wz/<slot>/<id>.img}), reading only
+     * {@code info/cash} and {@code info/islot} from the already-loaded data. Deliberately avoids
+     * {@code getAllItems()}/{@code getItemData()} which rescan every item per call (O(n^2)).
+     */
     static List<CashEquip> loadCashCandidates() {
         final List<CashEquip> candidates = new ArrayList<>();
         try {
-            final ItemInformationProvider ii = ItemInformationProvider.getInstance();
-            for (Pair<Integer, String> entry : ii.getAllItems()) {
-                final int itemId = entry.getLeft();
-                if (itemId / 1000000 != 1) {
-                    continue; // equips only; itemType 5 cash items are not worn
-                }
-                if (!ii.isCash(itemId)) {
-                    continue;
-                }
-                final Byte position = cashPosition(ii.getEquipmentSlot(itemId));
-                if (position != null) {
-                    candidates.add(new CashEquip(itemId, position));
+            final DataProvider provider = DataProviderFactory.getDataProvider(WZFiles.CHARACTER);
+            final DataDirectoryEntry root = provider.getRoot();
+            for (DataDirectoryEntry slotDir : root.getSubdirectories()) {
+                final String dirName = slotDir.getName();
+                for (DataFileEntry file : slotDir.getFiles()) {
+                    final int itemId = parseId(file.getName());
+                    if (itemId <= 0 || itemId / 1000000 != 1) {
+                        continue; // equips only
+                    }
+                    final Data img = provider.getData(dirName + "/" + file.getName());
+                    final Data info = img == null ? null : img.getChildByPath("info");
+                    if (info == null || DataTool.getInt("cash", info, 0) != 1) {
+                        continue;
+                    }
+                    final Byte position = cashPosition(DataTool.getString("islot", info, ""));
+                    if (position != null) {
+                        candidates.add(new CashEquip(itemId, position));
+                    }
                 }
             }
         } catch (Throwable t) {
