@@ -3,7 +3,6 @@ package net.server.agent;
 import client.Character;
 import client.Skill;
 import client.SkillFactory;
-import constants.skills.Warrior;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +25,10 @@ import static org.mockito.Mockito.when;
  */
 class CompanionTemplateWzTest {
 
-    private static final List<Integer> TIER_LEVELS = List.of(10, 30, 70, 120);
+    /** Sampled tiers, plus level 200 so every desired cap is actually granted and validated. */
+    private static final List<Integer> TIER_LEVELS = List.of(10, 30, 70, 120, 200);
+    /** A raw, template-independent skill id used only to detect whether the WZ data is loaded. */
+    private static final int PROVIDER_PROBE_SKILL = 1000000; // Improved HP Recovery
 
     @BeforeAll
     static void loadSkillData() {
@@ -39,7 +41,7 @@ class CompanionTemplateWzTest {
 
     @Test
     void everyGrantedSkillResolvesAndFitsItsWzMaxLevel() {
-        assumeTrue(SkillFactory.getSkill(Warrior.POWER_STRIKE) != null, "WZ skill data unavailable");
+        assumeTrue(SkillFactory.getSkill(PROVIDER_PROBE_SKILL) != null, "WZ skill data unavailable");
         for (AgentRole role : AgentRole.values()) {
             for (int level : TIER_LEVELS) {
                 CompanionTemplate.Build build = CompanionTemplate.build(role, level);
@@ -56,7 +58,7 @@ class CompanionTemplateWzTest {
 
     @Test
     void everyRoleTierGrantsAnAttackSkill() {
-        assumeTrue(SkillFactory.getSkill(Warrior.POWER_STRIKE) != null, "WZ skill data unavailable");
+        assumeTrue(SkillFactory.getSkill(PROVIDER_PROBE_SKILL) != null, "WZ skill data unavailable");
         for (AgentRole role : AgentRole.values()) {
             for (int level : TIER_LEVELS) {
                 CompanionTemplate.Build build = CompanionTemplate.build(role, level);

@@ -130,6 +130,7 @@ public class ItemId {
     public static final int RED_STEAL_PANTS = 1061043;
     public static final int BRONZE_CHAIN_BOOTS = 1072032;
     public static final int STEEL_GUARDS = 1472008;
+    public static final int STEEL_DAGGER = 1332005;
     public static final int REEF_CLAW = 1332012;
 
     // Pirate

@@ -101,7 +101,7 @@ final class CompanionTemplate {
         final int usedSp = skills.stream().mapToInt(SkillGrant::level).sum();
         final int[] hpMp = hpMpFor(role, safeLevel);
 
-        final Gear gear = gearFor(role);
+        final Gear gear = gearFor(role, safeLevel);
         return new Build(role, job, safeLevel,
                 stats[0], stats[1], stats[2], stats[3],
                 stats[4], Math.max(0, totalSp - usedSp),
@@ -552,7 +552,7 @@ final class CompanionTemplate {
                         int hpPotion, int mpPotion, int ammoItem, int ammoQty) {
     }
 
-    private static Gear gearFor(AgentRole role) {
+    private static Gear gearFor(AgentRole role, int level) {
         return switch (role) {
             case WARRIOR -> new Gear(ItemId.RED_HWARANG_SHIRT,
                     ItemId.BLACK_MARTIAL_ARTS_PANTS,
@@ -575,7 +575,8 @@ final class CompanionTemplate {
             case THIEF -> new Gear(ItemId.DARK_BROWN_STEALER,
                     ItemId.DARK_BROWN_STEALER_PANTS,
                     ItemId.BRONZE_CHAIN_BOOTS,
-                    ItemId.STEEL_GUARDS,
+                    // Rogue tier wields a dagger (Double Stab); the Assassin line switches to a claw.
+                    level < SECOND_JOB_LEVEL ? ItemId.STEEL_DAGGER : ItemId.STEEL_GUARDS,
                     0,
                     ItemId.WHITE_POTION, ItemId.BLUE_POTION,
                     ItemId.SUBI_THROWING_STARS, 500);
