@@ -46,4 +46,12 @@ public interface AgentProvisioner {
     default List<String> roles() {
         return List.of();
     }
+
+    /**
+     * Deletes any server-owned companion accounts left over from a previous run (e.g. after an
+     * ungraceful shutdown). Best-effort; returns the number of accounts cleaned up.
+     */
+    default int reapOrphans() {
+        return 0;
+    }
 }

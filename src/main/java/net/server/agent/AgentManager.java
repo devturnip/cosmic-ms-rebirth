@@ -98,6 +98,8 @@ public class AgentManager {
         ticker.scheduleAtFixedRate(this::tickAll, tickMs, tickMs, TimeUnit.MILLISECONDS);
         log.info("AgentManager started (maxAgents={}, tick={}ms, perception={})",
                 AgentConfig.maxAgents(), tickMs, AgentConfig.perception());
+        // A previous run may have been killed before it could delete its ephemeral companions.
+        provisioner.reapOrphans();
     }
 
     public void stop() {

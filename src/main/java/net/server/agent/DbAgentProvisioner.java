@@ -199,6 +199,56 @@ public class DbAgentProvisioner implements AgentProvisioner {
         return AgentRole.names();
     }
 
+    /**
+     * Deletes server-owned companion accounts (identified by {@link AgentConfig#accountPrefix()})
+     * left over from a previous run, so an ungraceful shutdown cannot leak accounts/characters.
+     * Only the dedicated agent-account prefix is touched. Best-effort; never throws.
+     *
+     * @return the number of accounts reaped
+     */
+    @Override
+    public int reapOrphans() {
+        int reaped = 0;
+        try {
+            final List<int[]> rows = new ArrayList<>();
+            try (Connection con = DatabaseConnection.getConnection();
+                 PreparedStatement ps = con.prepareStatement(
+                         "SELECT a.id AS acc, c.id AS chr FROM accounts a " +
+                                 "LEFT JOIN characters c ON c.accountid = a.id WHERE a.name LIKE ?")) {
+                ps.setString(1, AgentConfig.accountPrefix() + "%");
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        rows.add(new int[]{rs.getInt("acc"), rs.getInt("chr")});
+                    }
+                }
+            }
+            final List<Integer> emptyAccounts = new ArrayList<>();
+            for (int[] row : rows) {
+                if (row[1] > 0) {
+                    // Companion accounts hold at most one character (characterslots=1). destroy()
+                    // deletes the character cascade and then the account.
+                    destroy(new ProvisionedAgent(row[1], row[0], "?", 1, 0));
+                    reaped++;
+                } else {
+                    emptyAccounts.add(row[0]);
+                }
+            }
+            for (int accountId : emptyAccounts) {
+                try (Connection con = DatabaseConnection.getConnection()) {
+                    if (deleteAccount(con, accountId)) {
+                        reaped++;
+                    }
+                }
+            }
+            if (reaped > 0) {
+                log.info("Reaped {} orphaned companion account(s) from a previous run", reaped);
+            }
+        } catch (Throwable t) {
+            log.warn("Failed to reap orphaned companion accounts", t);
+        }
+        return reaped;
+    }
+
     // ------------------------------------------------------------------
     // recipe templates
     // ------------------------------------------------------------------
