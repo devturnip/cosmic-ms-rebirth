@@ -172,7 +172,9 @@ Rank 0 (`gm0`), registered in `CommandsExecutor`. Runs off the Netty loop via `T
   characters and their mesos are destroyed on dismiss.
 - **No AFK farming:** contributions require the requester on the same map and not idle
   (idle despawn, `LLM_AGENT_IDLE_DESPAWN_MS`); per-player cap and request cooldown; optional
-  daily uptime cap (deferred).
+  daily uptime cap. **Decision: the current posture is accepted** — per-player cap, request
+  cooldown, no value transfer and no auto-loot are considered sufficient; idle despawn and
+  uptime caps are intentionally not pursued.
 - **No auto-loot for player companions** by default (agent-looted drops would be destroyed
   with the character). Persistent GM agents keep `LLM_AGENT_AUTO_LOOT` as configured.
 - **Map/quest safety:** refuse event-instance/PvP maps; companions are companions-only and do
@@ -205,7 +207,7 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 | **M5 — Provisioning** | `AgentProvisioner` + `DbAgentProvisioner` (account + recipe + delete), config, tests. | done |
 | **M6 — Discovery/spawn** | `/agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | done |
 | **M7 — Auto-party** | `CompanionPartyService` (form/join), guard cases. | done |
-| **M8 — Fairness/lifecycle** | idle despawn, daily uptime cap, metrics/audit, opt-out interplay. | deferred |
+| **M8 — Fairness/lifecycle** | idle despawn, daily uptime cap, metrics/audit, opt-out interplay. | not required (accepted posture) |
 | **M9 — Quest/PQ audit** | Verify party-quest scripts tolerate companions; level-band/PQ eligibility rules; guide. | deferred |
 
 ### Definition of done (per repo process)
@@ -217,8 +219,9 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 
 ## 8. Deferred / open
 
-- **Idle despawn & uptime caps** (M8) — needs the `Character` idle signal and an
-  `AgentManager` reap hook.
+- ~~**Idle despawn & uptime caps** (M8)~~ — intentionally not pursued: the accepted anti-AFK
+  posture is the per-player cap + request cooldown + no value transfer + no auto-loot. (The
+  `Character` idle signal / reap hook would be needed if this is ever revisited.)
 - **PQ script audit** (M9) — some v83 party-quest scripts assume human players; companions may
   break objective logic even though they can fill slots.
 - **Persistent vs ephemeral toggle for GM spawns** — `/agent spawn` keeps the persistent

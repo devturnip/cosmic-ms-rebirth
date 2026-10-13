@@ -20,8 +20,8 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **Status:** M0–M7 done (agent engine M0–M4 + opt-out; player-facing **ephemeral
   companions** M5–M7 via `/agents list|find|pause|resume|dismiss`). Also landed: hold-skill
   attack pacing + ranged cast stance, foothold-aware platform stepping, and GM
-  `/agent pause|resume`. Remaining open items: companion fairness/lifecycle depth (M8) and a
-  party-quest compatibility audit (M9), and deeper pathing/cast fidelity —
+  `/agent pause|resume`. Remaining open items: a party-quest compatibility audit (M9) and
+  companion recipe breadth (real 3rd/4th-job stats/skills/gear), plus deeper pathing/cast fidelity —
   see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
 - **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
   **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
@@ -449,8 +449,9 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 - **`/agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
   prototype was discarded). `/agents pause|resume` and GM `/agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`/agents list|find|pause|resume|dismiss`);
-  see **`docs/llm-agent-companions-plan.md`**. M8 (idle despawn/uptime caps) and M9 (party-quest
-  audit) remain open.
+  see **`docs/llm-agent-companions-plan.md`**. M9 (party-quest audit) and recipe breadth remain
+  open; M8 (idle despawn/uptime caps) is intentionally not pursued — the per-player cap + request
+  cooldown + no-value-transfer + no-auto-loot posture is accepted.
 - **Persistence guidance:** the two agent migrations are manual (like other repo migrations);
   without them, memory/opt-out changes simply do not survive a restart.
 
@@ -635,5 +636,6 @@ auto-follow, auto-party), specified in **`docs/llm-agent-companions-plan.md`**. 
   `…_REQUEST_COOLDOWN_MS`, `…_LEVEL_MATCH`, `…_AUTO_PARTY`, `…_COMPLEMENT_JOB`,
   `…_ACCOUNT_PREFIX`.
 - Two independent verifier passes were completed; the fixes commit is `07bd27510`.
-  Deferred (M8/M9): idle despawn/uptime caps, metrics, and the party-quest script audit.
+  Deferred: the party-quest script audit (M9) and recipe breadth; M8 idle despawn/uptime caps are
+  intentionally not pursued (accepted anti-AFK posture).
   GM-spawned agents remain persistent and unchanged.
