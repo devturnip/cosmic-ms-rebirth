@@ -27,7 +27,8 @@ public class AgentCompanionService {
     /** Outcome of a player companion request. */
     public enum Status {
         OK, DISABLED, NOT_ELIGIBLE, BAD_MAP, CAPPED, COOLDOWN, CAPACITY,
-        UNKNOWN_ROLE, PROVISION_FAILED, SPAWN_FAILED, DISMISSED, NOTHING_TO_DISMISS, ERROR
+        UNKNOWN_ROLE, PROVISION_FAILED, SPAWN_FAILED, DISMISSED, NOTHING_TO_DISMISS,
+        PAUSED, RESUMED, NOTHING_TO_PAUSE, ERROR
     }
 
     public record Result(Status status, AgentSession session, String message) {
@@ -48,6 +49,10 @@ public class AgentCompanionService {
         int activeCount();
 
         List<AgentSession> despawnOwnedBy(int ownerPlayerId);
+
+        int setPausedOwnedBy(int ownerPlayerId, boolean paused);
+
+        int pausedOwnedBy(int ownerPlayerId);
     }
 
     /** Default runtime backed by the singleton {@link AgentManager}. */
@@ -71,6 +76,16 @@ public class AgentCompanionService {
         @Override
         public List<AgentSession> despawnOwnedBy(int ownerPlayerId) {
             return AgentManager.getInstance().despawnOwnedBy(ownerPlayerId);
+        }
+
+        @Override
+        public int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
+            return AgentManager.getInstance().setPausedOwnedBy(ownerPlayerId, paused);
+        }
+
+        @Override
+        public int pausedOwnedBy(int ownerPlayerId) {
+            return AgentManager.getInstance().pausedOwnedBy(ownerPlayerId);
         }
     }
 
@@ -244,6 +259,45 @@ public class AgentCompanionService {
     }
 
     // ------------------------------------------------------------------
+    // /agents pause | resume
+    // ------------------------------------------------------------------
+
+    /**
+     * Pauses or resumes every ephemeral companion summoned by {@code player}. Runs under the same
+     * per-player stripe lock as {@link #find} / {@link #dismiss}, validates the player and never
+     * throws.
+     */
+    public Result pause(Character player, boolean paused) {
+        if (!AgentConfig.playerSpawn()) {
+            return new Result(Status.DISABLED, null, "Player companions are disabled on this server.");
+        }
+        if (player == null) {
+            return new Result(Status.NOT_ELIGIBLE, null, "No player.");
+        }
+        synchronized (lockFor(player.getId())) {
+            try {
+                final int owned = runtime.countOwnedBy(player.getId());
+                if (owned <= 0) {
+                    return new Result(Status.NOTHING_TO_PAUSE, null, "You have no active companion.");
+                }
+                final int changed = runtime.setPausedOwnedBy(player.getId(), paused);
+                if (changed == 0) {
+                    return new Result(paused ? Status.PAUSED : Status.RESUMED, null,
+                            paused ? "Your companion is already paused." : "Your companion is not paused.");
+                }
+                final String suffix = changed == 1 ? "" : "s";
+                if (paused) {
+                    return new Result(Status.PAUSED, null, "Paused " + changed + " companion" + suffix + ".");
+                }
+                return new Result(Status.RESUMED, null, "Resumed " + changed + " companion" + suffix + ".");
+            } catch (Throwable t) {
+                log.error("Companion pause failed", t);
+                return new Result(Status.ERROR, null, "Failed to update your companion. Check the server log.");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
     // /agents list
     // ------------------------------------------------------------------
 
@@ -254,8 +308,10 @@ public class AgentCompanionService {
             final List<String> roles = provisioner.roles();
             lines.add("Roles: " + (roles == null || roles.isEmpty() ? "(none)" : String.join(", ", roles)));
             if (player != null) {
+                final int paused = runtime.pausedOwnedBy(player.getId());
                 lines.add("Your companions: " + runtime.countOwnedBy(player.getId())
-                        + "/" + AgentConfig.maxPerPlayer());
+                        + "/" + AgentConfig.maxPerPlayer()
+                        + (paused > 0 ? " (" + paused + " paused)" : ""));
                 final long remaining = cooldownRemaining(player.getId(), clock.getAsLong());
                 if (remaining > 0) {
                     lines.add("Cooldown: " + ((remaining + 999) / 1000) + "s");

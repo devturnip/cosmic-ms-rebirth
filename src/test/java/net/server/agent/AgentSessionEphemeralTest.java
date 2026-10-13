@@ -43,5 +43,7 @@ class AgentSessionEphemeralTest {
         AgentManager manager = AgentManager.getInstance();
         assertEquals(0, manager.countOwnedBy(-1));
         assertTrue(manager.despawnOwnedBy(-1).isEmpty());
+        assertEquals(0, manager.setPausedOwnedBy(-1, true));
+        assertEquals(0, manager.pausedOwnedBy(-1));
     }
 }

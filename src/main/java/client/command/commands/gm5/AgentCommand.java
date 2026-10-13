@@ -30,7 +30,7 @@ import server.ThreadManager;
 
 public class AgentCommand extends Command {
     {
-        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|optout ...");
+        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|pause|resume|optout ...");
     }
 
     @Override
@@ -57,7 +57,7 @@ public class AgentCommand extends Command {
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
-            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name> | optout <player>");
+            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name> | pause <name> | resume <name> | optout <player>");
             return;
         }
 
@@ -154,6 +154,7 @@ public class AgentCommand extends Command {
                         .append(" brain=").append(session.getBrain().describe())
                         .append(" active=").append(session.isActive())
                         .append(" muted=").append(session.isMuted())
+                        .append(" paused=").append(session.isPaused())
                         .append(" queued=").append(session.getQueuedEvents())
                         .append(" follow=").append(session.getFollowTargetId())
                         .append(session.isManualFollow() ? " (manual)" : "");
@@ -196,7 +197,22 @@ public class AgentCommand extends Command {
                 player.message("Agent '" + session.getName() + "' is now "
                         + (session.isMuted() ? "muted" : "unmuted") + ".");
             }
-            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, status, say, follow, stopfollow, search, mute, unmute or optout.");
+            case "pause", "resume" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent pause|resume <agentName>");
+                    return;
+                }
+                AgentSession session = findSession(manager, params[1]);
+                if (session == null) {
+                    player.message("No active agent named '" + params[1] + "'.");
+                    return;
+                }
+                // Idempotent set (no read-modify-write race between concurrent GMs).
+                session.setPaused(action.equals("pause"));
+                player.message("Agent '" + session.getName() + "' is now "
+                        + (session.isPaused() ? "paused" : "resumed") + ".");
+            }
+            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, status, say, follow, stopfollow, search, mute, unmute, pause, resume or optout.");
         }
     }
 }

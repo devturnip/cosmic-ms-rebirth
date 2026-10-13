@@ -325,6 +325,7 @@ public class AgentManager {
         final int followTarget = old.getFollowTargetId();
         final boolean manualFollow = old.isManualFollow();
         final boolean muted = old.isMuted();
+        final boolean paused = old.isPaused();
         final boolean ephemeral = old.isEphemeral();
         final int ownerPlayerId = old.getOwnerPlayerId();
         final AgentProvisioner.ProvisionedAgent provisioned = old.getProvisioned();
@@ -344,6 +345,7 @@ public class AgentManager {
             }
         }
         session.setMuted(muted); // moderation must survive a channel transfer
+        session.setPaused(paused); // pause must survive a channel transfer
         if (followTarget >= 0) {
             if (manualFollow) {
                 session.setManualFollow(followTarget);
@@ -437,6 +439,39 @@ public class AgentManager {
         int count = 0;
         for (AgentSession session : sessionsByCharacterId.values()) {
             if (session.getOwnerPlayerId() == ownerPlayerId) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Pauses or resumes every live session summoned by {@code ownerPlayerId}.
+     *
+     * @return the number of owned sessions whose pause state actually changed
+     */
+    public int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
+        if (ownerPlayerId < 0) {
+            return 0;
+        }
+        int changed = 0;
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.getOwnerPlayerId() == ownerPlayerId && session.isPaused() != paused) {
+                session.setPaused(paused);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /** Number of live sessions summoned by {@code ownerPlayerId} that are currently paused. */
+    public int pausedOwnedBy(int ownerPlayerId) {
+        if (ownerPlayerId < 0) {
+            return 0;
+        }
+        int count = 0;
+        for (AgentSession session : sessionsByCharacterId.values()) {
+            if (session.getOwnerPlayerId() == ownerPlayerId && session.isPaused()) {
                 count++;
             }
         }

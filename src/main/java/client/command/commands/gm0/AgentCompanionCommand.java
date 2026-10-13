@@ -31,7 +31,7 @@ import server.ThreadManager;
  */
 public class AgentCompanionCommand extends Command {
     {
-        setDescription("Summon or dismiss an AI companion. Usage: /agents list | find [role] | dismiss");
+        setDescription("Summon, pause or dismiss an AI companion. Usage: /agents list | find [role] | dismiss | pause | resume");
     }
 
     @Override
@@ -45,7 +45,7 @@ public class AgentCompanionCommand extends Command {
             return;
         }
         if (params.length < 1) {
-            player.message("Usage: /agents list | find [role] | dismiss");
+            player.message("Usage: /agents list | find [role] | dismiss | pause | resume");
             return;
         }
 
@@ -61,7 +61,9 @@ public class AgentCompanionCommand extends Command {
                 player.message(service.find(player, role).message());
             }
             case "dismiss" -> player.message(service.dismiss(player).message());
-            default -> player.message("Usage: /agents list | find [role] | dismiss");
+            case "pause" -> player.message(service.pause(player, true).message());
+            case "resume", "unpause" -> player.message(service.pause(player, false).message());
+            default -> player.message("Usage: /agents list | find [role] | dismiss | pause | resume");
         }
     }
 

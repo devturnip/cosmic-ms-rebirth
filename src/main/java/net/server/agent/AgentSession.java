@@ -72,6 +72,8 @@ public class AgentSession {
     private volatile long lastPatrolAt;
     /** When muted, the agent's chat actions are dropped (GM moderation). */
     private volatile boolean muted;
+    /** When paused, the agent skips all decisions and server-driven behaviour until resumed. */
+    private volatile boolean paused;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this(client, player, brain, memory, false, -1);
@@ -152,6 +154,15 @@ public class AgentSession {
         this.muted = muted;
     }
 
+    public boolean isPaused() {
+        return paused;
+    }
+
+    /** Suspends/resumes an agent (idempotent; single volatile write so concurrent toggles cannot race). */
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+    }
+
     public long getLastDecisionAt() {
         return lastDecisionAt;
     }
@@ -219,7 +230,9 @@ public class AgentSession {
      * tick schedule.
      */
     public void tick(ExecutorService brainPool) {
-        if (!active.get()) {
+        if (!active.get() || paused) {
+            // Paused: do not schedule behaviour or drain/decide the inbox. Queued events survive
+            // the pause and are handled on resume.
             return;
         }
         if (followTargetId >= 0 || behaviorEnabled()) {
@@ -289,8 +302,11 @@ public class AgentSession {
     }
 
     private void applyActions(List<AgentAction> actions) {
+        if (paused) {
+            return; // drop a decision that was already in flight when the agent was paused
+        }
         for (AgentAction action : actions) {
-            if (!active.get()) {
+            if (!active.get() || paused) {
                 return;
             }
             try {
@@ -307,7 +323,7 @@ public class AgentSession {
      * executor under a single action-budget token.
      */
     private void behaviorStep() {
-        if (!active.get()) {
+        if (!active.get() || paused) {
             return;
         }
         Character p = player;
@@ -531,6 +547,9 @@ public class AgentSession {
      * @return whether the action was actually executed (false if muted/rate-limited)
      */
     public boolean perform(AgentAction action) {
+        if (paused) {
+            return false; // no server-driven behaviour while paused
+        }
         try {
             return dispatcher.dispatch(this, action);
         } catch (Throwable t) {

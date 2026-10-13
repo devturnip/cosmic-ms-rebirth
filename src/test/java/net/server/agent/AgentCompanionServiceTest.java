@@ -10,9 +10,11 @@ import org.junit.jupiter.api.Test;
 import server.maps.MapleMap;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -275,6 +277,46 @@ class AgentCompanionServiceTest {
         verify(partyService, never()).autoParty(player, session);
     }
 
+    @Test
+    void pauseWithoutCompanionIsAClearNoOp() {
+        AgentCompanionService.Result result = service.pause(player, true);
+
+        assertEquals(AgentCompanionService.Status.NOTHING_TO_PAUSE, result.status());
+        assertTrue(result.message().toLowerCase().contains("no active companion"));
+    }
+
+    @Test
+    void pauseAndResumeToggleTheCompanion() {
+        assertTrue(service.find(player, null).ok());
+
+        AgentCompanionService.Result paused = service.pause(player, true);
+        assertEquals(AgentCompanionService.Status.PAUSED, paused.status());
+        assertEquals(1, runtime.pausedOwnedBy(PLAYER_ID));
+
+        AgentCompanionService.Result resumed = service.pause(player, false);
+        assertEquals(AgentCompanionService.Status.RESUMED, resumed.status());
+        assertEquals(0, runtime.pausedOwnedBy(PLAYER_ID));
+    }
+
+    @Test
+    void pauseIsDisabledWithTheFeature() {
+        YamlConfig.config.server.LLM_AGENT_PLAYER_SPAWN = false;
+        runtime.registerOwned(PLAYER_ID, session); // even a live companion cannot be toggled
+
+        AgentCompanionService.Result result = service.pause(player, true);
+
+        assertEquals(AgentCompanionService.Status.DISABLED, result.status());
+        assertEquals(0, runtime.pausedOwnedBy(PLAYER_ID));
+    }
+
+    @Test
+    void describeAvailableReportsThePausedState() {
+        assertTrue(service.find(player, null).ok());
+        service.pause(player, true);
+
+        assertTrue(service.describeAvailable(player).stream().anyMatch(line -> line.contains("paused")));
+    }
+
     // ------------------------------------------------------------------
     // fakes
     // ------------------------------------------------------------------
@@ -320,6 +362,7 @@ class AgentCompanionServiceTest {
 
     private static final class FakeRuntime implements AgentCompanionService.CompanionRuntime {
         final Map<Integer, List<AgentSession>> owned = new LinkedHashMap<>();
+        final Set<Integer> pausedOwners = new HashSet<>();
         int active;
         AgentSession next;
         int spawnCalls;
@@ -369,7 +412,26 @@ class AgentCompanionServiceTest {
                 return List.of();
             }
             active -= removed.size();
+            pausedOwners.remove(ownerPlayerId);
             return removed;
+        }
+
+        @Override
+        public int setPausedOwnedBy(int ownerPlayerId, boolean paused) {
+            if (ownerPlayerId < 0) {
+                return 0;
+            }
+            if (paused) {
+                pausedOwners.add(ownerPlayerId);
+            } else {
+                pausedOwners.remove(ownerPlayerId);
+            }
+            return countOwnedBy(ownerPlayerId);
+        }
+
+        @Override
+        public int pausedOwnedBy(int ownerPlayerId) {
+            return pausedOwners.contains(ownerPlayerId) ? countOwnedBy(ownerPlayerId) : 0;
         }
     }
 }
