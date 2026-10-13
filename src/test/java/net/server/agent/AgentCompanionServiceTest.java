@@ -13,10 +13,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -173,6 +177,8 @@ class AgentCompanionServiceTest {
         assertEquals(0, runtime.lastWorld);
         verify(session).setManualFollow(PLAYER_ID);
         verify(partyService).autoParty(player, session);
+        assertEquals(provisioner.lastProvisioned, runtime.lastProvisioned,
+                "the provisioning record must reach the session so despawn can delete it");
     }
 
     @Test
@@ -214,15 +220,50 @@ class AgentCompanionServiceTest {
     }
 
     @Test
-    void dismissDespawnsAndDestroys() {
+    void dismissDespawnsOwnedCompanions() {
         assertTrue(service.find(player, null).ok());
 
         AgentCompanionService.Result result = service.dismiss(player);
 
         assertEquals(AgentCompanionService.Status.DISMISSED, result.status());
-        assertEquals(1, provisioner.destroyed.size());
-        assertEquals(provisioner.lastProvisioned, provisioner.destroyed.get(0));
         assertEquals(0, runtime.countOwnedBy(PLAYER_ID));
+        // Deletion is owned by AgentManager#despawn (so GM despawn / shutdown also clean up).
+        assertTrue(provisioner.destroyed.isEmpty());
+    }
+
+    @Test
+    void concurrentRequestsCannotExceedThePerPlayerCap() throws Exception {
+        YamlConfig.config.server.LLM_AGENT_MAX_PER_PLAYER = 1;
+        YamlConfig.config.server.LLM_AGENT_REQUEST_COOLDOWN_MS = 0L;
+
+        CountDownLatch enteredProvision = new CountDownLatch(1);
+        CountDownLatch releaseProvision = new CountDownLatch(1);
+        provisioner.onProvision = () -> {
+            enteredProvision.countDown();
+            try {
+                releaseProvision.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+
+        AtomicReference<AgentCompanionService.Result> firstResult = new AtomicReference<>();
+        AtomicReference<AgentCompanionService.Result> secondResult = new AtomicReference<>();
+        Thread first = new Thread(() -> firstResult.set(service.find(player, null)));
+        first.start();
+        assertTrue(enteredProvision.await(2, TimeUnit.SECONDS), "first request should reach provisioning");
+
+        Thread second = new Thread(() -> secondResult.set(service.find(player, null)));
+        second.start();
+        Thread.sleep(100); // let the second request block on the per-player lock
+        releaseProvision.countDown();
+        first.join(2_000);
+        second.join(2_000);
+
+        assertEquals(1, provisioner.provisionCalls, "only one companion may be provisioned under the cap");
+        assertTrue(firstResult.get() != null && firstResult.get().ok());
+        assertNotNull(secondResult.get());
+        assertEquals(AgentCompanionService.Status.CAPPED, secondResult.get().status());
     }
 
     @Test
@@ -243,6 +284,7 @@ class AgentCompanionServiceTest {
                 new AgentProvisioner.ProvisionedAgent(4242, 24, "[AI]Nova", 30, Job.CLERIC.getId());
         AgentProvisioner.ProvisionedAgent lastProvisioned;
         final List<AgentProvisioner.ProvisionedAgent> destroyed = new ArrayList<>();
+        Runnable onProvision;
         int provisionCalls;
         Job lastJob;
         int lastLevel;
@@ -257,6 +299,9 @@ class AgentCompanionServiceTest {
             lastMapId = mapId;
             lastWorld = world;
             lastProvisioned = next;
+            if (onProvision != null) {
+                onProvision.run();
+            }
             return next;
         }
 
@@ -283,6 +328,7 @@ class AgentCompanionServiceTest {
         int lastChannel;
         boolean lastEphemeral;
         int lastOwner;
+        AgentProvisioner.ProvisionedAgent lastProvisioned;
 
         void registerOwned(int owner, AgentSession session) {
             owned.computeIfAbsent(owner, k -> new ArrayList<>()).add(session);
@@ -291,13 +337,15 @@ class AgentCompanionServiceTest {
 
         @Override
         public AgentSession spawn(String name, int world, int channel, AgentBrain brain,
-                                  boolean ephemeral, int ownerPlayerId) {
+                                  boolean ephemeral, int ownerPlayerId,
+                                  AgentProvisioner.ProvisionedAgent provisioned) {
             spawnCalls++;
             lastName = name;
             lastWorld = world;
             lastChannel = channel;
             lastEphemeral = ephemeral;
             lastOwner = ownerPlayerId;
+            lastProvisioned = provisioned;
             if (next != null) {
                 registerOwned(ownerPlayerId, next);
             }

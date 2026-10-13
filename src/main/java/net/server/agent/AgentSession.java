@@ -46,6 +46,8 @@ public class AgentSession {
     private final boolean ephemeral;
     /** Character id of the player who requested this companion, or -1 for GM/operator spawns. */
     private final int ownerPlayerId;
+    /** For ephemeral companions: the provisioning record used to delete the character on despawn. */
+    private volatile AgentProvisioner.ProvisionedAgent provisioned;
     private final AgentActionDispatcher dispatcher = new AgentActionDispatcher();
 
     private final Queue<AgentEvent> inbox = new ConcurrentLinkedQueue<>();
@@ -125,6 +127,16 @@ public class AgentSession {
     /** Character id of the player who summoned this companion, or -1 for operator spawns. */
     public int getOwnerPlayerId() {
         return ownerPlayerId;
+    }
+
+    /** The provisioning record for an ephemeral companion, or {@code null} for persistent agents. */
+    public AgentProvisioner.ProvisionedAgent getProvisioned() {
+        return provisioned;
+    }
+
+    /** Records the provisioning data so {@code AgentManager} can delete the character on despawn. */
+    public void setProvisioned(AgentProvisioner.ProvisionedAgent provisioned) {
+        this.provisioned = provisioned;
     }
 
     public boolean isActive() {
@@ -331,7 +343,7 @@ public class AgentSession {
             if (AgentConfig.autoCombat()) {
                 runSafely("combat", () -> AgentCombat.attackNearest(this));
             }
-            if (AgentConfig.autoLoot()) {
+            if (!isEphemeral() && AgentConfig.autoLoot()) {
                 runSafely("loot", () -> AgentCombat.lootNearest(this));
             }
         }

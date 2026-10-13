@@ -50,6 +50,8 @@ public class AgentManager {
     private final AtomicLong sessionIdGenerator = new AtomicLong(-5000); // negative to avoid clashing with netty sessions
     private final AgentMemoryStore memoryStore = new AgentMemoryStore();
     private final AgentOptoutStore optoutStore = new AgentOptoutStore();
+    /** Deletes ephemeral companion characters when their session ends (GM despawn, shutdown). */
+    private volatile AgentProvisioner provisioner = new DbAgentProvisioner();
     /** Character ids that have opted out of AI-agent interaction (see /agentoptout). */
     private final Set<Integer> optedOut = ConcurrentHashMap.newKeySet();
     /** Serializes the startup opt-out load against concurrent toggles (avoids a load/toggle race). */
@@ -155,6 +157,16 @@ public class AgentManager {
      */
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
                                            AgentMemory existingMemory, boolean ephemeral, int ownerPlayerId) {
+        return spawn(characterName, world, channel, brain, existingMemory, ephemeral, ownerPlayerId, null);
+    }
+
+    /**
+     * Spawns a session carrying the provisioning record of an ephemeral companion, so the
+     * character can be deleted when the session ends.
+     */
+    public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
+                                           AgentMemory existingMemory, boolean ephemeral, int ownerPlayerId,
+                                           AgentProvisioner.ProvisionedAgent provisioned) {
         if (!AgentConfig.enabled()) {
             log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
             return null;
@@ -225,6 +237,7 @@ public class AgentManager {
             final AgentMemory memory = existingMemory != null ? existingMemory
                     : ((!ephemeral && AgentConfig.memoryPersist()) ? memoryStore.load(player.getId()) : new AgentMemory(player.getId()));
             final AgentSession session = new AgentSession(client, player, brain, memory, ephemeral, ownerPlayerId);
+            session.setProvisioned(provisioned);
             client.setPacketListener(packet -> {
                 // Outbound packets are currently dropped; retained as the seam for future
                 // faithful-transcript / packet-decoding perception.
@@ -290,16 +303,21 @@ public class AgentManager {
         final int followTarget = old.getFollowTargetId();
         final boolean manualFollow = old.isManualFollow();
         final boolean muted = old.isMuted();
+        final boolean ephemeral = old.isEphemeral();
+        final int ownerPlayerId = old.getOwnerPlayerId();
+        final AgentProvisioner.ProvisionedAgent provisioned = old.getProvisioned();
 
-        despawn(characterId);
-        AgentSession session = spawn(name, world, channel, brain, memory);
+        // Remove without deleting the ephemeral character: it is re-spawned on the new channel.
+        removeSession(characterId);
+        AgentSession session = spawn(name, world, channel, brain, memory, ephemeral, ownerPlayerId, provisioned);
         if (session == null) {
             // A failed transfer must never silently delete the agent: re-spawn on the old channel.
             log.warn("Channel transfer of agent {} to channel {} failed; rolling back to channel {}", name, channel, oldChannel);
-            session = spawn(name, world, oldChannel, brain, memory);
+            session = spawn(name, world, oldChannel, brain, memory, ephemeral, ownerPlayerId, provisioned);
             if (session == null) {
                 log.error("Rollback of agent {} to channel {} also failed; agent is offline", name, oldChannel);
                 lastChannelTransferAt.remove(characterId);
+                destroyIfEphemeral(ephemeral, provisioned);
                 return null;
             }
         }
@@ -316,9 +334,22 @@ public class AgentManager {
     }
 
     public synchronized boolean despawn(int characterId) {
-        final AgentSession session = sessionsByCharacterId.remove(characterId);
+        final AgentSession session = removeSession(characterId);
         if (session == null) {
             return false;
+        }
+        destroyIfEphemeral(session.isEphemeral(), session.getProvisioned());
+        return true;
+    }
+
+    /**
+     * Removes and disconnects a session <em>without</em> deleting an ephemeral character. Used by
+     * channel transfer, which re-spawns the same character and must not delete it.
+     */
+    private AgentSession removeSession(int characterId) {
+        final AgentSession session = sessionsByCharacterId.remove(characterId);
+        if (session == null) {
+            return null;
         }
         session.shutdown();
         // Persist and disconnect outside any monitor: both can block on DB I/O, and the map
@@ -332,7 +363,26 @@ public class AgentManager {
             log.warn("Error while despawning agent {}", session.getName(), t);
         }
         log.info("Despawned agent {}", session.getName());
-        return true;
+        return session;
+    }
+
+    /** Best-effort deletion of an ephemeral companion character (never throws). */
+    private void destroyIfEphemeral(boolean ephemeral, AgentProvisioner.ProvisionedAgent provisioned) {
+        if (!ephemeral || provisioned == null) {
+            return;
+        }
+        try {
+            provisioner.destroy(provisioned);
+        } catch (Throwable t) {
+            log.warn("Failed to delete ephemeral companion {}", provisioned.name(), t);
+        }
+    }
+
+    /** Test seam: replaces the provisioner used to delete ephemeral characters on despawn. */
+    void setProvisioner(AgentProvisioner provisioner) {
+        if (provisioner != null) {
+            this.provisioner = provisioner;
+        }
     }
 
     public boolean despawn(String characterName) {

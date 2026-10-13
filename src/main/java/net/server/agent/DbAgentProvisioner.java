@@ -136,17 +136,45 @@ public class DbAgentProvisioner implements AgentProvisioner {
         if (agent == null || !agent.isValid()) {
             return;
         }
+        boolean characterGone = false;
         try {
             final Client client = Client.createMock();
             client.setAccID(agent.accountId());
-            client.deleteCharacter(agent.characterId(), agent.accountId());
+            // Client#deleteCharacter is gated by Server#haveCharacterEntry; load the account into
+            // the login cache first so the delete is authorized for this server-owned account.
+            Server.getInstance().loadAccountCharacters(client);
+            characterGone = client.deleteCharacter(agent.characterId(), agent.accountId());
         } catch (Throwable t) {
             log.warn("Best-effort companion character delete failed for chr {}", agent.characterId(), t);
+        }
+        if (!characterGone) {
+            // deleteCharacter also returns false when the row is already gone; only keep the
+            // account if the character really still exists (avoids a dangling accountid).
+            characterGone = !characterExistsById(agent.characterId());
+        }
+        if (!characterGone) {
+            log.warn("Companion character {} still exists; keeping account {} to avoid a dangling reference",
+                    agent.characterId(), agent.accountId());
+            return;
         }
         try (Connection con = DatabaseConnection.getConnection()) {
             deleteAccount(con, agent.accountId());
         } catch (Throwable t) {
             log.warn("Best-effort companion account delete failed for acc {}", agent.accountId(), t);
+        }
+    }
+
+    /** Whether a character row still exists, used to decide if the account can be deleted. */
+    boolean characterExistsById(int characterId) {
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement("SELECT id FROM characters WHERE id = ?")) {
+            ps.setInt(1, characterId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            log.warn("Failed to check companion character {}", characterId, e);
+            return true; // assume it still exists; keeping the account is the safe choice
         }
     }
 

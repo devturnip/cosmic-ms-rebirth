@@ -40,7 +40,8 @@ public class AgentCompanionService {
      * Minimal seam over {@link AgentManager} for spawning, ownership counting and despawn.
      */
     public interface CompanionRuntime {
-        AgentSession spawn(String name, int world, int channel, AgentBrain brain, boolean ephemeral, int ownerPlayerId);
+        AgentSession spawn(String name, int world, int channel, AgentBrain brain, boolean ephemeral, int ownerPlayerId,
+                           AgentProvisioner.ProvisionedAgent provisioned);
 
         int countOwnedBy(int ownerPlayerId);
 
@@ -52,8 +53,9 @@ public class AgentCompanionService {
     /** Default runtime backed by the singleton {@link AgentManager}. */
     public static final class ManagerRuntime implements CompanionRuntime {
         @Override
-        public AgentSession spawn(String name, int world, int channel, AgentBrain brain, boolean ephemeral, int ownerPlayerId) {
-            return AgentManager.getInstance().spawn(name, world, channel, brain, null, ephemeral, ownerPlayerId);
+        public AgentSession spawn(String name, int world, int channel, AgentBrain brain, boolean ephemeral, int ownerPlayerId,
+                                  AgentProvisioner.ProvisionedAgent provisioned) {
+            return AgentManager.getInstance().spawn(name, world, channel, brain, null, ephemeral, ownerPlayerId, provisioned);
         }
 
         @Override
@@ -77,7 +79,8 @@ public class AgentCompanionService {
     private final CompanionPartyService partyService;
     private final LongSupplier clock;
     private final Map<Integer, Long> lastRequestAt = new ConcurrentHashMap<>();
-    private final Map<Integer, AgentProvisioner.ProvisionedAgent> provisionedByCharacterId = new ConcurrentHashMap<>();
+    /** Per-player request locks: serializes cap/cooldown checks with provisioning/spawn. */
+    private final Map<Integer, Object> requestLocks = new ConcurrentHashMap<>();
 
     public AgentCompanionService(AgentProvisioner provisioner, CompanionRuntime runtime,
                                  CompanionPartyService partyService, LongSupplier clock) {
@@ -103,85 +106,100 @@ public class AgentCompanionService {
      * cap, cooldown, global capacity, then provisioning.
      */
     public Result find(Character player, String requestedRole) {
-        try {
-            if (!AgentConfig.playerSpawn()) {
-                return new Result(Status.DISABLED, null,
-                        "Player companions are disabled on this server.");
-            }
-            if (player == null || player.getClient() == null) {
-                return new Result(Status.NOT_ELIGIBLE, null, "You cannot summon a companion right now.");
-            }
-            if (!player.isAlive() || player.getMap() == null || player.getEventInstance() != null
-                    || player.getTrade() != null
-                    || (player.getCashShop() != null && player.getCashShop().isOpened())
-                    || AgentManager.getInstance().isOptedOut(player.getId())) {
-                return new Result(Status.NOT_ELIGIBLE, null,
-                        "You cannot summon a companion while dead, transitioning, trading, in the cash shop or in an event.");
-            }
-            if (player.getMap().isEventMap()) {
-                return new Result(Status.BAD_MAP, null, "Companions cannot be summoned on an event map.");
-            }
-
-            final int owned = runtime.countOwnedBy(player.getId());
-            if (owned >= AgentConfig.maxPerPlayer()) {
-                return new Result(Status.CAPPED, null,
-                        "You already have " + owned + " companion(s) (max " + AgentConfig.maxPerPlayer() + ").");
-            }
-
-            final long now = clock.getAsLong();
-            final long cooldownRemaining = cooldownRemaining(player.getId(), now);
-            if (cooldownRemaining > 0) {
-                return new Result(Status.COOLDOWN, null,
-                        "Please wait " + ((cooldownRemaining + 999) / 1000) + "s before summoning again.");
-            }
-
-            if (runtime.activeCount() >= AgentConfig.maxAgents()) {
-                return new Result(Status.CAPACITY, null,
-                        "All companion slots are in use right now. Try again shortly.");
-            }
-
-            final AgentRole role = chooseRole(player, requestedRole);
-            if (role == null) {
-                if (requestedRole != null && !requestedRole.isBlank()) {
-                    return new Result(Status.UNKNOWN_ROLE, null,
-                            "Unknown role '" + requestedRole + "'. Available: " + String.join(", ", provisioner.roles()) + ".");
-                }
-                return new Result(Status.PROVISION_FAILED, null, "No companion roles are available.");
-            }
-
-            // Consume the cooldown as soon as we commit to provisioning, so a failing backend
-            // cannot be hammered.
-            lastRequestAt.put(player.getId(), now);
-
-            final int level = matchLevel(player.getLevel());
-            final AgentProvisioner.ProvisionedAgent provisioned =
-                    provisioner.provision(level, role.job(), player.getMapId(), player.getWorld());
-            if (provisioned == null || !provisioned.isValid()) {
-                return new Result(Status.PROVISION_FAILED, null,
-                        "Failed to prepare a companion. Check the server log.");
-            }
-
-            final AgentSession session = runtime.spawn(provisioned.name(), player.getWorld(),
-                    player.getClient().getChannel(), AgentBrainFactory.create(provisioned.name()),
-                    true, player.getId());
-            if (session == null) {
-                provisioner.destroy(provisioned); // never leave a half-spawned character behind
-                return new Result(Status.SPAWN_FAILED, null,
-                        "Failed to bring the companion online. Check the server log.");
-            }
-
-            provisionedByCharacterId.put(session.getCharacterId(), provisioned);
-            session.setManualFollow(player.getId());
+        if (!AgentConfig.playerSpawn()) {
+            return new Result(Status.DISABLED, null, "Player companions are disabled on this server.");
+        }
+        if (player == null || player.getClient() == null) {
+            return new Result(Status.NOT_ELIGIBLE, null, "You cannot summon a companion right now.");
+        }
+        // Serialize per player: the cap/cooldown check-then-act must not race concurrent requests,
+        // and the (slow) provisioning must not let a second request squeeze past the cap.
+        synchronized (requestLocks.computeIfAbsent(player.getId(), k -> new Object())) {
+            AgentProvisioner.ProvisionedAgent provisioned = null;
+            boolean spawned = false;
             try {
-                partyService.autoParty(player, session);
+                if (!player.isAlive() || player.getMap() == null || player.isChangingMaps()
+                        || player.getEventInstance() != null
+                        || player.getTrade() != null
+                        || (player.getCashShop() != null && player.getCashShop().isOpened())
+                        || AgentManager.getInstance().isOptedOut(player.getId())) {
+                    return new Result(Status.NOT_ELIGIBLE, null,
+                            "You cannot summon a companion while dead, transitioning, trading, in the cash shop or in an event.");
+                }
+                if (player.getMap().isEventMap()) {
+                    return new Result(Status.BAD_MAP, null, "Companions cannot be summoned on an event map.");
+                }
+
+                final int owned = runtime.countOwnedBy(player.getId());
+                if (owned >= AgentConfig.maxPerPlayer()) {
+                    return new Result(Status.CAPPED, null,
+                            "You already have " + owned + " companion(s) (max " + AgentConfig.maxPerPlayer() + ").");
+                }
+
+                final long now = clock.getAsLong();
+                final long cooldownRemaining = cooldownRemaining(player.getId(), now);
+                if (cooldownRemaining > 0) {
+                    return new Result(Status.COOLDOWN, null,
+                            "Please wait " + ((cooldownRemaining + 999) / 1000) + "s before summoning again.");
+                }
+
+                if (runtime.activeCount() >= AgentConfig.maxAgents()) {
+                    return new Result(Status.CAPACITY, null,
+                            "All companion slots are in use right now. Try again shortly.");
+                }
+
+                final AgentRole role = chooseRole(player, requestedRole);
+                if (role == null) {
+                    if (requestedRole != null && !requestedRole.isBlank()) {
+                        return new Result(Status.UNKNOWN_ROLE, null,
+                                "Unknown role '" + requestedRole + "'. Available: " + String.join(", ", provisioner.roles()) + ".");
+                    }
+                    return new Result(Status.PROVISION_FAILED, null, "No companion roles are available.");
+                }
+
+                // Consume the cooldown as soon as we commit to provisioning, so a failing backend
+                // cannot be hammered.
+                lastRequestAt.put(player.getId(), now);
+
+                final int level = matchLevel(player.getLevel());
+                provisioned = provisioner.provision(level, role.job(), player.getMapId(), player.getWorld());
+                if (provisioned == null || !provisioned.isValid()) {
+                    return new Result(Status.PROVISION_FAILED, null,
+                            "Failed to prepare a companion. Check the server log.");
+                }
+
+                final AgentSession session;
+                try {
+                    session = runtime.spawn(provisioned.name(), player.getWorld(),
+                            player.getClient().getChannel(), AgentBrainFactory.create(provisioned.name()),
+                            true, player.getId(), provisioned);
+                } catch (Throwable t) {
+                    log.error("Companion spawn threw for {}", provisioned.name(), t);
+                    provisioner.destroy(provisioned);
+                    return new Result(Status.SPAWN_FAILED, null,
+                            "Failed to bring the companion online. Check the server log.");
+                }
+                if (session == null) {
+                    provisioner.destroy(provisioned); // never leave a half-spawned character behind
+                    return new Result(Status.SPAWN_FAILED, null,
+                            "Failed to bring the companion online. Check the server log.");
+                }
+                spawned = true;
+                session.setManualFollow(player.getId());
+                try {
+                    partyService.autoParty(player, session);
+                } catch (Throwable t) {
+                    log.warn("Companion {} spawned but auto-party failed", provisioned.name(), t);
+                }
+                return new Result(Status.OK, session,
+                        "Summoned " + provisioned.name() + " (" + role.roleName() + ", level " + level + ").");
             } catch (Throwable t) {
-                log.warn("Companion {} spawned but auto-party failed", provisioned.name(), t);
+                if (!spawned && provisioned != null) {
+                    provisioner.destroy(provisioned); // do not orphan a provisioned character
+                }
+                log.error("Companion find failed", t);
+                return new Result(Status.ERROR, null, "Failed to summon a companion. Check the server log.");
             }
-            return new Result(Status.OK, session,
-                    "Summoned " + provisioned.name() + " (" + role.roleName() + ", level " + level + ").");
-        } catch (Throwable t) {
-            log.error("Companion find failed", t);
-            return new Result(Status.ERROR, null, "Failed to summon a companion. Check the server log.");
         }
     }
 
@@ -189,31 +207,23 @@ public class AgentCompanionService {
     // /agents dismiss
     // ------------------------------------------------------------------
 
-    /** Despawns and deletes every ephemeral companion summoned by {@code player}. */
+    /** Despawns every ephemeral companion summoned by {@code player}; {@link AgentManager} deletes them. */
     public Result dismiss(Character player) {
-        try {
-            if (player == null) {
-                return new Result(Status.NOT_ELIGIBLE, null, "No player.");
-            }
-            final List<AgentSession> owned = runtime.despawnOwnedBy(player.getId());
-            if (owned == null || owned.isEmpty()) {
-                return new Result(Status.NOTHING_TO_DISMISS, null, "You have no active companion.");
-            }
-            int destroyed = 0;
-            for (AgentSession session : owned) {
-                AgentProvisioner.ProvisionedAgent provisioned =
-                        provisionedByCharacterId.remove(session.getCharacterId());
-                if (provisioned == null) {
-                    provisioned = fromSession(session);
+        if (player == null) {
+            return new Result(Status.NOT_ELIGIBLE, null, "No player.");
+        }
+        synchronized (requestLocks.computeIfAbsent(player.getId(), k -> new Object())) {
+            try {
+                final List<AgentSession> owned = runtime.despawnOwnedBy(player.getId());
+                if (owned == null || owned.isEmpty()) {
+                    return new Result(Status.NOTHING_TO_DISMISS, null, "You have no active companion.");
                 }
-                provisioner.destroy(provisioned);
-                destroyed++;
+                return new Result(Status.DISMISSED, null,
+                        "Dismissed " + owned.size() + " companion" + (owned.size() == 1 ? "" : "s") + ".");
+            } catch (Throwable t) {
+                log.error("Companion dismiss failed", t);
+                return new Result(Status.ERROR, null, "Failed to dismiss your companion. Check the server log.");
             }
-            return new Result(Status.DISMISSED, null,
-                    "Dismissed " + destroyed + " companion" + (destroyed == 1 ? "" : "s") + ".");
-        } catch (Throwable t) {
-            log.error("Companion dismiss failed", t);
-            return new Result(Status.ERROR, null, "Failed to dismiss your companion. Check the server log.");
         }
     }
 
@@ -306,14 +316,5 @@ public class AgentCompanionService {
             return 0;
         }
         return AgentConfig.requestCooldownMs() - elapsed;
-    }
-
-    private static AgentProvisioner.ProvisionedAgent fromSession(AgentSession session) {
-        final Character player = session.getPlayer();
-        final int level = player == null ? 0 : player.getLevel();
-        final int jobId = (player == null || player.getJob() == null) ? 0 : player.getJob().getId();
-        final int accountId = session.getClient() == null ? 0 : session.getClient().getAccID();
-        return new AgentProvisioner.ProvisionedAgent(session.getCharacterId(), accountId,
-                session.getName(), level, jobId);
     }
 }
