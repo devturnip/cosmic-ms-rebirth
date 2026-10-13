@@ -229,13 +229,14 @@ public class AgentManager {
             return null;
         }
 
-        if (AgentConfig.requireNamePrefix() && !characterName.startsWith(AgentConfig.namePrefix())) {
-            log.warn("Refusing to spawn agent {}: name does not start with the required prefix '{}'",
-                    characterName, AgentConfig.namePrefix());
-            return null;
-        } else if (!characterName.startsWith(AgentConfig.namePrefix())) {
-            log.warn("Agent character '{}' does not start with the configured label prefix '{}'; agents should be distinguishable to players",
-                    characterName, AgentConfig.namePrefix());
+        if (!hasAgentPrefix(characterName)) {
+            if (AgentConfig.requireNamePrefix()) {
+                log.warn("Refusing to spawn agent {}: name does not start with the label prefix '{}' or companion prefix '{}'",
+                        characterName, AgentConfig.namePrefix(), AgentConfig.companionNamePrefix());
+                return null;
+            }
+            log.warn("Agent character '{}' does not start with the label prefix '{}' or companion prefix '{}'; agents should be distinguishable to players",
+                    characterName, AgentConfig.namePrefix(), AgentConfig.companionNamePrefix());
         }
 
         final PacketProcessor processor = PacketProcessor.getChannelServerProcessor(world, channel);
@@ -745,6 +746,16 @@ public class AgentManager {
 
     private NoteService noteService() {
         return Server.getInstance().getChannelDependencies().noteService();
+    }
+
+    /**
+     * Whether {@code name} carries the operator label prefix or the player-companion prefix.
+     * Player companions are provisioned as {@code Agent-<word>}, so spawn must accept both.
+     */
+    static boolean hasAgentPrefix(String name) {
+        return name != null
+                && (name.startsWith(AgentConfig.namePrefix())
+                || name.startsWith(AgentConfig.companionNamePrefix()));
     }
 
     private CharacterRecord loadCharacterRecord(String characterName, int world) {

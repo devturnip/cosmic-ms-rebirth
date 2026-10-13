@@ -364,4 +364,5 @@ public class ServerConfig {
     public boolean LLM_AGENT_AUTO_PARTY = true;
     public boolean LLM_AGENT_COMPLEMENT_JOB = true;
     public String LLM_AGENT_ACCOUNT_PREFIX = "agnt";
+    public String LLM_AGENT_COMPANION_NAME_PREFIX = "Agent-";
 }

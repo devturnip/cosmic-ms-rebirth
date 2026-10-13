@@ -44,6 +44,14 @@ public enum EquipSlot {
         return name;
     }
 
+    /**
+     * The primary worn position of this slot (negative), or 0 when the slot is not worn. A cash
+     * item wears {@code getPrimarySlot() - 100} (see {@link #isAllowed(int, boolean)}).
+     */
+    public int getPrimarySlot() {
+        return allowed == null || allowed.length == 0 ? 0 : allowed[0];
+    }
+
     public boolean isAllowed(int slot, boolean cash) {
         if (slot < 0) {
             if (allowed != null) {

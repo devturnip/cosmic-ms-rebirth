@@ -518,3 +518,4 @@ server:
     LLM_AGENT_AUTO_PARTY: true          #Automatically form/join a party with the summoned companion.
     LLM_AGENT_COMPLEMENT_JOB: true      #Prefer a companion role that complements the requester's job.
     LLM_AGENT_ACCOUNT_PREFIX: "agnt"    #Prefix for server-owned accounts created for ephemeral companions.
+    LLM_AGENT_COMPANION_NAME_PREFIX: "Agent-" #Client-visible prefix for ephemeral companion character names.

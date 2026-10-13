@@ -2,6 +2,8 @@ package net.server.agent;
 
 import client.Job;
 import client.SkillFactory;
+import client.SkinColor;
+import client.inventory.InventoryType;
 import config.YamlConfig;
 import net.server.Server;
 import org.junit.jupiter.api.AfterAll;
@@ -15,8 +17,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -80,6 +85,38 @@ class DbAgentProvisionerIT {
         assertProvisionAndDestroy(provisioner, Job.CLERIC, 30, Job.CLERIC.getId());
     }
 
+    @Test
+    void provisionsDistinctRandomCosmetics() throws SQLException {
+        final DbAgentProvisioner provisioner = new DbAgentProvisioner();
+        final List<AgentProvisioner.ProvisionedAgent> provisioned = new ArrayList<>();
+        try {
+            for (int i = 0; i < 2; i++) {
+                final AgentProvisioner.ProvisionedAgent agent =
+                        provisioner.provision(30, Job.WARRIOR, TEST_MAP, TEST_WORLD);
+                assertNotNull(agent, "provision returned null");
+                provisioned.add(agent);
+            }
+            final CharRow first = loadCharRow(provisioned.get(0).characterId());
+            final CharRow second = loadCharRow(provisioned.get(1).characterId());
+            assertNotNull(first, "first characters row missing");
+            assertNotNull(second, "second characters row missing");
+            // Cosmetic collision is astronomically unlikely (thousands of hairs * hundreds of faces * 8 skins).
+            assertTrue(first.hair() != second.hair()
+                            || first.face() != second.face()
+                            || first.skinColor() != second.skinColor(),
+                    "two random companions should not share every cosmetic");
+        } finally {
+            for (AgentProvisioner.ProvisionedAgent agent : provisioned) {
+                try {
+                    provisioner.destroy(agent);
+                } catch (Throwable ignored) {
+                    // best effort
+                }
+                cleanup(agent.characterId(), agent.accountId());
+            }
+        }
+    }
+
     private void assertProvisionAndDestroy(DbAgentProvisioner provisioner, Job job, int level, int expectedJobId)
             throws SQLException {
         AgentProvisioner.ProvisionedAgent provisioned = null;
@@ -96,6 +133,22 @@ class DbAgentProvisionerIT {
             assertEquals(level, row.level(), "characters.level");
             assertEquals(expectedJobId, row.job(), "characters.job");
             assertEquals(provisioned.accountId(), row.accountId(), "characters.accountid");
+            assertTrue(CompanionAppearance.hairIds().contains(row.hair()),
+                    "characters.hair " + row.hair() + " is not a WZ hair id");
+            assertTrue(CompanionAppearance.faceIds().contains(row.face()),
+                    "characters.face " + row.face() + " is not a WZ face id");
+            assertNotNull(SkinColor.getById(row.skinColor()),
+                    "characters.skincolor " + row.skinColor() + " is not a known SkinColor");
+
+            final List<Integer> cashPositions = loadEquippedPositions(provisioned.characterId()).stream()
+                    .filter(position -> position <= CompanionAppearance.MAX_CASH_POSITION)
+                    .toList();
+            assertFalse(cashPositions.isEmpty(),
+                    "expected equipped cash items for " + provisioned.name());
+            for (int position : cashPositions) {
+                assertTrue(position >= CompanionAppearance.MIN_CASH_POSITION,
+                        "cash position " + position + " is outside the supported outfit range");
+            }
 
             assertEquals(1, count("SELECT COUNT(*) FROM accounts WHERE id = ?", provisioned.accountId()),
                     "dedicated account row");
@@ -128,22 +181,41 @@ class DbAgentProvisionerIT {
         }
     }
 
-    private record CharRow(int id, String name, int level, int job, int accountId) {
+    private record CharRow(int id, String name, int level, int job, int accountId,
+                           int hair, int face, int skinColor) {
     }
 
     private static CharRow loadCharRow(int characterId) throws SQLException {
         try (Connection con = DatabaseConnection.getConnection();
              PreparedStatement ps = con.prepareStatement(
-                     "SELECT id, name, `level`, job, accountid FROM characters WHERE id = ?")) {
+                     "SELECT id, name, `level`, job, accountid, hair, face, skincolor FROM characters WHERE id = ?")) {
             ps.setInt(1, characterId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     return null;
                 }
                 return new CharRow(rs.getInt("id"), rs.getString("name"), rs.getInt("level"),
-                        rs.getInt("job"), rs.getInt("accountid"));
+                        rs.getInt("job"), rs.getInt("accountid"), rs.getInt("hair"),
+                        rs.getInt("face"), rs.getInt("skincolor"));
             }
         }
+    }
+
+    /** Positions of the character's equipped items (regular negatives and worn cash slots). */
+    private static List<Integer> loadEquippedPositions(int characterId) throws SQLException {
+        final List<Integer> positions = new ArrayList<>();
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(
+                     "SELECT position FROM inventoryitems WHERE characterid = ? AND inventorytype = ?")) {
+            ps.setInt(1, characterId);
+            ps.setInt(2, InventoryType.EQUIPPED.getType());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    positions.add(rs.getInt("position"));
+                }
+            }
+        }
+        return positions;
     }
 
     private static int count(String sql, int id) throws SQLException {

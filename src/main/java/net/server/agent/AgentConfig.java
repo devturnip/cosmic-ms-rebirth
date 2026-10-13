@@ -12,6 +12,7 @@ public final class AgentConfig {
     private static final int DEFAULT_MAX_CONCURRENT_CALLS = 4;
     private static final double DEFAULT_VIEW_RANGE_SQ = 722500.0; // 850^2, matches MapleMap
     private static final String DEFAULT_NAME_PREFIX = "[AI]";
+    private static final String DEFAULT_COMPANION_NAME_PREFIX = "Agent-";
 
     private AgentConfig() {
     }
@@ -75,6 +76,15 @@ public final class AgentConfig {
     public static String namePrefix() {
         String value = YamlConfig.config.server.LLM_AGENT_NAME_PREFIX;
         return value == null ? DEFAULT_NAME_PREFIX : value;
+    }
+
+    /**
+     * Prefix for ephemeral player-companion character names. Unlike {@link #namePrefix()} this is
+     * always non-blank so a bad config can never produce nameless companions.
+     */
+    public static String companionNamePrefix() {
+        String value = YamlConfig.config.server.LLM_AGENT_COMPANION_NAME_PREFIX;
+        return value == null || value.isBlank() ? DEFAULT_COMPANION_NAME_PREFIX : value;
     }
 
     public static boolean contentFilter() {

@@ -515,7 +515,7 @@ public class ItemInformationProvider {
         return ret;
     }
 
-    protected String getEquipmentSlot(int itemId) {
+    public String getEquipmentSlot(int itemId) {
         if (equipmentSlotCache.containsKey(itemId)) {
             return equipmentSlotCache.get(itemId);
         }

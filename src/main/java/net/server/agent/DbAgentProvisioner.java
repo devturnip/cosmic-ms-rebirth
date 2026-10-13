@@ -5,7 +5,6 @@ import client.Client;
 import client.Job;
 import client.Skill;
 import client.SkillFactory;
-import client.SkinColor;
 import client.creator.CharacterFactoryRecipe;
 import client.inventory.Equip;
 import client.inventory.Inventory;
@@ -29,6 +28,7 @@ import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -46,10 +46,18 @@ public class DbAgentProvisioner implements AgentProvisioner {
     static final int NAME_MAX_LENGTH = 13; // accounts.name / characters.name are varchar(13)
     private static final int ACCOUNT_ATTEMPTS = 6;
     private static final int NAME_ATTEMPTS = 8;
+    private static final int COMPANION_WORD_MAX_LENGTH = 7;
+    private static final int MAX_NAME_SUFFIX_DIGITS = 2;
 
-    private static final int DEFAULT_FACE = 20000;
-    private static final int DEFAULT_HAIR = 30000;
-    private static final int DEFAULT_SKIN = 0;
+    /** Curated, alphanumeric fun words; each is short enough for {@code Agent-<word>} to fit. */
+    static final List<String> COMPANION_WORDS = List.of(
+            "Mochi", "Comet", "Sparky", "Panda", "Nova", "Zippy", "Pickle", "Waffle",
+            "Toast", "Bagel", "Noodle", "Gizmo", "Pixel", "Bloop", "Yuzu", "Chip",
+            "Boba", "Nugget", "Sprout", "Fizz", "Jinx", "Tofu", "Peanut", "Mango",
+            "Cocoa", "Latte", "Muffin", "Pebble", "Rocket", "Turbo", "Bingo", "Dash",
+            "Echo", "Fable", "Glitch", "Jelly", "Kiwi", "Lemon", "Nimbus", "Olive",
+            "Pogo", "Quirk", "Ripple", "Sushi", "Taco", "Wobble", "Ziggy");
+
     private static final int DEFAULT_GENDER = 0; // male
 
     /** Cached equip item ids from WZ (see {@link #equipCandidateIds(ItemInformationProvider)}). */
@@ -98,14 +106,16 @@ public class DbAgentProvisioner implements AgentProvisioner {
             final Character character = Character.getDefault(client);
             character.setWorld(world);
             character.setJob(build.job());
-            character.setSkinColor(SkinColor.getById(DEFAULT_SKIN));
+            final CompanionAppearance.Profile appearance = CompanionAppearance.roll(new Random());
+            character.setSkinColor(appearance.skin());
             character.setGender(DEFAULT_GENDER);
             character.setName(name);
-            character.setHair(DEFAULT_HAIR);
-            character.setFace(DEFAULT_FACE);
+            character.setHair(appearance.hair());
+            character.setFace(appearance.face());
 
             final CharacterFactoryRecipe recipe = buildRecipe(build, mapId);
             equipFromRecipe(character, recipe);
+            equipCash(character, appearance.cash());
 
             if (!character.insertNewChar(recipe)) {
                 log.warn("insertNewChar failed for companion {}", name);
@@ -425,6 +435,27 @@ public class DbAgentProvisioner implements AgentProvisioner {
         equipped.addItemFromDB(item);
     }
 
+    /** Wears a random assortment of cash equips (positions -101..-111) over the recipe armour. */
+    private static void equipCash(Character character, List<CompanionAppearance.CashEquip> cash) {
+        if (cash.isEmpty()) {
+            return;
+        }
+        final Inventory equipped = character.getInventory(InventoryType.EQUIPPED);
+        final ItemInformationProvider ii = ItemInformationProvider.getInstance();
+        for (CompanionAppearance.CashEquip candidate : cash) {
+            try {
+                final Item item = ii.getEquipById(candidate.itemId());
+                if (item == null) {
+                    continue;
+                }
+                item.setPosition(candidate.position());
+                equipped.addItemFromDB(item.copy());
+            } catch (Throwable t) {
+                log.debug("Skipping companion cash item {}", candidate.itemId(), t);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     // DB helpers (package-private seam)
     // ------------------------------------------------------------------
@@ -493,23 +524,44 @@ public class DbAgentProvisioner implements AgentProvisioner {
     }
 
     String generateUniqueCharacterName(Connection con) {
-        final String prefix = AgentConfig.namePrefix();
-        if (prefix.length() > NAME_MAX_LENGTH - 3) {
-            log.warn("LLM_AGENT_NAME_PREFIX '{}' leaves no room for a 3-char companion name", prefix);
+        final String prefix = AgentConfig.companionNamePrefix();
+        if (prefix.length() > NAME_MAX_LENGTH - 1) {
+            log.warn("LLM_AGENT_COMPANION_NAME_PREFIX '{}' leaves no room for a companion word", prefix);
             return null;
         }
         for (int attempt = 0; attempt < NAME_ATTEMPTS; attempt++) {
-            final String base = randomNameBase(prefix.length());
-            if (base == null || !base.matches("[a-zA-Z0-9]{3,}")) {
+            final String word = randomCompanionWord();
+            if (word == null) {
                 continue;
             }
-            final String name = prefix + base;
-            if (name.length() > NAME_MAX_LENGTH || characterNameExists(con, name)) {
+            final String base = prefix + word;
+            if (base.length() > NAME_MAX_LENGTH) {
                 continue;
             }
-            return name;
+            if (!characterNameExists(con, base)) {
+                return base;
+            }
+            // Collision: add a short numeric suffix when it still fits the varchar(13) limit.
+            final int suffixDigits = Math.min(MAX_NAME_SUFFIX_DIGITS, NAME_MAX_LENGTH - base.length());
+            if (suffixDigits <= 0) {
+                continue;
+            }
+            final int bound = suffixDigits == 1 ? 10 : 100;
+            final String suffixed = base + ThreadLocalRandom.current().nextInt(1, bound);
+            if (suffixed.length() <= NAME_MAX_LENGTH && !characterNameExists(con, suffixed)) {
+                return suffixed;
+            }
         }
         return null;
+    }
+
+    /** A random fun word, validated as alphanumeric and within the length cap. */
+    static String randomCompanionWord() {
+        final String word = COMPANION_WORDS.get(ThreadLocalRandom.current().nextInt(COMPANION_WORDS.size()));
+        if (word.length() > COMPANION_WORD_MAX_LENGTH || !word.matches("[A-Za-z0-9]+")) {
+            return null;
+        }
+        return word;
     }
 
     private static boolean isDuplicateKey(SQLException e) {
@@ -522,15 +574,6 @@ public class DbAgentProvisioner implements AgentProvisioner {
         final String safePrefix = prefix.substring(0, prefixLength);
         final int baseLength = Math.max(1, NAME_MAX_LENGTH - safePrefix.length());
         return safePrefix + randomAlphanumeric(baseLength);
-    }
-
-    private static String randomNameBase(int prefixLength) {
-        final int maxBase = Math.min(6, NAME_MAX_LENGTH - prefixLength);
-        if (maxBase < 3) {
-            return null;
-        }
-        final int length = 3 + ThreadLocalRandom.current().nextInt(maxBase - 2);
-        return randomAlphanumeric(length);
     }
 
     static String randomAlphanumeric(int length) {
