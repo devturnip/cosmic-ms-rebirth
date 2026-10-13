@@ -1,6 +1,7 @@
 # LLM Agent Players — Implementation Plan
 
-> Status: IMPLEMENTED (M0–M2 done, M3 partial). See the implementation-status section below.
+> Status: IMPLEMENTED (M0–M4 done; M4 landed as opt-in, default off). See the
+> implementation-status section below.
 > Scope: let LLM-driven agents join the server as ordinary players so that solo
 > players can form parties and chat with them.
 >
@@ -63,15 +64,17 @@ Delivered:
   utility skills are never attacked with; loot ownership matching `Character#pickupItem`;
   and `mapTransitioning` cleared for agents at spawn and after each warp.
 
-Not yet implemented (M2 remainder + M3 remainder):
+Not yet implemented (hardening / fidelity remainder):
 
+- [x] M4: proactive behavior (opt-in) — greet nearby players, auto party-search matchmaking
+  (auto-invites nearby solos), idle patrol; persona `greeting`/`traits`; memory compaction;
+  `LLM_MAX_CALLS_PER_MIN` global request budget; `/agent status|mute|unmute`; optional map AI
+  notice.
 - [ ] Deeper pathing: movement is clamped waypoint stepping (per-axis clamped, horizontal
   alignment before drops), not a full foothold/rope pathfinder; portal travel is used for
   cross-map follow, with party-warp fallback.
 - [ ] Hurricane/Rapid Fire after-delay timing and cast animation/stance fidelity (minor).
-- [ ] Proactive behaviour (M4 — deferred; note `/agent search` does enable party-search
-  auto-invites, which is a form of matchmaking).
-- [ ] Player-facing opt-out / bot notice beyond the name prefix.
+- [ ] Per-player opt-out beyond the AI notice / GM `/agent mute`.
 
 ---
 

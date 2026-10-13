@@ -14,16 +14,18 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** tip of `feature/llm-agent-players` (latest: M3 finished — combat depth, movement
-  pathing/portal-follow, channel-follow and LLM follow tools; previous: combat depth 3)
-- **Status:** M0–M3 done. Combat: melee/magic/ranged basic + skill attacks with multi-line
-  damage, multi-target (incl. LLM `attack_many`), buffs, heal, potions, respawn, looting,
-  facing, local skill cooldowns, HP/MP-cost gating, flee, and ammo resupply (shop recharge for
-  stars/bullets, purchase for arrows). Movement: clamped per-axis stepping, portal-based
-  cross-map follow with warp fallback, and opt-in cross-channel follow. Only **M4** (proactive
-  behavior) and a few hardening items remain.
-- **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 128 agent tests across 31 classes + existing suite).
+- **HEAD:** tip of `feature/llm-agent-players` (latest: M4 — proactive matchmaking, personas,
+  cost controls, moderation/observability; previous: M3 complete)
+- **Status:** M0–M4 done. M1–M3 cover reactive chat/party/combat/movement (multi-line +
+  multi-target attacks, buffs, heal, potions, respawn, looting, facing, local cooldowns,
+  HP/MP-cost gating, flee, ammo resupply, portal/channel follow). M4 adds opt-in proactive
+  behavior (greet nearby players, auto party-search matchmaking, patrol), persona
+  greeting/traits, memory compaction, a global LLM request budget, `/agent status|mute|unmute`,
+  and an optional AI-agent map notice. Remaining: deeper foothold/rope pathing, after-delay/
+  cast-animation fidelity, and a player-facing opt-out beyond mute.
+- **Default:** feature is **off** (`USE_LLM_AGENTS: false`); proactive behavior is **off**
+  (`LLM_AGENT_PROACTIVE: false`). Nothing changes for vanilla play.
+- **Build:** `mvn -q clean test` (green: 137 agent tests across 36 classes + existing suite).
 
 ---
 
@@ -128,7 +130,8 @@ arrive via lightweight hooks (see §5).
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo`/`warpTo` for cross-map follow. |
-| `AgentCombat` | Potion self-sustain, respawn, auto-looting, ammo perception/recharge, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target + multi-line). |
+| `AgentCombat` | Potion self-sustain, respawn, auto-looting, ammo perception/resupply, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target + multi-line + facing). |
+| `AgentProactivity` | Opt-in proactive behaviors: greet nearby players, party-search matchmaking, patrol (all gated by `LLM_AGENT_PROACTIVE`). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
@@ -250,6 +253,17 @@ arrive via lightweight hooks (see §5).
     session was despawned mid-step.
 21. **Local skill cooldowns** (`AgentSession.isSkillReady`/`markSkillUsed`) mirror the WZ
     `cooldown`; cooldowns are only marked when `dispatchInbound` actually ran a handler.
+22. **Proactive behavior is fully opt-in and cheap.** Every entry point in `AgentProactivity`
+    is gated by `LLM_AGENT_PROACTIVE` plus its sub-switch, runs on the per-session action
+    executor, and is self-throttled. `greet` selects read-only and marks a player only after
+    the greeting was actually sent, skips agents/GMs/hidden players, and prunes its map.
+    `matchmake` skips agents that are already following. Proactive actions never invoke the LLM.
+23. **The LLM request budget is global and monotonic.** `OpenAiChatClient.tryConsumeCallBudget`
+    enforces `LLM_MAX_CALLS_PER_MIN` (0 = unlimited) over a `System.nanoTime()` window; exceeding
+    it throws, and the brain fails safe with an empty action list.
+24. **Moderation survives transfers.** `AgentSession.setMuted` is an atomic volatile write;
+    `AgentManager.transferChannel` captures and restores the muted flag. `dispatch` drops
+    `Say`/`PartySay`/`Whisper` while muted **before** consuming rate budget or audit logging.
 
 ---
 
@@ -327,6 +341,17 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AUTO_FLEE` | `false` | Retreat from monsters when HP drops below `LLM_AGENT_FLEE_PERCENT`. |
 | `LLM_AGENT_FLEE_PERCENT` | `25` | HP % below which auto-flee fires. |
 | `LLM_AGENT_FOLLOW_CHANNEL` | `false` | Follow the party leader across channels (re-logs the agent on the target channel). |
+| `LLM_AGENT_PROACTIVE` | `false` | Master switch for proactive (non-reactive) behavior. |
+| `LLM_AGENT_GREET` | `true` | With PROACTIVE on, greet nearby players once each. |
+| `LLM_AGENT_MATCHMAKE` | `true` | With PROACTIVE on, auto-register for party search (auto-invites nearby solos). |
+| `LLM_AGENT_PATROL` | `false` | With PROACTIVE on, wander the map when idle. |
+| `LLM_AGENT_GREET_COOLDOWN_MS` | `600000` | Minimum ms between greetings of the same player. |
+| `LLM_AGENT_MATCHMAKE_INTERVAL_MS` | `60000` | Minimum ms between party-search (re)registrations. |
+| `LLM_AGENT_PATROL_INTERVAL_MS` | `8000` | Minimum ms between patrol steps. |
+| `LLM_AGENT_GREETING` | `""` | Greeting template (`{name}` replaced); blank uses the brain/persona greeting. |
+| `LLM_AGENT_MEMORY_SUMMARIZE` | `true` | Fold old dialogue into durable memory facts. |
+| `LLM_MAX_CALLS_PER_MIN` | `60` | Global cap on LLM requests per minute (0 = unlimited). |
+| `LLM_AGENT_NOTICE` | `false` | Broadcast a map notice that an agent is AI-controlled when it spawns. |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -363,6 +388,10 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader (same-map walk +
   cross-map warp), party-search listing.
+- M4: opt-in proactive behavior (greet once per nearby player, auto party-search
+  matchmaking that invites nearby solos, idle patrol), persona `greeting`/`traits`,
+  memory compaction (single rolling summary fact), a global `LLM_MAX_CALLS_PER_MIN` request
+  budget, `/agent status|mute|unmute`, and an optional map AI notice.
 - M3 (complete): monster/item/NPC perception, clamped foothold-aware movement, follow
   (same-map walking, portal-based cross-map travel, opt-in cross-channel re-login), item
   pickup, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks with
@@ -375,11 +404,11 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
   map-change and party-update.
 
 **Not done (next work)**
-- **M4:** proactive social behavior (patrol, greet, initiate invites/matchmaking). Currently
-  strictly reactive; note `/agent search` still enables party-search auto-invites.
 - **Pathing depth:** movement is clamped waypoint stepping, not a full foothold/rope
-  pathfinder (agents can walk through platforms rather than jumping roped routes).
-- **Player-facing opt-out / bot notice** beyond the name prefix.
+  pathfinder (agents can walk through platforms rather than jumping roped routes); patrol
+  randomizes X only.
+- **Combat fidelity:** Hurricane/Rapid Fire after-delay timing, cast-animation stance.
+- **Player-facing opt-out** beyond the AI notice / GM `/agent mute` (no per-player ignore).
 - **Combat depth:** arrow purchase for bow/crossbow (arrows are not rechargeable in v83),
   local cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
   semantics, monster facing, flee/aggro management, cast animation. (Multi-target, multi-line,
@@ -422,6 +451,14 @@ HIGH/MEDIUM findings were addressed:
   agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
   the warp unreachable and would also have broken it after the first warp — now cleared at spawn
   and after each warp; also switched to the spawn-point overload to avoid a portal-0 NPE.
+- **M4** (proactive matchmaking, personas, memory compaction, cost controls, notice, mute):
+  three verifier passes. Fixed: `greet` marked every candidate as greeted (now selects read-only
+  and marks only the successfully-greeted player); `matchmake` registered agents that were
+  already following a leader (now skips); memory `compact` appended a new summary fact each time
+  and could evict real facts (now replaces a single rolling summary, code-point-safe truncation);
+  the LLM budget used wall-clock (now `nanoTime`); mute was lost across channel transfer (now
+  captured/restored) and used a racy toggle (now an atomic `setMuted`); agents could auto-invite
+  other agents via party search (now excluded).
 - **M3 complete** (facing, cooldowns, HP-cost, arrow purchase, flee, smart movement + portal
   follow, channel-follow, LLM follow tools): three verifier passes. Fixed: portal branch wedged
   follow and bypassed the event/trade/cash guards (now skips closed/scripted portals, shares
@@ -453,6 +490,7 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `4cb347332` | M4: proactive matchmaking, personas, cost controls, moderation |
 | `fb6f7d246` | finish M3: combat depth, pathing/portal follow, channel-follow, LLM follow |
 | `45dd0e2d2` | multi-line + LLM multi-target attacks, ammo perception/recharge |
 | `2fb00ad3c` | cross-map follow (warp-with-party) |
