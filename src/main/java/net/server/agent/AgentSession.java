@@ -7,11 +7,14 @@ import net.opcodes.RecvOpcode;
 import net.packet.InPacket;
 import net.server.world.World;
 import org.slf4j.Logger;
+import server.maps.Portal;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,6 +34,8 @@ public class AgentSession {
     private static final int MAX_INBOX = 64;
     private static final int MAX_EVENTS_PER_DECISION = 16;
     private static final long WARP_COOLDOWN_MS = 4000L;
+    /** Consecutive portal-walk attempts before giving up and falling back to a party warp. */
+    private static final int PORTAL_ATTEMPT_LIMIT = 12;
     private static final AtomicInteger THREAD_COUNTER = new AtomicInteger();
 
     private final AgentClient client;
@@ -49,8 +54,12 @@ public class AgentSession {
     private volatile int followTargetId = -1;
     private volatile boolean manualFollow = false;
     private volatile long lastWarpAt;
+    private volatile int portalTargetMapId = -1;
+    private volatile int portalAttempts;
     private final AtomicInteger actionsThisSecond = new AtomicInteger();
     private volatile long actionWindowStart = System.currentTimeMillis();
+    /** Local mirror of skill cooldowns, so the agent does not re-issue a still-cooling skill. */
+    private final Map<Integer, Long> skillReadyAt = new ConcurrentHashMap<>();
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this.client = client;
@@ -266,6 +275,9 @@ public class AgentSession {
         }
         if (followTargetId >= 0 && AgentConfig.followEnabled()) {
             runSafely("follow", this::followStep);
+            if (!active.get()) {
+                return; // a channel transfer despawned this session mid-step
+            }
         }
         if (AgentConfig.autoSustain()) {
             runSafely("sustain", () -> AgentCombat.sustain(this));
@@ -273,11 +285,16 @@ public class AgentSession {
         if (AgentConfig.autoHeal()) {
             runSafely("heal", () -> AgentSkill.autoHeal(this));
         }
-        if (AgentConfig.autoCombat()) {
-            runSafely("combat", () -> AgentCombat.attackNearest(this));
-        }
-        if (AgentConfig.autoLoot()) {
-            runSafely("loot", () -> AgentCombat.lootNearest(this));
+        if (AgentCombat.shouldFlee(p)) {
+            // Retreat instead of trading blows; sustain/heal above still run so it can recover.
+            runSafely("flee", () -> AgentCombat.flee(this));
+        } else {
+            if (AgentConfig.autoCombat()) {
+                runSafely("combat", () -> AgentCombat.attackNearest(this));
+            }
+            if (AgentConfig.autoLoot()) {
+                runSafely("loot", () -> AgentCombat.lootNearest(this));
+            }
         }
         if (AgentConfig.autoRecharge()) {
             runSafely("recharge", () -> AgentCombat.rechargeAmmo(this));
@@ -298,7 +315,8 @@ public class AgentSession {
     /** Whether any server-driven behaviour needs the per-tick step to run. */
     private static boolean behaviorEnabled() {
         return AgentConfig.autoSustain() || AgentConfig.autoCombat() || AgentConfig.autoBuff()
-                || AgentConfig.autoHeal() || AgentConfig.autoLoot() || AgentConfig.autoRecharge();
+                || AgentConfig.autoHeal() || AgentConfig.autoLoot() || AgentConfig.autoRecharge()
+                || AgentConfig.autoFlee();
     }
 
     /** Keeps the agent near its follow target (typically the party leader) when on the same map. */
@@ -316,9 +334,48 @@ public class AgentSession {
             AgentMovement.stepToward(this, p.getPosition(), target.getPosition(), 120);
             return;
         }
-        if (AgentConfig.followWarp()) {
-            warpToFollowTarget(p, targetId);
+        // Not on this map: resolve through the world (target may be on another map or channel).
+        World world = p.getWorldServer();
+        Character worldTarget = target != null ? target
+                : (world == null ? null : world.getPlayerStorage().getCharacterById(targetId));
+        if (worldTarget == null || worldTarget.getMap() == null || worldTarget.getClient() == null) {
+            return;
         }
+        if (worldTarget.getClient().getChannel() != p.getClient().getChannel()) {
+            followAcrossChannel(worldTarget);
+            return;
+        }
+        if (!AgentConfig.followWarp()) {
+            return;
+        }
+        // Prefer walking to a portal that leads to the target's map; fall back to a party warp if
+        // there is no usable portal, or if it is still unreachable after several attempts.
+        Portal portal = AgentMovement.findPortalTo(p, worldTarget.getMapId());
+        if (portal != null) {
+            if (portalTargetMapId != worldTarget.getMapId()) {
+                portalTargetMapId = worldTarget.getMapId();
+                portalAttempts = 0;
+            }
+            portalAttempts++;
+            if (portalAttempts <= PORTAL_ATTEMPT_LIMIT) {
+                if (AgentMovement.walkThroughPortalTo(this, worldTarget.getMapId())) {
+                    lastWarpAt = System.currentTimeMillis();
+                }
+                return;
+            }
+            portalTargetMapId = -1; // give up on this portal and warp instead
+            portalAttempts = 0;
+        }
+        warpToFollowTarget(p, targetId);
+    }
+
+    /** Re-logs the agent on the follow target's channel (opt-in; throttled in AgentManager). */
+    private void followAcrossChannel(Character target) {
+        if (!AgentConfig.followChannel()) {
+            return;
+        }
+        // transferChannel despawns this session synchronously; do not touch it afterwards.
+        AgentManager.getInstance().transferChannel(getCharacterId(), target.getClient().getChannel());
     }
 
     /** Warps the agent to its follow target's map (party-warp style) when they leave the map. */
@@ -337,16 +394,35 @@ public class AgentSession {
         }
     }
 
-    /** Sends an inbound packet through the agent's (real) packet processor. */
-    public void dispatchInbound(RecvOpcode opcode, InPacket packet) {
+    /** Whether the local cooldown for a skill has elapsed (server state is authoritative). */
+    public boolean isSkillReady(int skillId) {
+        Long readyAt = skillReadyAt.get(skillId);
+        return readyAt == null || System.currentTimeMillis() >= readyAt;
+    }
+
+    /** Records that a skill was just used and is unavailable for {@code cooldownMs}. */
+    public void markSkillUsed(int skillId, long cooldownMs) {
+        if (skillId > 0 && cooldownMs > 0) {
+            skillReadyAt.put(skillId, System.currentTimeMillis() + cooldownMs);
+        }
+    }
+
+    /**
+     * Sends an inbound packet through the agent's (real) packet processor.
+     *
+     * @return whether a handler actually ran (false if the packet was dropped by validation)
+     */
+    public boolean dispatchInbound(RecvOpcode opcode, InPacket packet) {
         PacketProcessor processor = client.getPacketProcessor();
         if (processor == null) {
-            return;
+            return false;
         }
         PacketHandler handler = processor.getHandler((short) opcode.getValue());
         if (handler != null && handler.validateState(client)) {
             handler.handlePacket(packet, client);
+            return true;
         }
+        return false;
     }
 
     public void shutdown() {

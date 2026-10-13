@@ -294,6 +294,11 @@ public class LlmAgentBrain implements AgentBrain {
                 yield new AgentAction.SkillAttackMany(targets, skill.canConvertToInt() ? skill.asInt() : 0);
             }
             case "recharge_ammo" -> new AgentAction.RechargeAmmo();
+            case "follow" -> {
+                String target = text(args, "target");
+                yield target == null ? null : new AgentAction.Follow(target);
+            }
+            case "stop_following" -> new AgentAction.StopFollowing();
             case "respawn" -> new AgentAction.Respawn();
             case "cast_buff" -> {
                 JsonNode skillId = args.path("skill_id");

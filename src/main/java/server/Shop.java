@@ -83,6 +83,14 @@ public class Shop {
         c.sendPacket(PacketCreator.getNPCShop(c, getNpcId(), items));
     }
 
+    /**
+     * Snapshot of the shop's stocked items. The list index is the same slot number used by
+     * {@link #buy(Client, short, int, short)}, so callers can select a stock entry by index.
+     */
+    public List<ShopItem> getItems() {
+        return List.copyOf(items);
+    }
+
     public void buy(Client c, short slot, int itemId, short quantity) {
         ShopItem item = findBySlot(slot);
         if (item != null) {

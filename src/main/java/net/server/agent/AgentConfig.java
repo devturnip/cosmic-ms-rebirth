@@ -161,6 +161,19 @@ public final class AgentConfig {
         return value > 0 ? value : 150000.0;
     }
 
+    public static boolean autoFlee() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_FLEE;
+    }
+
+    public static int fleePercent() {
+        int value = YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT;
+        return value > 0 && value <= 100 ? value : 25;
+    }
+
+    public static boolean followChannel() {
+        return YamlConfig.config.server.LLM_AGENT_FOLLOW_CHANNEL;
+    }
+
     /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
     public static int[] autoBuffSkills() {
         String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;

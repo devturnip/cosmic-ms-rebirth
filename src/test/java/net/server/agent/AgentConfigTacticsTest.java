@@ -68,6 +68,40 @@ class AgentConfigTacticsTest {
     }
 
     @Test
+    void fleePercentFallsBackForOutOfRangeValues() {
+        int original = YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT;
+        try {
+            YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT = 0;
+            assertEquals(25, AgentConfig.fleePercent());
+            YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT = 150;
+            assertEquals(25, AgentConfig.fleePercent());
+            YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT = 40;
+            assertEquals(40, AgentConfig.fleePercent());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_FLEE_PERCENT = original;
+        }
+    }
+
+    @Test
+    void fleeAndFollowChannelReflectConfig() {
+        boolean originalFlee = YamlConfig.config.server.LLM_AGENT_AUTO_FLEE;
+        boolean originalFollow = YamlConfig.config.server.LLM_AGENT_FOLLOW_CHANNEL;
+        try {
+            YamlConfig.config.server.LLM_AGENT_AUTO_FLEE = true;
+            YamlConfig.config.server.LLM_AGENT_FOLLOW_CHANNEL = true;
+            assertTrue(AgentConfig.autoFlee());
+            assertTrue(AgentConfig.followChannel());
+            YamlConfig.config.server.LLM_AGENT_AUTO_FLEE = false;
+            YamlConfig.config.server.LLM_AGENT_FOLLOW_CHANNEL = false;
+            assertFalse(AgentConfig.autoFlee());
+            assertFalse(AgentConfig.followChannel());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_AUTO_FLEE = originalFlee;
+            YamlConfig.config.server.LLM_AGENT_FOLLOW_CHANNEL = originalFollow;
+        }
+    }
+
+    @Test
     void autoHealSkillIsNeverNegative() {
         int original = YamlConfig.config.server.LLM_AGENT_AUTO_HEAL_SKILL;
         try {

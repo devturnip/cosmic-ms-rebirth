@@ -341,4 +341,7 @@ public class ServerConfig {
     public boolean LLM_AGENT_FOLLOW_WARP = false;
     public boolean LLM_AGENT_AUTO_RECHARGE = false;
     public double LLM_AGENT_RECHARGE_RANGE_SQ = 150000.0;
+    public boolean LLM_AGENT_AUTO_FLEE = false;
+    public int LLM_AGENT_FLEE_PERCENT = 25;
+    public boolean LLM_AGENT_FOLLOW_CHANNEL = false;
 }

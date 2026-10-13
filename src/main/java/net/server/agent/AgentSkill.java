@@ -90,10 +90,12 @@ public final class AgentSkill {
 
     public static void castBuff(AgentSession session, int skillId) {
         Character chr = session.getPlayer();
-        if (chr == null || !chr.isAlive() || !canCastBuff(chr, skillId)) {
+        if (chr == null || !chr.isAlive() || !canCastBuff(chr, skillId) || !session.isSkillReady(skillId)) {
             return;
         }
-        session.dispatchInbound(RecvOpcode.CLOSE_RANGE_ATTACK, buildBuffPacket(skillId));
+        if (session.dispatchInbound(RecvOpcode.CLOSE_RANGE_ATTACK, buildBuffPacket(skillId))) {
+            session.markSkillUsed(skillId, AgentCombat.skillCooldownMs(chr, skillId));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -138,11 +140,14 @@ public final class AgentSkill {
         if (skillId <= 0) {
             skillId = resolveHealSkill(chr); // LLM may omit/zero the id to mean "auto"
         }
-        if (!canCastHeal(chr, skillId)) {
+        if (!canCastHeal(chr, skillId) || !session.isSkillReady(skillId)) {
             return false;
         }
-        session.dispatchInbound(RecvOpcode.SPECIAL_MOVE, buildHealPacket(chr, skillId));
-        return true;
+        if (session.dispatchInbound(RecvOpcode.SPECIAL_MOVE, buildHealPacket(chr, skillId))) {
+            session.markSkillUsed(skillId, AgentCombat.skillCooldownMs(chr, skillId));
+            return true;
+        }
+        return false;
     }
 
     /**

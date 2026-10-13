@@ -151,6 +151,9 @@ public class OpenAiChatClient {
         tools.add(function(mapper, "move_to", "Walk the agent to a position on the current map.",
                 new Param("x", "integer", "Target x coordinate.", true),
                 new Param("y", "integer", "Target y coordinate.", true)));
+        tools.add(function(mapper, "follow", "Follow a player by name (sticky until stop_following or a party change).",
+                new Param("target", "string", "The character name to follow.", true)));
+        tools.add(function(mapper, "stop_following", "Stop following the current follow target.", new Param[0]));
         tools.add(function(mapper, "pickup_item", "Pick up a dropped item by its map object id.",
                 new Param("object_id", "integer", "The map object id of the item to pick up.", true)));
         tools.add(function(mapper, "attack", "Attack a nearby monster, optionally with a learned skill.",

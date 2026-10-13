@@ -40,7 +40,11 @@ public class AgentManager {
     private static final Logger log = LoggerFactory.getLogger(AgentManager.class);
     private static final AgentManager INSTANCE = new AgentManager();
 
+    private static final long CHANNEL_TRANSFER_COOLDOWN_MS = 10000L;
+
     private final Map<Integer, AgentSession> sessionsByCharacterId = new ConcurrentHashMap<>();
+    /** Per-character time of the last channel transfer (survives the session swap). */
+    private final Map<Integer, Long> lastChannelTransferAt = new ConcurrentHashMap<>();
     private final AtomicLong sessionIdGenerator = new AtomicLong(-5000); // negative to avoid clashing with netty sessions
     private final AgentMemoryStore memoryStore = new AgentMemoryStore();
 
@@ -119,6 +123,15 @@ public class AgentManager {
      * the agent limit has been reached.
      */
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain) {
+        return spawn(characterName, world, channel, brain, null);
+    }
+
+    /**
+     * Spawns an agent, optionally reusing an existing in-process {@link AgentMemory} (used by
+     * channel transfer so the agent keeps its short-term memory).
+     */
+    public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
+                                           AgentMemory existingMemory) {
         if (!AgentConfig.enabled()) {
             log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
             return null;
@@ -186,7 +199,8 @@ public class AgentManager {
             }
             client.updateLoginState(Client.LOGIN_LOGGEDIN);
 
-            final AgentMemory memory = AgentConfig.memoryPersist() ? memoryStore.load(player.getId()) : new AgentMemory(player.getId());
+            final AgentMemory memory = existingMemory != null ? existingMemory
+                    : (AgentConfig.memoryPersist() ? memoryStore.load(player.getId()) : new AgentMemory(player.getId()));
             final AgentSession session = new AgentSession(client, player, brain, memory);
             client.setPacketListener(packet -> {
                 // Outbound packets are currently dropped; retained as the seam for future
@@ -214,7 +228,64 @@ public class AgentManager {
         }
     }
 
-    public boolean despawn(int characterId) {
+    /**
+     * Moves an agent to another channel by re-running its headless login there. The old session
+     * is despawned synchronously first (avoiding a despawn/respawn race) and the new one reuses
+     * the same brain and memory; the caller is responsible for restoring follow behaviour.
+     *
+     * @return the new session, or {@code null} if the transfer failed
+     */
+    public synchronized AgentSession transferChannel(int characterId, int channel) {
+        final AgentSession old = sessionsByCharacterId.get(characterId);
+        if (old == null || channel <= 0) {
+            return null;
+        }
+        if (old.getClient().getChannel() == channel) {
+            return old;
+        }
+        final Character oldPlayer = old.getPlayer();
+        if (oldPlayer == null || oldPlayer.isChangingMaps()) {
+            return null; // never yank a character mid-transition
+        }
+        final long now = System.currentTimeMillis();
+        final Long lastTransfer = lastChannelTransferAt.get(characterId);
+        if (lastTransfer != null && now - lastTransfer < CHANNEL_TRANSFER_COOLDOWN_MS) {
+            return null; // throttled
+        }
+        lastChannelTransferAt.put(characterId, now);
+
+        final String name = old.getName();
+        final AgentBrain brain = old.getBrain();
+        final AgentMemory memory = old.getMemory();
+        final int world = old.getClient().getWorld();
+        final int oldChannel = old.getClient().getChannel();
+        final int followTarget = old.getFollowTargetId();
+        final boolean manualFollow = old.isManualFollow();
+
+        despawn(characterId);
+        AgentSession session = spawn(name, world, channel, brain, memory);
+        if (session == null) {
+            // A failed transfer must never silently delete the agent: re-spawn on the old channel.
+            log.warn("Channel transfer of agent {} to channel {} failed; rolling back to channel {}", name, channel, oldChannel);
+            session = spawn(name, world, oldChannel, brain, memory);
+            if (session == null) {
+                log.error("Rollback of agent {} to channel {} also failed; agent is offline", name, oldChannel);
+                lastChannelTransferAt.remove(characterId);
+                return null;
+            }
+        }
+        if (followTarget >= 0) {
+            if (manualFollow) {
+                session.setManualFollow(followTarget);
+            } else {
+                session.setFollowTarget(followTarget);
+            }
+        }
+        log.info("Transferred agent {} to channel {}", name, channel);
+        return session;
+    }
+
+    public synchronized boolean despawn(int characterId) {
         final AgentSession session = sessionsByCharacterId.remove(characterId);
         if (session == null) {
             return false;

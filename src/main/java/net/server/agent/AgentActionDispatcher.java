@@ -4,6 +4,7 @@ import client.Character;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
+import net.server.world.World;
 import net.packet.ByteBufOutPacket;
 import net.packet.InPacket;
 import net.packet.OutPacket;
@@ -48,6 +49,8 @@ public class AgentActionDispatcher {
             case AgentAction.DenyPartyInvite deny -> denyPartyInvite(session, deny.inviterName());
             case AgentAction.LeaveParty ignored -> leaveParty(session);
             case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
+            case AgentAction.Follow follow -> follow(session, follow.targetName());
+            case AgentAction.StopFollowing ignored -> session.clearFollow();
             case AgentAction.PickupItem pickup -> pickupItemFor(session, pickup.objectId());
             case AgentAction.UseItem use -> AgentCombat.useItem(session, use.itemId());
             case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
@@ -93,6 +96,38 @@ public class AgentActionDispatcher {
             p.writeByte(0); // no explicit recipients needed for party chat
             p.writeString(message);
         });
+    }
+
+    /** Resolves a nearby or same-world player by name and sets it as the agent's manual follow. */
+    private void follow(AgentSession session, String targetName) {
+        if (targetName == null || targetName.isBlank()) {
+            return;
+        }
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        Character target = findPlayerByName(chr, targetName);
+        if (target != null) {
+            session.setManualFollow(target.getId());
+        }
+    }
+
+    private static Character findPlayerByName(Character chr, String name) {
+        for (Character player : chr.getMap().getAllPlayers()) {
+            if (player.getName().equalsIgnoreCase(name)) {
+                return player;
+            }
+        }
+        World world = chr.getWorldServer();
+        if (world != null) {
+            for (Character player : world.getPlayerStorage().getAllCharacters()) {
+                if (player.getName().equalsIgnoreCase(name)) {
+                    return player;
+                }
+            }
+        }
+        return null;
     }
 
     private void whisper(AgentSession session, String targetName, String message) {

@@ -495,3 +495,6 @@ server:
     LLM_AGENT_FOLLOW_WARP: false        #Warp the agent to its follow target's map when they leave the current map.
     LLM_AGENT_AUTO_RECHARGE: false      #Allow ranged agents to recharge ammo (meso cost) at a nearby shop NPC.
     LLM_AGENT_RECHARGE_RANGE_SQ: 150000.0 #Squared distance within which an NPC can act as a recharge shop (~387px).
+    LLM_AGENT_AUTO_FLEE: false          #Retreat from monsters when HP drops below LLM_AGENT_FLEE_PERCENT.
+    LLM_AGENT_FLEE_PERCENT: 25          #Flee when HP is below this percentage (only with LLM_AGENT_AUTO_FLEE).
+    LLM_AGENT_FOLLOW_CHANNEL: false     #Follow the party leader across channels (re-logs the agent on the target channel).

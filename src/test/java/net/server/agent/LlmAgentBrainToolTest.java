@@ -60,6 +60,20 @@ class LlmAgentBrainToolTest {
     }
 
     @Test
+    void followMapsToFollowAction() {
+        AgentAction action = brain.toAction(call("follow", "{\"target\": \"Bob\"}"));
+
+        AgentAction.Follow follow = assertInstanceOf(AgentAction.Follow.class, action);
+        assertEquals("Bob", follow.targetName());
+        assertNull(brain.toAction(call("follow", "{}")), "a missing target is ignored");
+    }
+
+    @Test
+    void stopFollowingMapsToStopAction() {
+        assertInstanceOf(AgentAction.StopFollowing.class, brain.toAction(call("stop_following", "{}")));
+    }
+
+    @Test
     void invalidArgumentsAreIgnored() {
         assertNull(brain.toAction(call("attack_many", "not json")));
     }

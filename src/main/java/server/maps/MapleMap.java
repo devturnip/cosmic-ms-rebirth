@@ -116,7 +116,7 @@ public class MapleMap {
     private final AtomicInteger droppedItemCount = new AtomicInteger(0);
     private final Collection<Character> characters = new LinkedHashSet<>();
     private final Map<Integer, Set<Integer>> mapParty = new LinkedHashMap<>();
-    private final Map<Integer, Portal> portals = new HashMap<>();
+    private final Map<Integer, Portal> portals = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<Integer, Integer> backgroundTypes = new HashMap<>();
     private final Map<String, Integer> environment = new LinkedHashMap<>();
     private final Map<MapItem, Long> droppedItems = new LinkedHashMap<>();
@@ -2653,6 +2653,11 @@ public class MapleMap {
             }
         }
         return closest;
+    }
+
+    /** Snapshot of the map's portals (used by agent pathfinding). */
+    public Collection<Portal> getPortals() {
+        return List.copyOf(portals.values());
     }
 
     public Portal findClosestPortal(Point from) {

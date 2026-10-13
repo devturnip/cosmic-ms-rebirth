@@ -42,6 +42,14 @@ public sealed interface AgentAction {
     record MoveTo(int x, int y) implements AgentAction {
     }
 
+    /** Stick to a player by name (sticky manual follow). */
+    record Follow(String targetName) implements AgentAction {
+    }
+
+    /** Stop following the current follow target. */
+    record StopFollowing() implements AgentAction {
+    }
+
     /** Pick up a dropped item by its map object id. */
     record PickupItem(int objectId) implements AgentAction {
     }

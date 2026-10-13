@@ -19,6 +19,7 @@ import net.packet.OutPacket;
 import server.ItemInformationProvider;
 import server.Shop;
 import server.ShopFactory;
+import server.ShopItem;
 import server.StatEffect;
 import server.life.Monster;
 import server.life.NPC;
@@ -214,7 +215,7 @@ public final class AgentCombat {
             return false;
         }
         int skillId = AgentConfig.attackSkill();
-        if (skillId > 0 && canUseAttackSkill(chr, skillId)) {
+        if (skillId > 0 && canUseAttackSkill(chr, skillId) && session.isSkillReady(skillId)) {
             int maxTargets = AgentConfig.aoeAttack()
                     ? Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId))
                     : 1;
@@ -260,6 +261,56 @@ public final class AgentCombat {
             result.add(monster.getObjectId());
         }
         return result;
+    }
+
+    /** Nearest living monster within {@code rangeSq} of the agent, or {@code null}. */
+    static Monster nearestMonster(Character chr, double rangeSq) {
+        if (chr == null || chr.getMap() == null || chr.getPosition() == null) {
+            return null;
+        }
+        Monster best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (MapObject object : chr.getMap().getMapObjectsInRange(
+                chr.getPosition(), rangeSq, Arrays.asList(MapObjectType.MONSTER))) {
+            if (object instanceof Monster monster && monster.getHp() > 0 && monster.getPosition() != null) {
+                double distance = chr.getPosition().distanceSq(monster.getPosition());
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = monster;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** Threat radius within which auto-flee will engage (squared Euclidean distance). */
+    private static double threatRangeSq() {
+        return Math.max(AgentConfig.attackRangeSq(), 250000.0);
+    }
+
+    /** Whether the agent should retreat: auto-flee is on, HP is low, and a monster is close. */
+    public static boolean shouldFlee(Character chr) {
+        if (!AgentConfig.autoFlee() || chr == null || !chr.isAlive()) {
+            return false;
+        }
+        if (percent(chr.getHp(), chr.getCurrentMaxHp()) >= AgentConfig.fleePercent()) {
+            return false;
+        }
+        return nearestMonster(chr, threatRangeSq()) != null;
+    }
+
+    /** Moves away from the nearest monster. One clamped step per call. */
+    public static boolean flee(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getPosition() == null) {
+            return false;
+        }
+        Monster threat = nearestMonster(chr, threatRangeSq());
+        if (threat == null || threat.getPosition() == null) {
+            return false;
+        }
+        AgentMovement.stepAway(session, chr.getPosition(), threat.getPosition(), AgentMovement.MAX_STEP);
+        return true;
     }
 
     /** Monster targets a skill can hit in one cast, mirroring the server's raw mob count. */
@@ -340,22 +391,34 @@ public final class AgentCombat {
             return; // too far; the handler would flag a distance hack
         }
         int damage = safeDamage(chr);
+        int direction = facingDirection(chr, monster.getPosition());
         if (isRangedWeapon(chr)) {
             if (canUseRangedAttack(chr, 1)) {
-                session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(0, targetObjectId, damage));
+                session.dispatchInbound(RecvOpcode.RANGED_ATTACK,
+                        buildRangedAttackPacket(0, targetObjectId, damage, DAMAGE_LINES, direction));
             }
             // Out of ammo: never swing a bow/gun/claw as if it were a melee weapon.
             return;
         }
         // A skill-0 packet must go through CLOSE_RANGE_ATTACK: MagicDamageHandler dereferences
         // SkillFactory.getSkill(0) (null) for magic packets regardless of skill id.
-        session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, damage));
+        session.dispatchInbound(basicAttackOpcode(), buildAttackPacket(0, targetObjectId, damage, DAMAGE_LINES, direction));
+    }
+
+    /** Presents the agent as facing its target (0 = right, 1 = left). */
+    static int facingDirection(Character chr, Point target) {
+        Point self = chr == null ? null : chr.getPosition();
+        if (self == null || target == null) {
+            return 0;
+        }
+        return target.x < self.x ? 1 : 0;
     }
 
     /** Attacks a monster with a learned damaging skill (melee or magic). */
     public static void skillAttack(AgentSession session, int targetObjectId, int skillId) {
         Character chr = session.getPlayer();
-        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)) {
+        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)
+                || !session.isSkillReady(skillId)) {
             return;
         }
         MapObject object = chr.getMap().getMapObject(targetObjectId);
@@ -367,20 +430,27 @@ public final class AgentCombat {
         }
         int damage = skillDamage(chr, skillId);
         int lines = damageLines(chr, skillId);
+        int direction = facingDirection(chr, monster.getPosition());
+        boolean handled;
         if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
             if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
                 return; // out of ammo; do not fall back to a melee swing with a ranged weapon
             }
-            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, targetObjectId, damage, lines));
+            handled = session.dispatchInbound(RecvOpcode.RANGED_ATTACK,
+                    buildRangedAttackPacket(skillId, targetObjectId, damage, lines, direction));
         } else {
-            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, targetObjectId, damage, lines));
+            handled = session.dispatchInbound(attackOpcode(chr, skillId),
+                    buildAttackPacket(skillId, targetObjectId, damage, lines, direction));
+        }
+        if (handled) {
+            session.markSkillUsed(skillId, skillCooldownMs(chr, skillId));
         }
     }
 
     /** Attacks with the given skill if usable, otherwise falls back to a basic attack. */
     public static void attackOrFallback(AgentSession session, int targetObjectId, int skillId) {
         Character chr = session.getPlayer();
-        if (chr != null && canUseAttackSkill(chr, skillId)) {
+        if (chr != null && canUseAttackSkill(chr, skillId) && session.isSkillReady(skillId)) {
             skillAttack(session, targetObjectId, skillId);
         } else {
             attack(session, targetObjectId);
@@ -407,7 +477,7 @@ public final class AgentCombat {
         if (targets.isEmpty()) {
             return;
         }
-        boolean skillUsable = skillId > 0 && canUseAttackSkill(chr, skillId);
+        boolean skillUsable = skillId > 0 && canUseAttackSkill(chr, skillId) && session.isSkillReady(skillId);
         if (skillUsable && targets.size() > 1 && AgentConfig.aoeAttack()) {
             skillAttackMany(session, targets, skillId);
             return;
@@ -438,7 +508,8 @@ public final class AgentCombat {
      */
     public static void skillAttackMany(AgentSession session, List<Integer> targetObjectIds, int skillId) {
         Character chr = session.getPlayer();
-        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)) {
+        if (chr == null || !chr.isAlive() || chr.getMap() == null || !canUseAttackSkill(chr, skillId)
+                || !session.isSkillReady(skillId)) {
             return;
         }
         int maxTargets = Math.max(1, Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId)));
@@ -448,6 +519,7 @@ public final class AgentCombat {
             return;
         }
         List<Integer> valid = new ArrayList<>();
+        Point firstTarget = null;
         for (int oid : targetObjectIds) {
             if (valid.size() >= maxTargets) {
                 break;
@@ -460,6 +532,9 @@ public final class AgentCombat {
                 continue;
             }
             valid.add(oid);
+            if (firstTarget == null) {
+                firstTarget = monster.getPosition();
+            }
         }
         if (valid.isEmpty()) {
             return;
@@ -470,13 +545,20 @@ public final class AgentCombat {
         }
         int damage = skillDamage(chr, skillId);
         int lines = damageLines(chr, skillId);
+        int direction = facingDirection(chr, firstTarget);
+        boolean handled;
         if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
             if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
                 return; // out of ammo; do not fall back to a melee swing with a ranged weapon
             }
-            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, valid, damage, lines));
+            handled = session.dispatchInbound(RecvOpcode.RANGED_ATTACK,
+                    buildRangedAttackPacket(skillId, valid, damage, lines, direction));
         } else {
-            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, valid, damage, lines));
+            handled = session.dispatchInbound(attackOpcode(chr, skillId),
+                    buildAttackPacket(skillId, valid, damage, lines, direction));
+        }
+        if (handled) {
+            session.markSkillUsed(skillId, skillCooldownMs(chr, skillId));
         }
     }
 
@@ -516,7 +598,14 @@ public final class AgentCombat {
         }
         Skill skill = SkillFactory.getSkill(skillId);
         StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
-        return effect != null && chr.getMp() >= effect.getMpCon();
+        return effect != null && chr.getMp() >= effect.getMpCon() && chr.getHp() > effect.getHpCon();
+    }
+
+    /** The skill's server-side cooldown in milliseconds (0 when it has none). */
+    static long skillCooldownMs(Character chr, int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        return effect == null ? 0L : Math.max(0, effect.getCooldown()) * 1000L;
     }
 
     /**
@@ -784,7 +873,55 @@ public final class AgentCombat {
                 recharged = true;
             }
         }
+        // Bow/crossbow agents fire arrows, which are not rechargeable in v83: buy them.
+        if (!hasMatchingAmmo(chr, type, requiredAmmoForBestAttack(chr))) {
+            recharged |= buyAmmoFromShop(chr, shop, type, requiredAmmoForBestAttack(chr));
+        }
         return recharged;
+    }
+
+    /**
+     * Buys non-rechargeable projectiles (arrows) the equipped weapon can fire from a shop that
+     * stocks them, paying mesos through the real {@link Shop#buy} path. Buys as many as the
+     * agent can afford up to a full stack.
+     */
+    private static boolean buyAmmoFromShop(Character chr, Shop shop, WeaponType type, int required) {
+        Inventory use = chr.getInventory(InventoryType.USE);
+        if (use == null || chr.getClient() == null) {
+            return false;
+        }
+        ItemInformationProvider ii = ItemInformationProvider.getInstance();
+        List<ShopItem> stock = shop.getItems();
+        for (int slot = 0; slot < stock.size(); slot++) {
+            ShopItem shopItem = stock.get(slot);
+            int itemId = shopItem.getItemId();
+            if (shopItem.getPrice() <= 0 || !isValidAmmo(chr, type, itemId)
+                    || ItemConstants.isRechargeable(itemId)) {
+                continue;
+            }
+            short slotMax;
+            try {
+                slotMax = ii.getSlotMax(chr.getClient(), itemId);
+            } catch (RuntimeException e) {
+                continue;
+            }
+            int desired = Math.max(required, Math.min(slotMax, 1000));
+            long affordable = chr.getMeso() / Math.max(1, shopItem.getPrice());
+            int quantity = (int) Math.min(Math.min(desired, affordable), Short.MAX_VALUE);
+            if (quantity < Math.max(1, required)) {
+                continue; // this stock line is unaffordable; try a cheaper one
+            }
+            int before = use.countById(itemId);
+            try {
+                shop.buy(chr.getClient(), (short) slot, itemId, (short) quantity);
+            } catch (RuntimeException e) {
+                return false;
+            }
+            if (use.countById(itemId) > before) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The shop of an NPC in recharge range, or {@code null} when there is none. */
@@ -830,14 +967,23 @@ public final class AgentCombat {
         return buildRangedAttackPacket(skillId, List.of(targetObjectId), damage, damageLines);
     }
 
+    static InPacket buildRangedAttackPacket(int skillId, int targetObjectId, int damage, int damageLines, int direction) {
+        return buildRangedAttackPacket(skillId, List.of(targetObjectId), damage, damageLines, direction);
+    }
+
     static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
         return buildRangedAttackPacket(skillId, targetObjectIds, damage, DAMAGE_LINES);
     }
 
-    /** Ranged attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
     static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines) {
+        return buildRangedAttackPacket(skillId, targetObjectIds, damage, damageLines, 0);
+    }
+
+    /** Ranged attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
+    static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines, int direction) {
         List<Integer> targets = capTargets(targetObjectIds);
         int lines = clampLines(damageLines);
+        int dir = direction & 0xFF;
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
         out.writeByte(((targets.size() & 0xF) << 4) | (lines & 0xF)); // numAttackedAndDamage
@@ -847,12 +993,12 @@ public final class AgentCombat {
         }
         out.skip(8);
         out.writeByte(0);   // display
-        out.writeByte(0);   // direction
+        out.writeByte(dir); // direction (0 = right, 1 = left)
         out.writeByte(4);   // stance
         out.writeByte(0);   // (ranged: unused)
         out.writeByte(4);   // speed
         out.writeByte(0);   // (ranged: unused)
-        out.writeByte(0);   // rangedirection
+        out.writeByte(dir); // rangedirection
         out.skip(7);
         if (RANGED_EXTRA_SKILLS.contains(skillId)) {
             out.skip(4);
@@ -896,13 +1042,21 @@ public final class AgentCombat {
         return buildAttackPacket(skillId, List.of(targetObjectId), damage, damageLines);
     }
 
+    static InPacket buildAttackPacket(int skillId, int targetObjectId, int damage, int damageLines, int direction) {
+        return buildAttackPacket(skillId, List.of(targetObjectId), damage, damageLines, direction);
+    }
+
     /** Attack packet hitting every target in {@code targetObjectIds} with one damage line each. */
     static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
         return buildAttackPacket(skillId, targetObjectIds, damage, DAMAGE_LINES);
     }
 
-    /** Attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
     static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines) {
+        return buildAttackPacket(skillId, targetObjectIds, damage, damageLines, 0);
+    }
+
+    /** Attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
+    static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines, int direction) {
         List<Integer> targets = capTargets(targetObjectIds);
         int lines = clampLines(damageLines);
         OutPacket out = new ByteBufOutPacket();
@@ -914,7 +1068,7 @@ public final class AgentCombat {
         }
         out.skip(8);                            // fixed 8-byte block
         out.writeByte(0);                       // display
-        out.writeByte(0);                       // direction
+        out.writeByte(direction & 0xFF);        // direction (0 = right, 1 = left)
         out.writeByte(4);                       // stance
         out.writeByte(0);                       // (non-ranged unused)
         out.writeByte(4);                       // speed
