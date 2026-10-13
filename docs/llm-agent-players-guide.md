@@ -232,9 +232,14 @@ is generated at their level and deleted when dismissed (see
 - Enabled with `LLM_AGENT_PLAYER_SPAWN: true` (plus `USE_LLM_AGENTS`).
 - The companion is a **server-owned, ephemeral** character built through the normal
   character-creation recipe path: a random **`Agent-<fun name>`** name (e.g. `Agent-Mochi`), a
-  level matched to yours, and a role that complements your job unless you pass one (`warrior`,
-  `magician`, `healer`, `bowman`, `thief`, `pirate`). Its exp/mesos are shared normally and
-  discarded with it.
+  level matched to yours, and a role that complements your job unless you pass one. The
+  complement is always a **different class** from yours, chosen from `warrior`, `magician`,
+  `healer`, `bowman`, `thief` and `pirate`, with a healer most likely when you cannot heal. Its
+  exp/mesos are shared normally and discarded with it.
+- `@agents find` acknowledges immediately (`Searching for a companion...`) before the character
+  is built, then reports the result. Provisioning a fresh character can take a few seconds; the
+  confirmation names the class and level, e.g.
+  `Summoned Agent-Mochi (magician, level 30). It will follow you.`
 - It gets a **random look** — random hair, face, skin colour and a random cash-item outfit — so
   companions are visually distinct.
 - It follows you and — unless `LLM_AGENT_AUTO_PARTY: false` — forms or joins your party when
@@ -289,7 +294,7 @@ and all actions go through the real packet handlers, so normal validation still 
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `!agent spawn` refuses | `USE_LLM_AGENTS` is false, name doesn't exist in that world, name prefix required, or the character/account is already online. |
-| Agent spawned but says nothing | No `LLM_API_URL`/`LLM_MODEL` ⇒ scripted brain; or the LLM endpoint is unreachable (check logs). `!agent status` shows the brain in use. |
+| Agent spawned but says nothing | No `LLM_API_URL`/`LLM_MODEL` ⇒ scripted brain; or the LLM endpoint is unreachable. Check the logs for `HTTP 404` — `LLM_API_URL` must be the full `/chat/completions` URL (a bare base URL or `/v1` is auto-completed). `!agent status` shows the brain in use. |
 | Agent spams or is slow | Tune `LLM_AGENT_TICK_MS` and `LLM_MAX_CALLS_PER_MIN`; check the endpoint latency. |
 | Memory/opt-out not saved | Run `v0.15.0.sql` / `v0.16.0.sql`; check server logs for persistence warnings. |
 | Agent stuck / not moving | It may be following a target on another map/channel; enable `LLM_AGENT_FOLLOW_WARP` / `…_FOLLOW_CHANNEL`. Movement is clamped stepping, not a full pathfinder. |

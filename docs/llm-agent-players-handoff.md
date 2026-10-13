@@ -154,7 +154,7 @@ arrive via lightweight hooks (see §5).
 | `DbAgentProvisioner` | JDBC implementation: dedicated account + recipe-built character; deletes both on despawn. |
 | `AgentCompanionService` | Player companion policy/orchestration (`@agents find|dismiss|list`), per-player caps/cooldown. |
 | `CompanionPartyService` | Forms/extend a party so a summoned companion joins the requester. |
-| `AgentRole` | Canonical companion roles → base job, complement mapping, aliases. |
+| `AgentRole` | Canonical companion roles → base job, complement policy (any *other* class; healer-first weighted), aliases. |
 | `CompanionTemplate` | Level-appropriate build: advanced job tier, AP/HP/MP, WZ-resolved skill build, gear. |
 | `CompanionAppearance` | Random hair/face/skin + cash outfit; cached, warmed-off-path WZ candidate scan. |
 
@@ -302,6 +302,14 @@ arrive via lightweight hooks (see §5).
     `.env` is gitignored. Do not put keys back into `config.yaml`.
 28. **In-game command headings are `@` (players) and `!` (GM).** A `/…` line is not dispatched
     and is silently dropped by `GeneralChatHandler`; docs/usage strings must not use `/`.
+29. **`LLM_API_URL` must name the chat-completions endpoint.** `OpenAiChatClient` POSTs to the
+    configured URL verbatim; `OpenAiChatClient.resolveEndpoint` completes a bare base URL (or
+    `/v1`) to `/chat/completions`, but a wrong full path still 404s. Symptom: the agent spawns,
+    then does nothing, and the log shows `HTTP 404`.
+30. **Companion deletion needs the character's world.** `DbAgentProvisioner.destroy` deletes the
+    character through a worldless mock `Client` (`world = -123`); `ProvisionedAgent` now carries
+    `world` so the mock client resolves the real `World` before `Party#leaveParty` runs. Without
+    it, `@agents dismiss` NPEs (`world` is null) and leaks the character/account.
 
 ---
 
@@ -348,7 +356,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_TICK_MS` | `2000` | Per-agent tick interval. |
 | `LLM_AGENT_PERCEPTION` | `BOUNDED` | `BOUNDED` (range-limited, fair-ish) or `OMNISCIENT` (dev). |
 | `LLM_AGENT_VIEW_RANGE` | `722500.0` | Squared view radius (850²) for BOUNDED. |
-| `LLM_API_URL` | `""` | OpenAI-compatible chat-completions endpoint. Blank ⇒ scripted brain. Env `LLM_API_URL` overrides. |
+| `LLM_API_URL` | `""` | OpenAI-compatible chat-completions endpoint. A bare base URL or `/v1` is completed to `/chat/completions`. Blank ⇒ scripted brain. Env `LLM_API_URL` overrides. |
 | `LLM_API_KEY` | `""` | Bearer token. **Prefer the `LLM_API_KEY` env var** (`.env`, gitignored); never commit a key. |
 | `LLM_MODEL` | `""` | Model name. Env `LLM_MODEL` overrides. |
 | `LLM_MAX_CONCURRENT_CALLS` | `4` | Brain pool size / in-flight LLM requests. |
@@ -395,7 +403,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_REQUEST_COOLDOWN_MS` | `60000` | Minimum ms between `@agents find` requests by one player. |
 | `LLM_AGENT_LEVEL_MATCH` | `EXACT` | `EXACT` (requester's level) or `BAND5`. |
 | `LLM_AGENT_AUTO_PARTY` | `true` | Auto form/join a party with the summoned companion. |
-| `LLM_AGENT_COMPLEMENT_JOB` | `true` | Prefer a role that complements the requester's job. |
+| `LLM_AGENT_COMPLEMENT_JOB` | `true` | Prefer a role that complements the requester: a different class (healer first, weighted), never the requester's own job. |
 | `LLM_AGENT_ACCOUNT_PREFIX` | `agnt` | Prefix for server-owned accounts created for ephemeral companions. |
 | `LLM_AGENT_COMPANION_NAME_PREFIX` | `Agent-` | Name prefix for summonable companion characters (`Agent-<FunWord>`). |
 
@@ -557,6 +565,8 @@ busy maps
 
 | Commit | Summary |
 | --- | --- |
+| `a7a6288c7` | agent: diversify companion roles; acknowledge find/dismiss; fix dismiss world NPE |
+| `c6610fb63` | agent: complete bare LLM base URLs to the chat-completions endpoint |
 | `6c944199b` | agent: use the climb stance for vertical companion steps |
 | `911fe776c` | agent: load companion cash-outfit candidates off the request path (fixes a `find` hang) |
 | `057f3f043` | agent: normal walking pace; temporary stance capture |
@@ -695,8 +705,8 @@ companions with `@agents list|find|pause|resume|dismiss`; the full design is in
   default `agnt`) and builds the character through the normal recipe path
   (`CharacterFactoryRecipe` + `insertNewChar`). The name is `Agent-<FunWord>`
   (`LLM_AGENT_COMPANION_NAME_PREFIX`), level = requester's level, job = a role that complements
-  the requester unless one is passed (`CompanionTemplate` picks the advanced job/stats/skills/
-  gear for that level tier).
+  the requester unless one is passed — always a *different* class, healer-first weighted
+  (`CompanionTemplate` picks the advanced job/stats/skills/gear for that level tier).
 - `CompanionAppearance` gives a random hair/face/skin and a random **cash** outfit. Cash items
   are worn at `regular slot - 100` (hat -101 … weapon -111). The candidate scan is cached and
   **warmed on a background thread at startup** — never call the WZ scan inline (an earlier

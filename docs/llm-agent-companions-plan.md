@@ -113,9 +113,10 @@ One account per live companion (v83 permits a single logged-in session per accou
 ### 3.3 Template
 
 - Level = requester's level (exact) by default; `LLM_AGENT_LEVEL_MATCH` allows `BAND5`.
-- Job/role = explicit `@agents find <role>`, else auto-complement the requester's job
-  (warrior→cleric/healer, mage→warrior, archer→warrior, thief→warrior, pirate→warrior),
-  else random.
+- Job/role = explicit `@agents find <role>`, else auto-complement the requester with **any other
+  class** (never the requester's own job). A healer is offered first for everyone who cannot heal
+  (weighted 2×), a healer gets a warrior first, and the remaining classes follow. If
+  `LLM_AGENT_COMPLEMENT_JOB` is off, any role is picked at random.
 - Stats/AP/SP/skills/gear/potions/ammo come from a per-(role, level-band) recipe table. First
   iteration reuses the existing creator recipe shapes scaled to the requested level band.
 - Meso: a small fixed stipend (companions pay for potions); not player-transferable.
