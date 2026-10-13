@@ -7,17 +7,18 @@ import client.Skill;
 import client.SkillFactory;
 import client.SkinColor;
 import client.creator.CharacterFactoryRecipe;
+import client.inventory.Equip;
 import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
+import client.inventory.WeaponType;
 import constants.id.ItemId;
-import constants.skills.Magician;
-import constants.skills.Warrior;
 import net.server.Server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ItemInformationProvider;
 import tools.DatabaseConnection;
+import tools.Pair;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -26,6 +27,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -47,9 +50,6 @@ public class DbAgentProvisioner implements AgentProvisioner {
     private static final int DEFAULT_HAIR = 30000;
     private static final int DEFAULT_SKIN = 0;
     private static final int DEFAULT_GENDER = 0; // male
-
-    /** Primary stat a role assigns its level-scaled AP to. */
-    private enum PrimaryStat { STR, DEX, INT, LUK }
 
     @Override
     public ProvisionedAgent provision(int level, Job job, int mapId, int world) {
@@ -90,16 +90,17 @@ public class DbAgentProvisioner implements AgentProvisioner {
             client.setAccountName(name);
             client.setWorld(world);
 
+            final CompanionTemplate.Build build = CompanionTemplate.buildFor(job, safeLevel);
             final Character character = Character.getDefault(client);
             character.setWorld(world);
-            character.setJob(job);
+            character.setJob(build.job());
             character.setSkinColor(SkinColor.getById(DEFAULT_SKIN));
             character.setGender(DEFAULT_GENDER);
             character.setName(name);
             character.setHair(DEFAULT_HAIR);
             character.setFace(DEFAULT_FACE);
 
-            final CharacterFactoryRecipe recipe = buildRecipe(job, safeLevel, mapId);
+            final CharacterFactoryRecipe recipe = buildRecipe(build, mapId);
             equipFromRecipe(character, recipe);
 
             if (!character.insertNewChar(recipe)) {
@@ -118,8 +119,8 @@ public class DbAgentProvisioner implements AgentProvisioner {
             Server.getInstance().loadAccountCharacters(client);
 
             log.info("Provisioned companion {} (chr {}, acc {}, {} level {}) on map {} world {}",
-                    name, character.getId(), accountId, job, safeLevel, mapId, world);
-            return new ProvisionedAgent(character.getId(), accountId, name, safeLevel, job.getId());
+                    name, character.getId(), accountId, build.job(), safeLevel, mapId, world);
+            return new ProvisionedAgent(character.getId(), accountId, name, safeLevel, build.job().getId());
         } catch (Throwable t) {
             log.error("Failed to provision companion ({} level {}, map {}, world {})", job, safeLevel, mapId, world, t);
             rollbackProvision(createdCharacterId, createdAccountId, createdName, safeLevel, job);
@@ -195,215 +196,129 @@ public class DbAgentProvisioner implements AgentProvisioner {
     }
 
     // ------------------------------------------------------------------
-    // recipe templates (mirror client/creator/veteran/*Creator.java)
+    // recipe templates
     // ------------------------------------------------------------------
 
-    private static CharacterFactoryRecipe buildRecipe(Job job, int level, int mapId) {
-        final AgentRole role = AgentRole.forJob(job);
-        final int top;
-        final int bottom;
-        final int shoes;
-        final int weapon;
-        final int extraWeapon;
-        final int hpPotion;
-        final int mpPotion;
-        final int ammoItem;
-        final int ammoQty;
-        final PrimaryStat primary;
-        final int hpBase;
-        final int hpGain;
-        final int mpBase;
-        final int mpGain;
+    private static CharacterFactoryRecipe buildRecipe(CompanionTemplate.Build build, int mapId) {
+        final CharacterFactoryRecipe recipe = new CharacterFactoryRecipe(build.job(), build.level(), mapId,
+                build.top(), build.bottom(), build.shoes(), selectWeapon(build));
 
-        if (role == null) {
-            // Unknown job: a bare but playable fallback.
-            top = 0;
-            bottom = 0;
-            shoes = 0;
-            weapon = 0;
-            extraWeapon = 0;
-            hpPotion = ItemId.WHITE_POTION;
-            mpPotion = ItemId.BLUE_POTION;
-            ammoItem = 0;
-            ammoQty = 0;
-            primary = PrimaryStat.STR;
-            hpBase = 50;
-            hpGain = 20;
-            mpBase = 5;
-            mpGain = 10;
-        } else {
-            switch (role) {
-                case WARRIOR -> {
-                    top = ItemId.RED_HWARANG_SHIRT;
-                    bottom = ItemId.BLACK_MARTIAL_ARTS_PANTS;
-                    shoes = ItemId.MITHRIL_BATTLE_GRIEVES;
-                    weapon = ItemId.GLADIUS;
-                    extraWeapon = ItemId.MITHRIL_POLE_ARM;
-                    hpPotion = ItemId.WHITE_POTION;
-                    mpPotion = ItemId.BLUE_POTION;
-                    ammoItem = 0;
-                    ammoQty = 0;
-                    primary = PrimaryStat.STR;
-                    hpBase = 50;
-                    hpGain = 28;
-                    mpBase = 5;
-                    mpGain = 6;
-                }
-                case MAGICIAN, HEALER -> {
-                    top = ItemId.PURPLE_FAIRY_TOP;
-                    bottom = 0;
-                    shoes = ItemId.RED_MAGICSHOES;
-                    weapon = ItemId.MITHRIL_WAND;
-                    extraWeapon = 0;
-                    hpPotion = ItemId.ORANGE_POTION;
-                    mpPotion = ItemId.MANA_ELIXIR;
-                    ammoItem = 0;
-                    ammoQty = 0;
-                    primary = PrimaryStat.INT;
-                    hpBase = 50;
-                    hpGain = 12;
-                    mpBase = 5;
-                    mpGain = 24;
-                }
-                case BOWMAN -> {
-                    top = ItemId.GREEN_HUNTERS_ARMOR;
-                    bottom = ItemId.GREEN_HUNTERS_PANTS;
-                    shoes = ItemId.GREEN_HUNTER_BOOTS;
-                    weapon = ItemId.RYDEN;
-                    extraWeapon = 0;
-                    hpPotion = ItemId.WHITE_POTION;
-                    mpPotion = ItemId.BLUE_POTION;
-                    ammoItem = 2060000; // Bronze Arrow
-                    ammoQty = 1000;
-                    primary = PrimaryStat.DEX;
-                    hpBase = 50;
-                    hpGain = 22;
-                    mpBase = 5;
-                    mpGain = 12;
-                }
-                case THIEF -> {
-                    top = ItemId.DARK_BROWN_STEALER;
-                    bottom = ItemId.DARK_BROWN_STEALER_PANTS;
-                    shoes = ItemId.BRONZE_CHAIN_BOOTS;
-                    weapon = ItemId.STEEL_GUARDS;
-                    extraWeapon = 0;
-                    hpPotion = ItemId.WHITE_POTION;
-                    mpPotion = ItemId.BLUE_POTION;
-                    ammoItem = ItemId.SUBI_THROWING_STARS;
-                    ammoQty = 500;
-                    primary = PrimaryStat.LUK;
-                    hpBase = 50;
-                    hpGain = 22;
-                    mpBase = 5;
-                    mpGain = 12;
-                }
-                case PIRATE -> {
-                    top = ItemId.BROWN_POLLARD;
-                    bottom = 0;
-                    shoes = ItemId.BROWN_PAULIE_BOOTS;
-                    weapon = ItemId.PRIME_HANDS;
-                    extraWeapon = 0;
-                    hpPotion = ItemId.WHITE_POTION;
-                    mpPotion = ItemId.BLUE_POTION;
-                    ammoItem = ItemId.BULLET;
-                    ammoQty = 800;
-                    primary = PrimaryStat.DEX;
-                    hpBase = 50;
-                    hpGain = 26;
-                    mpBase = 5;
-                    mpGain = 14;
-                }
-                default -> throw new IllegalStateException("Unhandled role " + role);
+        recipe.setStr(build.str());
+        recipe.setDex(build.dex());
+        recipe.setInt(build.int_());
+        recipe.setLuk(build.luk());
+        recipe.setRemainingAp(build.remainingAp());
+        recipe.setRemainingSp(build.remainingSp());
+
+        for (CompanionTemplate.SkillGrant grant : build.skills()) {
+            final Skill skill = SkillFactory.getSkill(grant.skillId());
+            if (skill == null) {
+                continue;
+            }
+            final int level = Math.min(grant.level(), skill.getMaxLevel());
+            if (level > 0) {
+                recipe.addStartingSkillLevel(skill, level);
             }
         }
 
-        final CharacterFactoryRecipe recipe = new CharacterFactoryRecipe(job, level, mapId, top, bottom, shoes, weapon);
+        recipe.setMaxHp(build.maxHp());
+        recipe.setMaxMp(build.maxMp());
+        recipe.setMeso(build.meso()); // small stipend; enforced in applyMeso below
 
-        final int totalAp = 16 + Math.max(0, level - 1) * 5;
-        final int primaryValue = Math.min(totalAp - 12, Math.max(4, 4 + (level - 1)));
-        final int remainingAp = Math.max(0, totalAp - primaryValue - 12);
-        recipe.setStr(4);
-        recipe.setDex(4);
-        recipe.setInt(4);
-        recipe.setLuk(4);
-        switch (primary) {
-            case STR -> recipe.setStr(primaryValue);
-            case DEX -> recipe.setDex(primaryValue);
-            case INT -> recipe.setInt(primaryValue);
-            case LUK -> recipe.setLuk(primaryValue);
-        }
-        recipe.setRemainingAp(remainingAp);
-
-        final int baseSp = level >= 10 ? (level - 9) * 3 : 0;
-        recipe.setRemainingSp(baseSp);
-
-        int usedSp = addEntrySkills(recipe, job, baseSp, level);
-        recipe.setRemainingSp(Math.max(0, baseSp - usedSp));
-
-        recipe.setMaxHp(hpBase + hpGain * Math.max(0, level - 1));
-        recipe.setMaxMp(mpBase + mpGain * Math.max(0, level - 1));
-
-        recipe.setMeso(5000 + level * 500); // small stipend; enforced in applyMeso below
-
-        if (extraWeapon > 0) {
-            final Item extra = ItemInformationProvider.getInstance().getEquipById(extraWeapon);
+        if (build.extraWeapon() > 0) {
+            final Item extra = ItemInformationProvider.getInstance().getEquipById(build.extraWeapon());
             if (extra != null) {
                 recipe.addStartingEquipment(extra);
             }
         }
-        recipe.addStartingItem(hpPotion, 100, InventoryType.USE);
-        recipe.addStartingItem(mpPotion, 100, InventoryType.USE);
+        recipe.addStartingItem(build.hpPotion(), 100, InventoryType.USE);
+        recipe.addStartingItem(build.mpPotion(), 100, InventoryType.USE);
         recipe.addStartingItem(ItemId.RELAXER, 1, InventoryType.SETUP);
-        if (ammoItem > 0 && ammoQty > 0) {
-            recipe.addStartingItem(ammoItem, ammoQty, InventoryType.USE);
+        if (build.ammoItem() > 0 && build.ammoQty() > 0) {
+            recipe.addStartingItem(build.ammoItem(), build.ammoQty(), InventoryType.USE);
         }
         return recipe;
     }
 
     /**
-     * Adds the job's first-job entry skills, mirroring the veteran creators (which only grant the
-     * improved HP/MP passives). {@code Heal} is granted to the healer role so it can actually heal.
-     *
-     * @return the number of SP consumed
+     * Picks the highest-requirement weapon from {@link ItemInformationProvider} whose weapon type,
+     * job and stat requirements the build satisfies (tie-break: highest attack). Falls back to the
+     * role's fixed weapon when the WZ data is unavailable or nothing matches.
      */
-    private static int addEntrySkills(CharacterFactoryRecipe recipe, Job job, int availableSp, int level) {
-        if (level < 10 || availableSp <= 0) {
-            return 0;
+    static int selectWeapon(CompanionTemplate.Build build) {
+        final int fallback = build.weapon();
+        if (build.role() == null) {
+            return fallback;
         }
-        final AgentRole role = AgentRole.forJob(job);
-        if (role == null) {
-            return 0;
+        final Set<WeaponType> allowed = CompanionTemplate.roleWeaponTypes(build.role());
+        final int jobMask = CompanionTemplate.jobMask(build.role());
+        final ItemInformationProvider ii;
+        final List<Pair<Integer, String>> items;
+        try {
+            ii = ItemInformationProvider.getInstance();
+            items = ii.getAllItems();
+        } catch (Throwable t) {
+            log.debug("WZ item data unavailable for companion weapon; using fallback {}", fallback, t);
+            return fallback;
         }
-        int used = 0;
-        switch (role) {
-            case WARRIOR -> {
-                used += addSkill(recipe, Warrior.IMPROVED_HPREC, 5, availableSp - used);
-                used += addSkill(recipe, Warrior.IMPROVED_MAXHP, 5, availableSp - used);
-            }
-            case MAGICIAN, HEALER -> {
-                used += addSkill(recipe, Magician.IMPROVED_MP_RECOVERY, 5, availableSp - used);
-                used += addSkill(recipe, Magician.IMPROVED_MAX_MP_INCREASE, 5, availableSp - used);
-                if (role == AgentRole.HEALER) {
-                    used += addSkill(recipe, constants.skills.Cleric.HEAL, 5, availableSp - used);
+        int bestId = fallback;
+        int bestLevel = -1;
+        int bestAtk = -1;
+        for (Pair<Integer, String> entry : items) {
+            try {
+                final int itemId = entry.getLeft();
+                if (itemId / 1000000 != 1) {
+                    continue; // not an equip
                 }
-            }
-            default -> {
+                if (!allowed.contains(ii.getWeaponType(itemId))) {
+                    continue;
+                }
+                final Integer reqLevel = ii.getEquipLevelReq(itemId);
+                if (reqLevel == null || reqLevel > build.level()) {
+                    continue;
+                }
+                final Map<String, Integer> stats = ii.getEquipStats(itemId);
+                if (stats == null || isCash(stats) || !jobAllowed(stats, jobMask) || !statsAllowed(stats, build)) {
+                    continue;
+                }
+                final Item item = ii.getEquipById(itemId);
+                if (!(item instanceof Equip equip)) {
+                    continue;
+                }
+                final int atk = equip.getWatk() + equip.getMatk();
+                if (reqLevel > bestLevel || (reqLevel == bestLevel && atk > bestAtk)) {
+                    bestLevel = reqLevel;
+                    bestAtk = atk;
+                    bestId = itemId;
+                }
+            } catch (Throwable t) {
+                log.trace("Skipping companion weapon candidate {}", entry.getLeft(), t);
             }
         }
-        return used;
+        return bestId;
     }
 
-    private static int addSkill(CharacterFactoryRecipe recipe, int skillId, int levels, int availableSp) {
-        if (levels <= 0 || availableSp <= 0) {
-            return 0;
-        }
-        final Skill skill = SkillFactory.getSkill(skillId);
-        if (skill == null) {
-            return 0;
-        }
-        final int toAdd = Math.min(levels, availableSp);
-        recipe.addStartingSkillLevel(skill, toAdd);
-        return toAdd;
+    private static boolean isCash(Map<String, Integer> stats) {
+        final Integer cash = stats.get("cash");
+        return cash != null && cash == 1;
+    }
+
+    private static boolean jobAllowed(Map<String, Integer> stats, int jobMask) {
+        final Integer reqJob = stats.get("reqJob");
+        return reqJob == null || reqJob == 0 || (reqJob & jobMask) != 0;
+    }
+
+    private static boolean statsAllowed(Map<String, Integer> stats, CompanionTemplate.Build build) {
+        return req(stats, "reqSTR") <= build.str()
+                && req(stats, "reqDEX") <= build.dex()
+                && req(stats, "reqINT") <= build.int_()
+                && req(stats, "reqLUK") <= build.luk()
+                && req(stats, "reqPOP") <= 0; // companions have no fame
+    }
+
+    private static int req(Map<String, Integer> stats, String key) {
+        final Integer value = stats.get(key);
+        return value == null ? 0 : value;
     }
 
     /** Equips the recipe's top/bottom/shoes/weapon exactly as {@code CharacterFactory} does. */
