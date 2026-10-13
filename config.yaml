@@ -462,7 +462,7 @@ server:
       9001105: Rescue Gaga!  # Grandpa moon bunny
 
     #LLM Agent Players Configuration (all default off)
-    USE_LLM_AGENTS: false               #Master switch for in-process LLM agent players.
+    USE_LLM_AGENTS: true                #Master switch for in-process LLM agent players.
     LLM_AGENTS_MAX: 4                   #Max simultaneously active agents.
     LLM_AGENT_TICK_MS: 2000             #Heartbeat interval per agent, in milliseconds.
     LLM_AGENT_PERCEPTION: "BOUNDED"     #BOUNDED (fair-ish, view range) | OMNISCIENT (dev only)
@@ -478,24 +478,24 @@ server:
     LLM_AGENT_MAX_ACTIONS_PER_SEC: 4     #Per-agent action rate limit (chat/move/etc per second).
     LLM_AGENT_REQUIRE_PREFIX: false     #When true, refuse to spawn agent characters whose name lacks LLM_AGENT_NAME_PREFIX.
     LLM_AGENT_FOLLOW: true              #Allow agents to follow their party leader.
-    LLM_AGENT_AUTO_SUSTAIN: false       #Use HP/MP potions automatically when low.
-    LLM_AGENT_AUTO_COMBAT: false        #Attack the nearest monster automatically.
+    LLM_AGENT_AUTO_SUSTAIN: true        #Use HP/MP potions automatically when low.
+    LLM_AGENT_AUTO_COMBAT: true         #Attack the nearest monster automatically.
     LLM_AGENT_HP_POTION_PERCENT: 50     #Auto-use an HP potion below this HP percentage.
     LLM_AGENT_MP_POTION_PERCENT: 30     #Auto-use an MP potion below this MP percentage.
     LLM_AGENT_ATTACK_RANGE_SQ: 150000.0 #Squared attack range for auto-combat (~387px).
-    LLM_AGENT_AUTO_BUFF: false          #Auto-cast configured buff skills when they lapse.
+    LLM_AGENT_AUTO_BUFF: true           #Auto-cast configured buff skills when they lapse.
     LLM_AGENT_AUTO_BUFF_SKILLS: ""      #Comma-separated skill ids to keep active (e.g. "1001003,2001002").
     LLM_AGENT_ATTACK_SKILL: 0           #Attack skill id used for auto/LLM attacks (0 = basic attack).
-    LLM_AGENT_AUTO_HEAL: false          #Auto-cast a heal skill when the agent or a nearby party member is low.
+    LLM_AGENT_AUTO_HEAL: true           #Auto-cast a heal skill when the agent or a nearby party member is low.
     LLM_AGENT_AUTO_HEAL_SKILL: 0        #Heal skill id to auto-cast (0 = auto-detect the first learned heal skill).
     LLM_AGENT_HEAL_PERCENT: 90          #Auto-heal when HP is below this percentage.
-    LLM_AGENT_AUTO_LOOT: false          #Auto-pick up nearby drops the agent owns (or free drops) after combat.
+    LLM_AGENT_AUTO_LOOT: true           #Auto-pick up nearby drops the agent owns (or free drops) after combat.
     LLM_AGENT_AOE_ATTACK: false         #Allow a multi-target skill attack to hit several nearby monsters at once.
     LLM_AGENT_AOE_MAX_TARGETS: 6        #Upper bound on monsters hit by one multi-target attack.
     LLM_AGENT_FOLLOW_WARP: false        #Warp the agent to its follow target's map when they leave the current map.
     LLM_AGENT_AUTO_RECHARGE: false      #Allow ranged agents to recharge ammo (meso cost) at a nearby shop NPC.
     LLM_AGENT_RECHARGE_RANGE_SQ: 150000.0 #Squared distance within which an NPC can act as a recharge shop (~387px).
-    LLM_AGENT_AUTO_FLEE: false          #Retreat from monsters when HP drops below LLM_AGENT_FLEE_PERCENT.
+    LLM_AGENT_AUTO_FLEE: true           #Retreat from monsters when HP drops below LLM_AGENT_FLEE_PERCENT.
     LLM_AGENT_FLEE_PERCENT: 25          #Flee when HP is below this percentage (only with LLM_AGENT_AUTO_FLEE).
     LLM_AGENT_FOLLOW_CHANNEL: false     #Follow the party leader across channels (re-logs the agent on the target channel).
     LLM_AGENT_PROACTIVE: false          #Master switch for proactive (non-reactive) agent behavior.
