@@ -47,8 +47,10 @@ Delivered:
   (`LLM_AGENT_FOLLOW_WARP`).
 - [x] M3 (substantially): monster/item/NPC perception, clamped synthetic movement, item
   pickup, potion self-sustain, respawn, buff-skill casting, melee/magic/ranged basic +
-  skill attacks (auto modes behind config), heal-skill casting, auto-looting kills and
-  multi-target skill attacks.
+  skill attacks (auto modes behind config), heal-skill casting, auto-looting kills,
+  multi-target skill attacks (incl. the LLM `attack_many` tool), multi-line skill attacks
+  (`max(bulletCount, attackCount)` damage lines), and ammo perception + shop recharge for
+  throwing stars/bullets.
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
   spawn off the Netty event loop; content filter defaults on; clamped movement;
@@ -61,9 +63,10 @@ Delivered:
 
 Not yet implemented (M2 remainder + M3 remainder):
 
-- [ ] Combat depth: ammo recharge, local cooldown tracking, MP/HP-cost timing on the skill
-  path, Hurricane/Rapid Fire after-delay semantics, monster facing, flee/aggro management,
-  cast animation, multi-line attacks (multi-target is done).
+- [ ] Combat depth: arrow purchase for bow/crossbow (arrows are not rechargeable), local
+  cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
+  semantics, monster facing, flee/aggro management, cast animation (multi-target, multi-line,
+  heal and star/bullet recharge are done).
 - [ ] Real pathing (portals/footholds); movement is a clamped straight-line step. Cross-map
   follow warps directly (party-warp style) rather than walking to a portal.
 - [ ] Channel-follow (cross-channel party follow needs a channel transfer).

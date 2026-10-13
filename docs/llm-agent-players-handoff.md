@@ -14,12 +14,15 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** tip of `feature/llm-agent-players` (latest: cross-map follow; previous: `ac779b70a`)
+- **HEAD:** tip of `feature/llm-agent-players` (latest: combat depth 3 — multi-line/LLM
+  multi-target attacks + ammo perception/recharge; previous: cross-map follow)
 - **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow incl.
-  cross-map warp, loot, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks,
-  buff casting, heal-skill casting, auto-looting kills, multi-target skill attacks).
-  Remaining: ammo recharge, multi-line attacks, foothold pathing, channel-follow, M4 proactive
-  behavior.
+  cross-map warp, loot, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks
+  with **multi-line** damage, buff casting, heal-skill casting, auto-looting kills,
+  multi-target skill attacks incl. an LLM `attack_many` tool, and ammo perception + shop
+  recharge).
+  Remaining: arrow purchase (bow/crossbow), local cooldown tracking, foothold pathing,
+  channel-follow, M4 proactive behavior.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
 - **Build:** `mvn -q clean test` (green: 85 agent tests across 23 classes + existing suite).
 
@@ -115,7 +118,7 @@ arrive via lightweight hooks (see §5).
 | `AgentManager` | Singleton: start/stop, spawn/despawn, event routing hooks, party-search + follow control, ticker + brain pool. |
 | `AgentSession` | One agent: inbox, decide cycle, action execution, follow, rate limit. |
 | `AgentClient` | `Client` subclass with no socket; overrides `writePacket`. |
-| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `UseItem`, `Respawn`, `Attack`, `SkillAttack`, `CastBuff`, `CastHeal`, `Remember`, `Idle`). |
+| `AgentAction` | Sealed interface of actions (`Say`, `PartySay`, `Whisper`, `InviteToParty`, `Accept/DenyPartyInvite`, `LeaveParty`, `MoveTo`, `PickupItem`, `UseItem`, `Respawn`, `Attack`, `SkillAttack`, `SkillAttackMany`, `RechargeAmmo`, `CastBuff`, `CastHeal`, `Remember`, `Idle`). |
 | `AgentActionDispatcher` | Maps actions → synthetic inbound packets; content filter; audit log; rate-limit gate. |
 | `AgentEvent` | Sealed interface of perceived events (`MapChat`, `PartyChat`, `Whisper`, `PartyInvite`, `PartyUpdate`, `MapChanged`, `Tick`, `Instruction`). |
 | `AgentBrain` | Decision interface: `List<AgentAction> decide(observation, events, memory)`. |
@@ -126,7 +129,7 @@ arrive via lightweight hooks (see §5).
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
 | `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo`/`warpTo` for cross-map follow. |
-| `AgentCombat` | Potion self-sustain, respawn, auto-looting, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target). |
+| `AgentCombat` | Potion self-sustain, respawn, auto-looting, ammo perception/recharge, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target + multi-line). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
@@ -158,6 +161,9 @@ arrive via lightweight hooks (see §5).
   `ConcurrentHashMap` and `updateOnlineClient` no longer disconnects the client it just stored.
 - `server/StatEffect.java` — `hasDamage()` (whether WZ carried a `damage` node) so agents do
   not treat utility skills as attacks.
+- `client/inventory/Inventory.java` — added `listCopy()`, a lock-protected inventory snapshot
+  so perception can read the USE inventory off the brain thread without racing the action
+  executor.
 - `config/ServerConfig.java` + `config.yaml` — agent config keys.
 - `pom.xml` — `jackson-databind:2.17.2`.
 
@@ -212,7 +218,9 @@ arrive via lightweight hooks (see §5).
 15. **Attack packets are byte-exact** against `AbstractDealDamageHandler#parseDamage`; the
     charge-skill list, the hurricane extra block, and the Poison Bomb tail are mirrored.
     Multi-target builders repeat the per-target block and pack the count into the high nibble
-    of `numAttackedAndDamage`. There are layout tests — keep parity when adding packets.
+    of `numAttackedAndDamage`. Skill damage lines are `clamp(max(bulletCount, attackCount), 1..8)`
+    — the same bound as the server's own "too many lines" guard — and repeated as that many
+    identical damage ints per target. There are layout tests — keep parity when adding packets.
 16. **Agents must not stay in the "changing maps" state.** `Character.mapTransitioning`
     defaults to `true` and is only cleared by the client's `PLAYER_MAP_TRANSFER` packet, which
     an agent never sends. `AgentManager.spawn` and `AgentMovement.warpTo` call
@@ -224,6 +232,12 @@ arrive via lightweight hooks (see §5).
     It uses the spawn-point `changeMap(int)` overload; there is a 4 s cooldown in `AgentSession`.
     This is trusted party-warp semantics (like `warpParty`) and deliberately skips portal/
     level/quest gating.
+18. **Ammo recharge goes through the real shop.** `AgentCombat.rechargeAmmo` finds a shop NPC
+    in `LLM_AGENT_RECHARGE_RANGE_SQ` and calls `Shop#recharge`, so the agent pays mesos exactly
+    like a player. Only `ItemConstants.isRechargeable` items (throwing stars, bullets) are
+    refilled — arrows are bought, not recharged, so bow/crossbow agents still run dry
+    (documented remainder). The passive per-tick recharge is gated by `LLM_AGENT_AUTO_RECHARGE`;
+    the explicit LLM `recharge_ammo` tool is always allowed (still pays mesos).
 
 ---
 
@@ -296,6 +310,8 @@ It already runs off the Netty loop.
 | `LLM_AGENT_AOE_ATTACK` | `false` | Allow a multi-target skill attack to hit several monsters. |
 | `LLM_AGENT_AOE_MAX_TARGETS` | `6` | Upper bound on monsters hit by one AOE attack. |
 | `LLM_AGENT_FOLLOW_WARP` | `false` | Warp the agent to its follow target's map when they leave the current map. |
+| `LLM_AGENT_AUTO_RECHARGE` | `false` | Each behaviour tick, recharge rechargeable ammo (stars/bullets) at a shop NPC for mesos. |
+| `LLM_AGENT_RECHARGE_RANGE_SQ` | `150000.0` | Squared distance within which an NPC can act as a recharge shop (~387px). |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -335,14 +351,17 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
   self-sustain, respawn, basic melee attacks, buff-skill casting, heal-skill casting,
   melee/magic damaging skill attacks, ranged attacks (bow/crossbow/gun/claw + ammo gating),
-  multi-target skill attacks, and auto-looting kills.
+  multi-target skill attacks, multi-line skill attacks (damage lines = `max(bulletCount,
+  attackCount)`), auto-looting kills, ammo perception (`rangedWeapon`/`ammoCount`/`outOfAmmo`),
+  shop recharge for stars/bullets, and an LLM `attack_many` multi-target tool.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Combat depth:** ammo recharge action, local cooldown tracking, multi-line attacks,
-  MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay semantics, monster
-  facing, flee/aggro management, cast animation. (Multi-target and heal are now implemented.)
+- **Combat depth:** arrow purchase for bow/crossbow (arrows are not rechargeable in v83),
+  local cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
+  semantics, monster facing, flee/aggro management, cast animation. (Multi-target, multi-line,
+  heal and star/bullet recharge are now implemented.)
 - **Pathing:** only clamped straight-line steps; no footholds/portals. Cross-map follow warps
   directly to the leader's map (`LLM_AGENT_FOLLOW_WARP`) instead of walking through a portal.
 - **Channel-follow:** cross-channel follow needs a channel transfer and is not supported.
@@ -381,6 +400,13 @@ HIGH/MEDIUM findings were addressed:
   agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
   the warp unreachable and would also have broken it after the first warp — now cleared at spawn
   and after each warp; also switched to the spawn-point overload to avoid a portal-0 NPE.
+- **Combat depth 3** (multi-line + LLM multi-target + ammo): two verifier passes. Fixed
+  `damageLines` to mirror the server's `max(bulletCount, attackCount)` guard (was `attackCount`,
+  which under-sent Triple Throw/Strafe/Burst Fire by 2–4×); replaced the free `getSlotMax` refill
+  with the real `Shop#recharge` meso path (and only `isRechargeable` stars/bullets); bounded the
+  LLM target list (defensive-copy + cap at 15, `intArray` cap); made `outOfAmmo` use the largest
+  required ammo among learned attack skills; honoured Shadow Claw alongside Soul Arrow; and added
+  `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
 Known low-risk remainder: `/agent search` enabling party-search auto-invites (documented),
 `/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry),
@@ -394,6 +420,7 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `45dd0e2d2` | multi-line + LLM multi-target attacks, ammo perception/recharge |
 | `2fb00ad3c` | cross-map follow (warp-with-party) |
 | `ac779b70a` | heal casting, auto-loot, multi-target attacks + review fixes |
 | `8f0a6b9e5` | ranged-attack review fixes + ranged tests |
