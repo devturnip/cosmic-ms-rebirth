@@ -74,7 +74,9 @@ Not yet implemented (hardening / fidelity remainder):
   alignment before drops), not a full foothold/rope pathfinder; portal travel is used for
   cross-map follow, with party-warp fallback.
 - [ ] Hurricane/Rapid Fire after-delay timing and cast animation/stance fidelity (minor).
-- [ ] Per-player opt-out beyond the AI notice / GM `/agent mute`.
+- [x] Player-facing opt-out: `/agentoptout` (self) and GM `/agent optout <player>` suppress
+  agent greetings, party-search invites, whispers, party invites, party chat and follow;
+  persisted in the `agent_optout` table (`database/sql/migration/v0.16.0.sql`).
 
 ---
 

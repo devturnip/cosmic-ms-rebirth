@@ -40,7 +40,8 @@ mvn -q -Dtest='net.server.agent.*Test' test
 
 Running the server (see `README.md` for full setup):
 1. MySQL 8 + run `database/sql/1..4` then **`database/sql/migration/v0.15.0.sql`**
-   (creates `agent_memory`; agents still work without it, memory persistence just logs errors).
+   (`agent_memory`) and **`database/sql/migration/v0.16.0.sql`** (`agent_optout`). Agents still
+   work without them; memory/opt-out persistence just logs warnings.
 2. Set `DB_PASS` (and optionally LLM keys) in `config.yaml`.
 3. `net.server.Server#main` (or `docker compose up --build`).
 
@@ -135,6 +136,7 @@ arrive via lightweight hooks (see §5).
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
+| `AgentOptoutStore` | JDBC persistence for player opt-out (`agent_optout` table); loaded into `AgentManager` at start. |
 | `AgentPersona` | Persona record + JSON loader. |
 | `AgentPersonaStore` | Cached JSON/YAML persona file loading (case-insensitive lookup). |
 | `AgentConfig` | Typed access to `config.yaml` with safe defaults. |
@@ -144,6 +146,8 @@ arrive via lightweight hooks (see §5).
   `PlayerLoggedinHandler`; used by both real logins and agent spawn (behavior-preserving).
 - `src/main/java/client/command/commands/gm5/AgentCommand.java` — `/agent ...`.
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
+- `database/sql/migration/v0.16.0.sql` — `agent_optout` table.
+- `src/main/java/client/command/commands/gm0/AgentOptoutCommand.java` — player `/agentoptout`.
 - `src/test/java/net/server/agent/*` — 23 test classes (85 tests).
 - `docs/llm-agent-players-plan.md`, this file.
 
@@ -379,6 +383,17 @@ CREATE TABLE IF NOT EXISTS `agent_memory` (
 ```
 Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws on DB errors.
 
+`database/sql/migration/v0.16.0.sql`:
+```sql
+CREATE TABLE IF NOT EXISTS `agent_optout` (
+  `characterid` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`characterid`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+```
+`AgentOptoutStore` loads the whole set into `AgentManager` at start and toggles rows on
+`/agentoptout`; failures are logged, never thrown.
+
 ---
 
 ## 8. What's done vs. not
@@ -400,27 +415,20 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
   facing, local skill cooldowns + HP/MP-cost gating, auto-flee, ammo perception
   (`rangedWeapon`/`ammoCount`/`outOfAmmo`) and shop resupply (recharge stars/bullets, buy
   arrows), plus LLM `follow`/`stop_following` movement tools.
+- Player-facing opt-out: `/agentoptout` (rank 0) and GM `/agent optout <player>` suppress
+  agent greetings, party-search invites, whispers, party invites, party chat and follow;
+  persisted in `agent_optout` and loaded at start.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
-- **Pathing depth:** movement is clamped waypoint stepping, not a full foothold/rope
-  pathfinder (agents can walk through platforms rather than jumping roped routes); patrol
-  randomizes X only.
-- **Combat fidelity:** Hurricane/Rapid Fire after-delay timing, cast-animation stance.
-- **Player-facing opt-out** beyond the AI notice / GM `/agent mute` (no per-player ignore).
-- **Combat depth:** arrow purchase for bow/crossbow (arrows are not rechargeable in v83),
-  local cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
-  semantics, monster facing, flee/aggro management, cast animation. (Multi-target, multi-line,
-  heal and star/bullet recharge are now implemented.)
-- **Pathing:** only clamped straight-line steps; no footholds/portals. Cross-map follow warps
-  directly to the leader's map (`LLM_AGENT_FOLLOW_WARP`) instead of walking through a portal.
-- **Channel-follow:** cross-channel follow needs a channel transfer and is not supported.
-- **LLM movement policy** beyond `move_to`/follow; multi-target attacks have no LLM tool yet.
-- **M4:** proactive social behavior is deferred; note `/agent search` already triggers
-  `PartySearchCoordinator` auto-invites (a form of matchmaking) — keep that in mind if you
-  want strictly-reactive semantics.
-- **Player-facing opt-out / bot notice** beyond the name prefix.
+- **Pathing depth:** movement is clamped waypoint stepping (per-axis clamped, horizontal
+  alignment before drops) with portal travel for cross-map follow; it is not a full
+  foothold/rope pathfinder (no rope/ladder model exists server-side); patrol randomizes X only.
+- **Combat fidelity:** Hurricane/Rapid Fire after-delay timing and cast-animation stance.
+- **Persistence guidance:** the two agent migrations are manual (like other repo migrations);
+  without them, memory/opt-out changes simply do not survive a restart.
+
 
 ---
 
@@ -451,6 +459,12 @@ HIGH/MEDIUM findings were addressed:
   agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
   the warp unreachable and would also have broken it after the first warp — now cleared at spawn
   and after each warp; also switched to the spawn-point overload to avoid a portal-0 NPE.
+- **Player opt-out**: two verifier passes. Fixed: party chat (both directions) and follow were
+  un-gated bypasses (party chat now checks the speaker and drops party-say when a member has
+  opted out; follow resolves and refuses opted-out targets, including auto-follow); the
+  `/agentoptout` command no longer does JDBC on the Netty loop (offloaded to `ThreadManager`);
+  `AgentOptoutStore` catches `Exception` (not `Throwable`) and uses `ON DUPLICATE KEY UPDATE`;
+  and the greet test was a false positive (it never stubbed `isGreetDue`).
 - **M4** (proactive matchmaking, personas, memory compaction, cost controls, notice, mute):
   three verifier passes. Fixed: `greet` marked every candidate as greeted (now selects read-only
   and marks only the successfully-greeted player); `matchmake` registered agents that were
@@ -490,6 +504,7 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `9a1067173` | player-facing opt-out from AI-agent interaction |
 | `4cb347332` | M4: proactive matchmaking, personas, cost controls, moderation |
 | `fb6f7d246` | finish M3: combat depth, pathing/portal follow, channel-follow, LLM follow |
 | `45dd0e2d2` | multi-line + LLM multi-target attacks, ammo perception/recharge |
