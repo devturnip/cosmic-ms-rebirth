@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -24,6 +25,7 @@ class AgentManagerCompanionLifecycleTest {
     private final List<AgentSession> injected = new ArrayList<>();
     private AgentProvisioner originalProvisioner;
     private Boolean originalMemoryPersist;
+    private Boolean originalUseAgents;
 
     @AfterEach
     void cleanup() throws Exception {
@@ -34,6 +36,9 @@ class AgentManagerCompanionLifecycleTest {
         }
         if (originalMemoryPersist != null) {
             YamlConfig.config.server.LLM_AGENT_MEMORY_PERSIST = originalMemoryPersist;
+        }
+        if (originalUseAgents != null) {
+            YamlConfig.config.server.USE_LLM_AGENTS = originalUseAgents;
         }
     }
 
@@ -92,6 +97,22 @@ class AgentManagerCompanionLifecycleTest {
 
         assertTrue(manager.despawn(9002));
         assertTrue(fake.destroyed.isEmpty(), "persistent GM agents are never deleted by despawn");
+    }
+
+    @Test
+    void spawnRefusesWhileStopping() throws Exception {
+        originalUseAgents = YamlConfig.config.server.USE_LLM_AGENTS;
+        YamlConfig.config.server.USE_LLM_AGENTS = true;
+        Field stopping = AgentManager.class.getDeclaredField("stopping");
+        stopping.setAccessible(true);
+        boolean original = stopping.getBoolean(manager);
+        stopping.setBoolean(manager, true);
+        try {
+            // Refused before any DB lookup, so a concurrent spawn cannot restart the ticker mid-stop.
+            assertNull(manager.spawn("[AI]Nobody", 0, 1, new ScriptedAgentBrain("test")));
+        } finally {
+            stopping.setBoolean(manager, original);
+        }
     }
 
     private static final class FakeProvisioner implements AgentProvisioner {
