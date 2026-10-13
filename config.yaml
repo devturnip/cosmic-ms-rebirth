@@ -511,7 +511,7 @@ server:
     LLM_AGENT_NOTICE: false             #Broadcast a map notice that an agent is AI-controlled when it spawns.
 
     #Player-facing companions (ephemeral, on-demand). Requires USE_LLM_AGENTS.
-    LLM_AGENT_PLAYER_SPAWN: false       #Allow rank-0 players to summon a companion with /agents find.
+    LLM_AGENT_PLAYER_SPAWN: true        #Allow rank-0 players to summon a companion with /agents find.
     LLM_AGENT_MAX_PER_PLAYER: 1         #Max simultaneous companions summoned by one player.
     LLM_AGENT_REQUEST_COOLDOWN_MS: 60000 #Minimum ms between /agents find requests by one player.
     LLM_AGENT_LEVEL_MATCH: "EXACT"      #EXACT (requester's level) or BAND5 (within 5 levels).
