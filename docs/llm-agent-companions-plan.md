@@ -226,8 +226,10 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   break objective logic even though they can fill slots.
 - **Persistent vs ephemeral toggle for GM spawns** — `/agent spawn` keeps the persistent
   character path; a future `/agent spawn --ephemeral` could unify both.
-- **Recipe breadth** — first iteration scales existing per-job recipes; 4th-job skill builds
-  per level band may need a dedicated template file.
+- **Recipe breadth** — **done.** `CompanionTemplate` builds a level-appropriate character:
+  job advancement by tier (10/30/70/120), all AP spent, HP/MP per role, real skill builds per
+  job tier (WZ-resolved, capped to `Skill#getMaxLevel()`, with a usable attack skill at every
+  tier), and a data-driven level-appropriate weapon. Verified by a WZ-backed test.
 - **Name prefix vs `canCreateChar`** — resolved by validating the base name and prepending the
   prefix server-side; revisit if the DB name column is ever widened.
 - **`characters.name` has no UNIQUE index** — concurrent provisions rely on a
@@ -269,3 +271,11 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   companions run on, so the improvements apply to them automatically. A pre-existing
   order-dependent `MobSkillFactoryTest` assertion was made provider-independent (the factory's WZ
   provider is a JVM-wide static, so the test must not assume the temp test WZ won the race).
+- **Companion templates** (`CompanionTemplate`): one verifier pass resolved every grant against
+  the real WZ and found HIGH defects — `constants/skills/Warrior`/`Rogue` had stale first-job ids
+  that resolved to `null`, leaving warriors with no attack skill and wasted SP. Fixed by correcting
+  the constants (WZ-verified) and capping grants to `Skill#getMaxLevel()` with reconciled
+  `remainingSp`; also fixed the healer tier progression (MAGICIAN→CLERIC→PRIEST→BISHOP), the
+  thief dagger-vs-claw tiering, and the pirate fallback weapon. A WZ-backed test
+  (`CompanionTemplateWzTest`) now rejects null/over-max grants and requires a usable attack skill
+  per role × tier.
