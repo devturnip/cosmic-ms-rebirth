@@ -14,17 +14,16 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** tip of `feature/llm-agent-players` (latest: combat depth 3 — multi-line/LLM
-  multi-target attacks + ammo perception/recharge; previous: cross-map follow)
-- **Status:** M0, M1, M2 done; M3 substantially done (perception, movement, follow incl.
-  cross-map warp, loot, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks
-  with **multi-line** damage, buff casting, heal-skill casting, auto-looting kills,
-  multi-target skill attacks incl. an LLM `attack_many` tool, and ammo perception + shop
-  recharge).
-  Remaining: arrow purchase (bow/crossbow), local cooldown tracking, foothold pathing,
-  channel-follow, M4 proactive behavior.
+- **HEAD:** tip of `feature/llm-agent-players` (latest: M3 finished — combat depth, movement
+  pathing/portal-follow, channel-follow and LLM follow tools; previous: combat depth 3)
+- **Status:** M0–M3 done. Combat: melee/magic/ranged basic + skill attacks with multi-line
+  damage, multi-target (incl. LLM `attack_many`), buffs, heal, potions, respawn, looting,
+  facing, local skill cooldowns, HP/MP-cost gating, flee, and ammo resupply (shop recharge for
+  stars/bullets, purchase for arrows). Movement: clamped per-axis stepping, portal-based
+  cross-map follow with warp fallback, and opt-in cross-channel follow. Only **M4** (proactive
+  behavior) and a few hardening items remain.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 85 agent tests across 23 classes + existing suite).
+- **Build:** `mvn -q clean test` (green: 128 agent tests across 31 classes + existing suite).
 
 ---
 
@@ -232,12 +231,25 @@ arrive via lightweight hooks (see §5).
     It uses the spawn-point `changeMap(int)` overload; there is a 4 s cooldown in `AgentSession`.
     This is trusted party-warp semantics (like `warpParty`) and deliberately skips portal/
     level/quest gating.
-18. **Ammo recharge goes through the real shop.** `AgentCombat.rechargeAmmo` finds a shop NPC
-    in `LLM_AGENT_RECHARGE_RANGE_SQ` and calls `Shop#recharge`, so the agent pays mesos exactly
-    like a player. Only `ItemConstants.isRechargeable` items (throwing stars, bullets) are
-    refilled — arrows are bought, not recharged, so bow/crossbow agents still run dry
-    (documented remainder). The passive per-tick recharge is gated by `LLM_AGENT_AUTO_RECHARGE`;
-    the explicit LLM `recharge_ammo` tool is always allowed (still pays mesos).
+18. **Ammo resupply goes through the real shop.** `AgentCombat.rechargeAmmo` finds a shop NPC
+    in `LLM_AGENT_RECHARGE_RANGE_SQ`, calls `Shop#recharge` for `ItemConstants.isRechargeable`
+    items (throwing stars, bullets) and `Shop#buy` for arrows (which are not rechargeable in
+    v83). Both pay mesos exactly like a player. The passive per-tick resupply is gated by
+    `LLM_AGENT_AUTO_RECHARGE`; the explicit LLM `recharge_ammo` tool is always allowed.
+19. **Movement is clamped per axis** (`AgentMovement.moveTo`), so a hallucinated destination can
+    never teleport. `moveToSmart` aligns horizontally before crossing platforms. Cross-map
+    follow first tries to walk to an **open, non-scripted** portal leading to the target map
+    (`findPortalTo` skips closed/script portals) and enters it with the same event/trade/cash
+    guards as `canWarpTo`; after `PORTAL_ATTEMPT_LIMIT` failed ticks it falls back to the
+    `LLM_AGENT_FOLLOW_WARP` party-warp. Any new self-transfer must call
+    `setMapTransitionComplete()`.
+20. **Channel-follow re-logs the agent** via `AgentManager.transferChannel` (synchronized:
+    capture state → synchronous `despawn` → `spawn` on the target channel). A failed re-spawn
+    rolls back to the original channel; transfers are throttled per character and refused for
+    null/mid-transition players. `AgentSession.behaviorStep` aborts after `followStep` if the
+    session was despawned mid-step.
+21. **Local skill cooldowns** (`AgentSession.isSkillReady`/`markSkillUsed`) mirror the WZ
+    `cooldown`; cooldowns are only marked when `dispatchInbound` actually ran a handler.
 
 ---
 
@@ -312,6 +324,9 @@ It already runs off the Netty loop.
 | `LLM_AGENT_FOLLOW_WARP` | `false` | Warp the agent to its follow target's map when they leave the current map. |
 | `LLM_AGENT_AUTO_RECHARGE` | `false` | Each behaviour tick, recharge rechargeable ammo (stars/bullets) at a shop NPC for mesos. |
 | `LLM_AGENT_RECHARGE_RANGE_SQ` | `150000.0` | Squared distance within which an NPC can act as a recharge shop (~387px). |
+| `LLM_AGENT_AUTO_FLEE` | `false` | Retreat from monsters when HP drops below `LLM_AGENT_FLEE_PERCENT`. |
+| `LLM_AGENT_FLEE_PERCENT` | `25` | HP % below which auto-flee fires. |
+| `LLM_AGENT_FOLLOW_CHANNEL` | `false` | Follow the party leader across channels (re-logs the agent on the target channel). |
 
 **Personas file** (JSON or YAML), either shape:
 ```json
@@ -348,16 +363,23 @@ Facts and dialogue are stored newline-delimited. `AgentMemoryStore` never throws
 - M1: reactive chat (general/party/whisper), LLM brain with tool calling, personas, memory.
 - M2: party invite accept/deny/join/leave, party chat, follow-the-leader (same-map walk +
   cross-map warp), party-search listing.
-- M3 (partial): monster/item/NPC perception, movement, follow, item pickup, potion
-  self-sustain, respawn, basic melee attacks, buff-skill casting, heal-skill casting,
-  melee/magic damaging skill attacks, ranged attacks (bow/crossbow/gun/claw + ammo gating),
-  multi-target skill attacks, multi-line skill attacks (damage lines = `max(bulletCount,
-  attackCount)`), auto-looting kills, ammo perception (`rangedWeapon`/`ammoCount`/`outOfAmmo`),
-  shop recharge for stars/bullets, and an LLM `attack_many` multi-target tool.
+- M3 (complete): monster/item/NPC perception, clamped foothold-aware movement, follow
+  (same-map walking, portal-based cross-map travel, opt-in cross-channel re-login), item
+  pickup, potion self-sustain, respawn, melee/magic/ranged basic + skill attacks with
+  multi-line damage (`max(bulletCount, attackCount)`), multi-target skill attacks (incl. the
+  LLM `attack_many` tool), buff-skill casting, heal-skill casting, auto-looting, target
+  facing, local skill cooldowns + HP/MP-cost gating, auto-flee, ammo perception
+  (`rangedWeapon`/`ammoCount`/`outOfAmmo`) and shop resupply (recharge stars/bullets, buy
+  arrows), plus LLM `follow`/`stop_following` movement tools.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
 **Not done (next work)**
+- **M4:** proactive social behavior (patrol, greet, initiate invites/matchmaking). Currently
+  strictly reactive; note `/agent search` still enables party-search auto-invites.
+- **Pathing depth:** movement is clamped waypoint stepping, not a full foothold/rope
+  pathfinder (agents can walk through platforms rather than jumping roped routes).
+- **Player-facing opt-out / bot notice** beyond the name prefix.
 - **Combat depth:** arrow purchase for bow/crossbow (arrows are not rechargeable in v83),
   local cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
   semantics, monster facing, flee/aggro management, cast animation. (Multi-target, multi-line,
@@ -400,6 +422,17 @@ HIGH/MEDIUM findings were addressed:
   agents were permanently `isChangingMaps()` (they never send `PLAYER_MAP_TRANSFER`), which made
   the warp unreachable and would also have broken it after the first warp — now cleared at spawn
   and after each warp; also switched to the spawn-point overload to avoid a portal-0 NPE.
+- **M3 complete** (facing, cooldowns, HP-cost, arrow purchase, flee, smart movement + portal
+  follow, channel-follow, LLM follow tools): three verifier passes. Fixed: portal branch wedged
+  follow and bypassed the event/trade/cash guards (now skips closed/scripted portals, shares
+  `canSelfTransfer`, and falls back to the warp after N attempts); `behaviorStep` kept running
+  on a despawned session after a channel transfer (now aborts); failed channel transfers
+  permanently deleted the agent (now rolls back to the original channel, throttled per
+  character); `despawn(int)` races (now synchronized); battle cooldowns were marked even when a
+  packet was dropped by `validateState` (now only on a handled dispatch); AOE facing re-fetched
+  a possibly-despawned target (now captured during validation); arrow purchase aborted on the
+  first unaffordable stock line (now scans on). `MapleMap.portals` is now a
+  `ConcurrentHashMap` for safe iteration.
 - **Combat depth 3** (multi-line + LLM multi-target + ammo): two verifier passes. Fixed
   `damageLines` to mirror the server's `max(bulletCount, attackCount)` guard (was `attackCount`,
   which under-sent Triple Throw/Strafe/Burst Fire by 2–4×); replaced the free `getSlotMax` refill
@@ -420,6 +453,7 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `fb6f7d246` | finish M3: combat depth, pathing/portal follow, channel-follow, LLM follow |
 | `45dd0e2d2` | multi-line + LLM multi-target attacks, ammo perception/recharge |
 | `2fb00ad3c` | cross-map follow (warp-with-party) |
 | `ac779b70a` | heal casting, auto-loot, multi-target attacks + review fixes |

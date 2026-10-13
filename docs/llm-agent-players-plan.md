@@ -45,12 +45,14 @@ Delivered:
 - [x] M2: party-search registration (`/agent search`), follow-the-leader (auto + `/agent follow`),
   party-update and map-change perception events, and cross-map follow via warp
   (`LLM_AGENT_FOLLOW_WARP`).
-- [x] M3 (substantially): monster/item/NPC perception, clamped synthetic movement, item
+- [x] M3 (complete): monster/item/NPC perception, clamped foothold-aware movement, item
   pickup, potion self-sustain, respawn, buff-skill casting, melee/magic/ranged basic +
   skill attacks (auto modes behind config), heal-skill casting, auto-looting kills,
   multi-target skill attacks (incl. the LLM `attack_many` tool), multi-line skill attacks
-  (`max(bulletCount, attackCount)` damage lines), and ammo perception + shop recharge for
-  throwing stars/bullets.
+  (`max(bulletCount, attackCount)` damage lines), target facing, local skill cooldowns +
+  HP/MP-cost gating, auto-flee, ammo perception + shop resupply (recharge stars/bullets,
+  buy arrows), portal-based cross-map follow, opt-in cross-channel follow, and LLM
+  `follow`/`stop_following` tools.
 - [x] Hardening from review: strip all command headings (`/`, `@`, `!`) from agent chat;
   refuse to spawn a character/account that is already online; synchronous despawn;
   spawn off the Netty event loop; content filter defaults on; clamped movement;
@@ -63,15 +65,10 @@ Delivered:
 
 Not yet implemented (M2 remainder + M3 remainder):
 
-- [ ] Combat depth: arrow purchase for bow/crossbow (arrows are not rechargeable), local
-  cooldown tracking, MP/HP-cost timing on the skill path, Hurricane/Rapid Fire after-delay
-  semantics, monster facing, flee/aggro management, cast animation (multi-target, multi-line,
-  heal and star/bullet recharge are done).
-- [ ] Real pathing (portals/footholds); movement is a clamped straight-line step. Cross-map
-  follow warps directly (party-warp style) rather than walking to a portal.
-- [ ] Channel-follow (cross-channel party follow needs a channel transfer).
-- [ ] LLM-driven movement policy beyond `move_to`/follow (heal has an LLM tool, but there is
-  no LLM tool for multi-target attacks yet).
+- [ ] Deeper pathing: movement is clamped waypoint stepping (per-axis clamped, horizontal
+  alignment before drops), not a full foothold/rope pathfinder; portal travel is used for
+  cross-map follow, with party-warp fallback.
+- [ ] Hurricane/Rapid Fire after-delay timing and cast animation/stance fidelity (minor).
 - [ ] Proactive behaviour (M4 — deferred; note `/agent search` does enable party-search
   auto-invites, which is a form of matchmaking).
 - [ ] Player-facing opt-out / bot notice beyond the name prefix.
