@@ -2,6 +2,8 @@ package net.server.agent;
 
 import client.Character;
 import io.netty.buffer.Unpooled;
+import server.maps.Foothold;
+import server.maps.FootholdTree;
 import server.maps.Portal;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
@@ -26,8 +28,12 @@ public final class AgentMovement {
     private static final int WALK_STANCE_LEFT = 3;
     private static final short DEFAULT_DURATION = 120;
     static final int MAX_STEP = 150;
+    /** Vertical gap beyond which two positions are treated as different platforms. */
+    static final int PLATFORM_TOLERANCE = 80;
     /** Vertical gap beyond which two positions are treated as different platforms (squared). */
-    static final int PLATFORM_TOLERANCE_SQ = 80 * 80;
+    static final int PLATFORM_TOLERANCE_SQ = PLATFORM_TOLERANCE * PLATFORM_TOLERANCE;
+    /** Horizontal distance at or below which the agent is treated as aligned for a drop. */
+    private static final int PLATFORM_ALIGN_TOLERANCE = 20;
     /** Distance (squared) within which a portal can be entered (~60px). */
     static final int PORTAL_ENTER_RANGE_SQ = 60 * 60;
 
@@ -48,8 +54,11 @@ public final class AgentMovement {
     /**
      * Foothold-aware step. When the target is on roughly the same platform the agent walks
      * horizontally along it; when the target is on another platform the agent first closes the
-     * horizontal gap (so it drops near the target) and then steps toward it. All movement is
-     * clamped per axis by {@link #MAX_STEP}, so a hallucinated destination can never teleport.
+     * horizontal gap (so it drops near the target) and then steps toward it. When the agent's map
+     * exposes footholds, the horizontal approach walks along the agent's <em>current</em> foothold
+     * and is clamped to that foothold's own x-range, so the agent never walks off an edge before
+     * dropping. All movement is clamped per axis by {@link #MAX_STEP}, so a hallucinated
+     * destination can never teleport.
      */
     public static void moveToSmart(AgentSession session, Point target, int maxStep) {
         Character chr = session.getPlayer();
@@ -62,16 +71,87 @@ public final class AgentMovement {
         }
         int dx = target.x - current.x;
         int dy = target.y - current.y;
-        if (Math.abs(dx) <= 20 && Math.abs(dy) <= 20) {
+        if (Math.abs(dx) <= PLATFORM_ALIGN_TOLERANCE && Math.abs(dy) <= PLATFORM_ALIGN_TOLERANCE) {
             return;
         }
-        if (dy * dy > PLATFORM_TOLERANCE_SQ && Math.abs(dx) > 20) {
+        if (stepAlongFootholds(session, chr, current, target, maxStep)) {
+            return;
+        }
+        if (dy * dy > PLATFORM_TOLERANCE_SQ && Math.abs(dx) > PLATFORM_ALIGN_TOLERANCE) {
             // Different platform: align horizontally first, then approach vertically.
             int step = Integer.signum(dx) * Math.min(Math.abs(dx), Math.max(1, maxStep));
             moveTo(session, current.x + step, current.y, maxStep);
             return;
         }
         moveTo(session, target.x, target.y, maxStep);
+    }
+
+    /**
+     * Walks the agent along the foothold it is standing on toward the target and drops toward the
+     * foothold below the target x. Returns {@code false} (letting the caller use the plain
+     * per-axis step) whenever foothold data is unavailable, the agent is not on a foothold, or the
+     * target is on the same foothold. The walk is clamped to the current foothold's x-range and the
+     * drop aims at the landing foothold's surface via {@link Foothold#calculateFooting(int)}.
+     */
+    private static boolean stepAlongFootholds(AgentSession session, Character chr, Point current, Point target, int maxStep) {
+        if (chr.getMap() == null) {
+            return false;
+        }
+        FootholdTree tree = chr.getMap().getFootholds();
+        if (tree == null) {
+            return false;
+        }
+        Foothold currentFoothold = footholdAt(tree, current);
+        if (currentFoothold == null) {
+            return false; // agent is not on a walkable foothold: keep the old behaviour
+        }
+        Foothold landingFoothold = tree.findBelow(target);
+        if (landingFoothold == null || landingFoothold == currentFoothold) {
+            return false; // same platform (or unknown landing): the plain step is already correct
+        }
+        int minX = Math.min(currentFoothold.getX1(), currentFoothold.getX2());
+        int maxX = Math.max(currentFoothold.getX1(), currentFoothold.getX2());
+        int edgeX = Math.max(minX, Math.min(maxX, target.x));
+        if (Math.abs(edgeX - current.x) > PLATFORM_ALIGN_TOLERANCE) {
+            // Walk along the current foothold toward the target, never past its edge.
+            moveTo(session, edgeX, currentFoothold.calculateFooting(edgeX), maxStep);
+            return true;
+        }
+        // Aligned with the target x on the current foothold: drop toward the landing foothold.
+        moveTo(session, target.x, landingFoothold.calculateFooting(target.x), maxStep);
+        return true;
+    }
+
+    /**
+     * The non-wall foothold the agent is standing on at {@code p}, or {@code null}. Uses
+     * {@link FootholdTree#findBelow(Point)} first and only enumerates the tree when the agent sits
+     * slightly off the surface (e.g. part-way through a sloped step).
+     */
+    private static Foothold footholdAt(FootholdTree tree, Point p) {
+        Foothold below = tree.findBelow(p);
+        if (below != null && !below.isWall()
+                && Math.abs(below.calculateFooting(p.x) - p.y) <= PLATFORM_TOLERANCE) {
+            return below;
+        }
+        Foothold best = null;
+        int bestDistSq = PLATFORM_TOLERANCE_SQ + 1;
+        for (Foothold fh : tree.getAllFootholds()) {
+            if (fh.isWall()) {
+                continue;
+            }
+            int minX = Math.min(fh.getX1(), fh.getX2());
+            int maxX = Math.max(fh.getX1(), fh.getX2());
+            if (p.x < minX || p.x > maxX) {
+                continue;
+            }
+            int gap = fh.calculateFooting(p.x) - p.y;
+            int distSq = gap * gap;
+            if (distSq <= PLATFORM_TOLERANCE_SQ && distSq < bestDistSq) {
+                best = fh;
+                bestDistSq = distSq;
+            }
+        }
+        return best;
     }
 
     /** Steps directly away from a threat by up to {@code maxStep} pixels (per-axis clamped). */

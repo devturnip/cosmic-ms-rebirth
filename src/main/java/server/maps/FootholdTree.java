@@ -209,6 +209,27 @@ public class FootholdTree {
         return p2.y;
     }
 
+    /**
+     * Read-only snapshot of every foothold in the tree, including nested quadrants. Allocates a
+     * fresh list, so callers that only need a single lookup should still prefer
+     * {@link #findBelow(Point)}; this is for whole-map inspection (e.g. agent pathing).
+     */
+    public List<Foothold> getAllFootholds() {
+        List<Foothold> all = new LinkedList<>();
+        collectFootholds(all);
+        return all;
+    }
+
+    private void collectFootholds(List<Foothold> all) {
+        all.addAll(footholds);
+        if (nw != null) {
+            nw.collectFootholds(all);
+            ne.collectFootholds(all);
+            sw.collectFootholds(all);
+            se.collectFootholds(all);
+        }
+    }
+
     public int getMaxDropX() {
         return maxDropX;
     }
