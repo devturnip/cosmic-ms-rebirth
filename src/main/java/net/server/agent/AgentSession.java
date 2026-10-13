@@ -449,27 +449,29 @@ public class AgentSession {
         }
     }
 
+    // Throttle timestamps use the monotonic clock, so a wall-clock adjustment cannot stall them.
+
     /** Read-only check: whether {@code playerId} is due for a greeting (does not mark). */
     public boolean isGreetDue(int playerId, long cooldownMs) {
         Long last = greetedAt.get(playerId);
-        return last == null || System.currentTimeMillis() - last >= cooldownMs;
+        return last == null || System.nanoTime() - last >= millisToNanos(cooldownMs);
     }
 
     /** Records that {@code playerId} was successfully greeted. */
     public void markGreeted(int playerId) {
-        greetedAt.put(playerId, System.currentTimeMillis());
+        greetedAt.put(playerId, System.nanoTime());
     }
 
     /** Drops greeting timestamps older than the cooldown so the map cannot grow unbounded. */
     public void pruneGreetings(long cooldownMs) {
-        long cutoff = System.currentTimeMillis() - cooldownMs;
+        long cutoff = System.nanoTime() - millisToNanos(cooldownMs);
         greetedAt.entrySet().removeIf(entry -> entry.getValue() < cutoff);
     }
 
     /** Throttle gate for party-search (re)registration. */
     public boolean markMatchmakeDue(long intervalMs) {
-        long now = System.currentTimeMillis();
-        if (now - lastMatchmakeAt < intervalMs) {
+        long now = System.nanoTime();
+        if (now - lastMatchmakeAt < millisToNanos(intervalMs)) {
             return false;
         }
         lastMatchmakeAt = now;
@@ -478,12 +480,16 @@ public class AgentSession {
 
     /** Throttle gate for patrol steps. */
     public boolean markPatrolDue(long intervalMs) {
-        long now = System.currentTimeMillis();
-        if (now - lastPatrolAt < intervalMs) {
+        long now = System.nanoTime();
+        if (now - lastPatrolAt < millisToNanos(intervalMs)) {
             return false;
         }
         lastPatrolAt = now;
         return true;
+    }
+
+    private static long millisToNanos(long millis) {
+        return Math.max(0L, millis) * 1_000_000L;
     }
 
     /**

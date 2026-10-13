@@ -112,6 +112,9 @@ public final class AgentProactivity {
         if (maxX <= minX) {
             return false;
         }
+        if (maxX == Integer.MAX_VALUE) {
+            maxX = Integer.MAX_VALUE - 1; // avoid overflow on the inclusive bound below
+        }
         int targetX = ThreadLocalRandom.current().nextInt(minX, maxX + 1);
         AgentMovement.moveToSmart(session, new Point(targetX, current.y), AgentMovement.MAX_STEP);
         return true;
