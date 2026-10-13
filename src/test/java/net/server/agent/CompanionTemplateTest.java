@@ -37,7 +37,7 @@ class CompanionTemplateTest {
             Magician.ENERGY_BOLT, Magician.MAGIC_CLAW,
             Cleric.HOLY_ARROW,
             Archer.DOUBLE_SHOT, Archer.ARROW_BLOW,
-            Rogue.LUCKY_SEVEN, Rogue.DOUBLE_STAB,
+            Rogue.DOUBLE_STAB,
             Pirate.DOUBLE_SHOT, Pirate.FLASH_FIST, Pirate.SOMERSAULT_KICK);
 
     private static void assertJob(AgentRole role, int level, Job expected) {
@@ -178,16 +178,14 @@ class CompanionTemplateTest {
     void everyRoleHasUsableWeaponTypes() {
         assertFalse(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).isEmpty());
         assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).contains(WeaponType.SWORD1H));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).contains(WeaponType.GENERAL2H_SWING));
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).contains(WeaponType.SWORD2H));
 
         for (AgentRole role : List.of(AgentRole.MAGICIAN, AgentRole.HEALER)) {
             assertTrue(CompanionTemplate.roleWeaponTypes(role).contains(WeaponType.WAND));
             assertTrue(CompanionTemplate.roleWeaponTypes(role).contains(WeaponType.STAFF));
         }
         assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.BOWMAN).contains(WeaponType.BOW));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.BOWMAN).contains(WeaponType.CROSSBOW));
         assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF).contains(WeaponType.CLAW));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF).contains(WeaponType.DAGGER_OTHER));
         assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.PIRATE).contains(WeaponType.GUN));
 
         for (AgentRole role : AgentRole.values()) {

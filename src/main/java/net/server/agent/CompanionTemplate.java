@@ -264,11 +264,12 @@ final class CompanionTemplate {
             return EnumSet.noneOf(WeaponType.class);
         }
         return switch (role) {
-            case WARRIOR -> EnumSet.of(WeaponType.SWORD1H, WeaponType.SWORD2H,
-                    WeaponType.GENERAL1H_SWING, WeaponType.GENERAL2H_SWING);
+            // Weapon types must match the skill build granted below (sword fighter, bow hunter,
+            // claw assassin, gun gunslinger), otherwise masteries/attack skills would not apply.
+            case WARRIOR -> EnumSet.of(WeaponType.SWORD1H, WeaponType.SWORD2H);
             case MAGICIAN, HEALER -> EnumSet.of(WeaponType.WAND, WeaponType.STAFF);
-            case BOWMAN -> EnumSet.of(WeaponType.BOW, WeaponType.CROSSBOW);
-            case THIEF -> EnumSet.of(WeaponType.CLAW, WeaponType.DAGGER_OTHER);
+            case BOWMAN -> EnumSet.of(WeaponType.BOW);
+            case THIEF -> EnumSet.of(WeaponType.CLAW);
             case PIRATE -> EnumSet.of(WeaponType.GUN);
         };
     }
