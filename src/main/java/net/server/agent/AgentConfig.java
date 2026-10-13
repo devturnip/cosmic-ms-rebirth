@@ -43,15 +43,27 @@ public final class AgentConfig {
     }
 
     public static String apiUrl() {
-        return orEmpty(YamlConfig.config.server.LLM_API_URL);
+        return envOrConfig("LLM_API_URL", YamlConfig.config.server.LLM_API_URL);
     }
 
     public static String apiKey() {
-        return orEmpty(YamlConfig.config.server.LLM_API_KEY);
+        return envOrConfig("LLM_API_KEY", YamlConfig.config.server.LLM_API_KEY);
     }
 
     public static String model() {
-        return orEmpty(YamlConfig.config.server.LLM_MODEL);
+        return envOrConfig("LLM_MODEL", YamlConfig.config.server.LLM_MODEL);
+    }
+
+    /**
+     * Environment variables override {@code config.yaml} for secrets, so API keys never need to be
+     * written to a tracked file. A blank/missing env var falls through to the config value.
+     */
+    private static String envOrConfig(String envName, String configValue) {
+        String env = System.getenv(envName);
+        if (env != null && !env.isBlank()) {
+            return env;
+        }
+        return orEmpty(configValue);
     }
 
     public static int maxConcurrentCalls() {

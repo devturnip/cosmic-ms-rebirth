@@ -22,5 +22,10 @@
 database/docker-db-data
 database/docker-pg-db-data
 
+# Local secrets (API keys, DB password) — never commit these
+.env
+.env.*
+!.env.example
+
 # macOS files
 .DS_Store

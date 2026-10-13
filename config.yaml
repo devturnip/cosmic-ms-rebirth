@@ -161,8 +161,8 @@ server:
     #Database Configuration
     DB_URL_FORMAT: "jdbc:mysql://%s:3306/cosmic" # If the docker ENV for DB_HOST is anything but "db", this string format should be changed from 3306 to 3307 (or whichever port it was changed to in docker) 
     DB_HOST: "localhost" 
-    DB_USER: "root"
-    DB_PASS: "testcosmic123"
+    DB_USER: "root"                     #Override with the DB_USER env var.
+    DB_PASS: "testcosmic123"            #Override with the DB_PASS env var (see .env.example).
     INIT_CONNECTION_POOL_TIMEOUT: 90    # Seconds
 
     #Login Configuration
@@ -467,9 +467,9 @@ server:
     LLM_AGENT_TICK_MS: 2000             #Heartbeat interval per agent, in milliseconds.
     LLM_AGENT_PERCEPTION: "BOUNDED"     #BOUNDED (fair-ish, view range) | OMNISCIENT (dev only)
     LLM_AGENT_VIEW_RANGE: 722500.0      #Squared view radius used by BOUNDED perception.
-    LLM_API_URL: ""                     #OpenAI-compatible chat-completions endpoint.
-    LLM_API_KEY: ""                     #API key for the endpoint (empty for local servers).
-    LLM_MODEL: ""                       #Model name to request.
+    LLM_API_URL: ""                     #OpenAI-compatible chat-completions endpoint. Prefer the LLM_API_URL env var.
+    LLM_API_KEY: ""                     #Prefer the LLM_API_KEY env var (see .env.example); never commit a real key here.
+    LLM_MODEL: ""                       #Model name to request. Prefer the LLM_MODEL env var.
     LLM_MAX_CONCURRENT_CALLS: 4         #Max in-flight LLM requests across all agents.
     LLM_AGENT_NAME_PREFIX: "[AI]"       #Client-visible label; agents must be distinguishable.
     LLM_AGENT_CONTENT_FILTER: true      #Apply basic output filtering to agent chat.

@@ -19,6 +19,13 @@ services:
       - ./wz:/opt/server/wz
     environment:
       DB_HOST: "db" ## Remember if this is present it will OVERRIDE the host in the config.yaml, if you put here anything other than db, you'll need to change the config.yaml jdbc string to port 3307, and not port 3306
+      # Secrets come from the gitignored .env file (see .env.example). Blank values fall back
+      # to config.yaml, so these are safe defaults for a fresh clone.
+      LLM_API_URL: ${LLM_API_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASS: ${DB_PASS:-}
 
   db:
     image: mysql:8.4.0

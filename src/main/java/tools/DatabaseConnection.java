@@ -52,12 +52,17 @@ public class DatabaseConnection {
         return dbUrl;
     }
 
+    private static String envOrConfig(String envName, String configValue) {
+        String env = System.getenv(envName);
+        return env != null && !env.isBlank() ? env : configValue;
+    }
+
     private static HikariConfig getConfig() {
         HikariConfig config = new HikariConfig();
 
         config.setJdbcUrl(getDbUrl());
-        config.setUsername(YamlConfig.config.server.DB_USER);
-        config.setPassword(YamlConfig.config.server.DB_PASS);
+        config.setUsername(envOrConfig("DB_USER", YamlConfig.config.server.DB_USER));
+        config.setPassword(envOrConfig("DB_PASS", YamlConfig.config.server.DB_PASS));
 
         final int initFailTimeoutSeconds = YamlConfig.config.server.INIT_CONNECTION_POOL_TIMEOUT;
         config.setInitializationFailTimeout(SECONDS.toMillis(initFailTimeoutSeconds));
