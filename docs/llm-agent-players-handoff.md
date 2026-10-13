@@ -14,18 +14,19 @@ inbound actions are synthesized packets dispatched through the **real handlers**
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
 - **Branch:** `feature/llm-agent-players`
-- **HEAD:** tip of `feature/llm-agent-players` (latest: M4 — proactive matchmaking, personas,
-  cost controls, moderation/observability; previous: M3 complete)
+- **HEAD:** tip of `feature/llm-agent-players` (latest: player-facing opt-out; previous: M4 —
+  proactive matchmaking, personas, cost controls, moderation/observability)
 - **Status:** M0–M4 done. M1–M3 cover reactive chat/party/combat/movement (multi-line +
   multi-target attacks, buffs, heal, potions, respawn, looting, facing, local cooldowns,
   HP/MP-cost gating, flee, ammo resupply, portal/channel follow). M4 adds opt-in proactive
   behavior (greet nearby players, auto party-search matchmaking, patrol), persona
   greeting/traits, memory compaction, a global LLM request budget, `/agent status|mute|unmute`,
-  and an optional AI-agent map notice. Remaining: deeper foothold/rope pathing, after-delay/
-  cast-animation fidelity, and a player-facing opt-out beyond mute.
+  an optional AI-agent map notice, and a player-facing `/agentoptout` (persisted in
+  `agent_optout`). Remaining: deeper foothold/rope pathing and after-delay/cast-animation
+  fidelity.
 - **Default:** feature is **off** (`USE_LLM_AGENTS: false`); proactive behavior is **off**
   (`LLM_AGENT_PROACTIVE: false`). Nothing changes for vanilla play.
-- **Build:** `mvn -q clean test` (green: 137 agent tests across 36 classes + existing suite).
+- **Build:** `mvn -q clean test` (green: 145 agent tests across 34 classes + existing suite).
 
 ---
 
@@ -124,7 +125,7 @@ arrive via lightweight hooks (see §5).
 | `AgentActionDispatcher` | Maps actions → synthetic inbound packets; content filter; audit log; rate-limit gate. |
 | `AgentEvent` | Sealed interface of perceived events (`MapChat`, `PartyChat`, `Whisper`, `PartyInvite`, `PartyUpdate`, `MapChanged`, `Tick`, `Instruction`). |
 | `AgentBrain` | Decision interface: `List<AgentAction> decide(observation, events, memory)`. |
-| `LlmAgentBrain` | LLM implementation via tool calling; strictly reactive; fails safe (empty list). |
+| `LlmAgentBrain` | LLM implementation via tool calling; the brain itself only reacts to given events (proactive behavior lives in `AgentProactivity`); fails safe (empty list). |
 | `OpenAiChatClient` | Java 21 `HttpClient` + Jackson OpenAI chat-completions client + tool schema. |
 | `ScriptedAgentBrain` | Deterministic brain (no LLM); used by tests and when no LLM is configured. |
 | `AgentBrainFactory` | Chooses LLM vs scripted; injects persona system prompt. |
@@ -492,11 +493,11 @@ HIGH/MEDIUM findings were addressed:
   required ammo among learned attack skills; honoured Shadow Claw alongside Soul Arrow; and added
   `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
-Known low-risk remainder: `/agent search` enabling party-search auto-invites (documented),
-`/agent tell|mute|pause` not implemented, no ammo recharge (ranged agents stop when dry),
-cross-map follow warps without portal/level/quest gating (trusted party-warp semantics, like
-`warpParty`), and latent cross-thread map mutation on very busy maps (soak-test target; map
-collections use read/write locks).
+Known low-risk remainder: `/agent search` and auto-matchmaking enable party-search
+auto-invites (documented); `/agent tell`/`pause` are not implemented (`mute`/`unmute` are);
+movement is clamped waypoint stepping, not a full foothold/rope pathfinder (no rope/ladder
+model exists server-side); and there is latent cross-thread map mutation on very busy maps
+(soak-test target; map collections use read/write locks).
 
 ---
 
@@ -504,6 +505,8 @@ collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `b8a9d8105` | opt-out: serialize startup load against toggles |
+| `a757e52e5` | docs: document the player opt-out |
 | `9a1067173` | player-facing opt-out from AI-agent interaction |
 | `4cb347332` | M4: proactive matchmaking, personas, cost controls, moderation |
 | `fb6f7d246` | finish M3: combat depth, pathing/portal follow, channel-follow, LLM follow |

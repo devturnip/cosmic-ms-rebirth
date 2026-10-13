@@ -39,7 +39,8 @@ Delivered:
   tool calling and fail-safe fallback to the scripted brain.
 - [x] Persistent memory (`AgentMemoryStore` + `agent_memory` table, migration `v0.15.0.sql`).
 - [x] Chat/party/whisper/party-invite hooks route events to agents.
-- [x] `/agent spawn|despawn|list|say|follow|stopfollow|search` GM command (rank 5).
+- [x] `/agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|optout` GM
+  command (rank 5), plus the player `/agentoptout` command (rank 0).
 - [x] Config keys in `ServerConfig` + `config.yaml`; `AgentManager` start/stop in `Server`.
 - [x] Unit tests: `ScriptedAgentBrain`, `AgentMemory`, `AgentConfig`, dispatcher sanitize,
   movement packet encoding, persona store (JSON/YAML), loot behaviour.
@@ -461,15 +462,16 @@ Each milestone is independently shippable behind `USE_LLM_AGENTS`.
 - Warp/channel-follow with party (`warpParty`).
 - **Exit criteria:** an agent can meaningfully help in low-level party content.
 
-### M4 — Autonomous matchmaking & personas (**deferred / not in current scope**)
-- Proactive: patrol/`partysearch`, initiate invites to nearby solos, greet.
-- Larger persona library; memory summarization/compaction.
-- Moderation hardening, cost controls, observability dashboard/logs.
-- **Exit criteria:** solo players are matched with agents without manual GM
-  intervention.
+### M4 — Autonomous matchmaking & personas (**implemented, opt-in**)
+- Proactive: greet nearby players, auto party-search matchmaking (invites nearby solos),
+  idle patrol.
+- Persona `greeting`/`traits`; memory summarization/compaction.
+- Moderation hardening and cost controls: player opt-out, `/agent mute|unmute`,
+  `/agent status`, `LLM_MAX_CALLS_PER_MIN`, optional AI notice; observability via `/agent`.
+- **Exit criteria:** solo players are matched with agents without manual GM intervention.
 
-> Per Q6, agents are **strictly reactive** for now. M4 is recorded for later and
-> must not be implemented in the first pass.
+> Status: implemented behind `LLM_AGENT_PROACTIVE` (default off). With it off, agents remain
+> strictly reactive as originally agreed (Q6).
 
 ---
 
