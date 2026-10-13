@@ -135,6 +135,7 @@ public class ItemId {
     // Pirate
     public static final int BROWN_PAULIE_BOOTS = 1072294;
     public static final int PRIME_HANDS = 1482004;
+    public static final int PISTOL = 1492000;
     public static final int COLD_MIND = 1492004;
     public static final int BROWN_POLLARD = 1052107;
 

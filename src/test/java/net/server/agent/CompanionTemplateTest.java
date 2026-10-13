@@ -2,16 +2,10 @@ package net.server.agent;
 
 import client.Job;
 import client.inventory.WeaponType;
-import constants.skills.Archer;
 import constants.skills.Cleric;
-import constants.skills.Magician;
-import constants.skills.Pirate;
-import constants.skills.Rogue;
-import constants.skills.Warrior;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,26 +13,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Pure unit tests for {@link CompanionTemplate}. Weapon selection itself needs WZ item data, so the
- * tests cover the DB/WZ-free logic and assert skill ids against the real damaging skills the
- * template is expected to lead with.
+ * Pure unit tests for {@link CompanionTemplate}. Weapon selection and the real damaging-skill
+ * predicate need WZ data, so those live in {@link CompanionTemplateWzTest}; these tests cover the
+ * DB/WZ-free logic only.
  */
 class CompanionTemplateTest {
 
     private static final List<Integer> SAMPLE_LEVELS = List.of(1, 10, 30, 70, 120, 200);
     private static final List<Integer> JOB_TIER_LEVELS = List.of(10, 30, 70, 120);
-
-    /**
-     * Real damaging skills the templates use; {@code AgentCombat.isAttackSkill} accepts these once
-     * learned (verified by their WZ {@code damage}/{@code matk} data, which needs the WZ provider).
-     */
-    private static final Set<Integer> KNOWN_ATTACK_SKILLS = Set.of(
-            Warrior.POWER_STRIKE, Warrior.SLASH_BLAST,
-            Magician.ENERGY_BOLT, Magician.MAGIC_CLAW,
-            Cleric.HOLY_ARROW,
-            Archer.DOUBLE_SHOT, Archer.ARROW_BLOW,
-            Rogue.DOUBLE_STAB,
-            Pirate.DOUBLE_SHOT, Pirate.FLASH_FIST, Pirate.SOMERSAULT_KICK);
 
     private static void assertJob(AgentRole role, int level, Job expected) {
         assertEquals(expected, CompanionTemplate.jobFor(role, level),
@@ -60,9 +42,9 @@ class CompanionTemplateTest {
         assertJob(AgentRole.MAGICIAN, 120, Job.FP_ARCHMAGE);
 
         assertJob(AgentRole.HEALER, 9, Job.BEGINNER);
-        assertJob(AgentRole.HEALER, 10, Job.CLERIC);
-        assertJob(AgentRole.HEALER, 30, Job.PRIEST);
-        assertJob(AgentRole.HEALER, 70, Job.BISHOP);
+        assertJob(AgentRole.HEALER, 10, Job.MAGICIAN);
+        assertJob(AgentRole.HEALER, 30, Job.CLERIC);
+        assertJob(AgentRole.HEALER, 70, Job.PRIEST);
         assertJob(AgentRole.HEALER, 120, Job.BISHOP);
 
         assertJob(AgentRole.BOWMAN, 9, Job.BEGINNER);
@@ -87,7 +69,8 @@ class CompanionTemplateTest {
     @Test
     void buildForResolvesTheAdvancedJobFromAFirstJob() {
         assertEquals(Job.CRUSADER, CompanionTemplate.buildFor(Job.WARRIOR, 80).job());
-        assertEquals(Job.BISHOP, CompanionTemplate.buildFor(Job.CLERIC, 80).job());
+        assertEquals(Job.PRIEST, CompanionTemplate.buildFor(Job.CLERIC, 80).job());
+        assertEquals(Job.BISHOP, CompanionTemplate.buildFor(Job.CLERIC, 130).job());
         assertEquals(Job.BOWMASTER, CompanionTemplate.buildFor(Job.BOWMAN, 130).job());
         assertEquals(Job.NIGHTLORD, CompanionTemplate.buildFor(Job.THIEF, 130).job());
         assertEquals(Job.CORSAIR, CompanionTemplate.buildFor(Job.PIRATE, 130).job());
@@ -109,21 +92,8 @@ class CompanionTemplateTest {
     }
 
     @Test
-    void everyTierHasAtLeastOneAttackSkill() {
-        for (AgentRole role : AgentRole.values()) {
-            for (int level : JOB_TIER_LEVELS) {
-                CompanionTemplate.Build build = CompanionTemplate.build(role, level);
-                assertTrue(build.skills().stream()
-                                .map(CompanionTemplate.SkillGrant::skillId)
-                                .anyMatch(KNOWN_ATTACK_SKILLS::contains),
-                        role + " level " + level + " has no attack skill: " + skillIds(build));
-            }
-        }
-    }
-
-    @Test
     void healerLearnsHealAtEveryTier() {
-        for (int level : JOB_TIER_LEVELS) {
+        for (int level : List.of(30, 70, 120)) {
             CompanionTemplate.Build build = CompanionTemplate.build(AgentRole.HEALER, level);
             assertTrue(build.skills().stream()
                             .anyMatch(grant -> grant.skillId() == Cleric.HEAL && grant.level() > 0),
@@ -176,22 +146,25 @@ class CompanionTemplateTest {
 
     @Test
     void everyRoleHasUsableWeaponTypes() {
-        assertFalse(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).isEmpty());
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).contains(WeaponType.SWORD1H));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR).contains(WeaponType.SWORD2H));
+        assertFalse(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR, 10).isEmpty());
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR, 10).contains(WeaponType.SWORD1H));
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.WARRIOR, 120).contains(WeaponType.SWORD2H));
 
         for (AgentRole role : List.of(AgentRole.MAGICIAN, AgentRole.HEALER)) {
-            assertTrue(CompanionTemplate.roleWeaponTypes(role).contains(WeaponType.WAND));
-            assertTrue(CompanionTemplate.roleWeaponTypes(role).contains(WeaponType.STAFF));
+            assertTrue(CompanionTemplate.roleWeaponTypes(role, 120).contains(WeaponType.WAND));
+            assertTrue(CompanionTemplate.roleWeaponTypes(role, 120).contains(WeaponType.STAFF));
         }
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.BOWMAN).contains(WeaponType.BOW));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF).contains(WeaponType.CLAW));
-        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.PIRATE).contains(WeaponType.GUN));
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.BOWMAN, 120).contains(WeaponType.BOW));
+        // The thief is a dagger rogue at tier 1 and a claw assassin from level 30 on.
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF, 10).contains(WeaponType.DAGGER_OTHER));
+        assertFalse(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF, 10).contains(WeaponType.CLAW));
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.THIEF, 30).contains(WeaponType.CLAW));
+        assertTrue(CompanionTemplate.roleWeaponTypes(AgentRole.PIRATE, 120).contains(WeaponType.GUN));
 
         for (AgentRole role : AgentRole.values()) {
             for (int level : JOB_TIER_LEVELS) {
                 CompanionTemplate.Build build = CompanionTemplate.build(role, level);
-                assertFalse(CompanionTemplate.roleWeaponTypes(build.role()).isEmpty(),
+                assertFalse(CompanionTemplate.roleWeaponTypes(build.role(), build.level()).isEmpty(),
                         role + " level " + level + " has no weapon type");
             }
         }
@@ -202,7 +175,9 @@ class CompanionTemplateTest {
         CompanionTemplate.Build build = CompanionTemplate.build(null, 50);
         assertEquals(Job.BEGINNER, build.job());
         assertTrue(build.skills().isEmpty());
-        assertEquals(0, build.remainingAp());
+        // An unrecognised job still accounts for the level's AP/SP rather than discarding them.
+        assertEquals(16 + (50 - 1) * 5 - 16, build.remainingAp());
+        assertEquals((50 - 9) * 3, build.remainingSp());
     }
 
     private static String skillIds(CompanionTemplate.Build build) {

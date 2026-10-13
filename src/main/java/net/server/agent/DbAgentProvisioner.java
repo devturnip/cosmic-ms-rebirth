@@ -26,6 +26,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.SQLIntegrityConstraintViolationException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,6 +51,9 @@ public class DbAgentProvisioner implements AgentProvisioner {
     private static final int DEFAULT_HAIR = 30000;
     private static final int DEFAULT_SKIN = 0;
     private static final int DEFAULT_GENDER = 0; // male
+
+    /** Cached equip item ids from WZ (see {@link #equipCandidateIds(ItemInformationProvider)}). */
+    private static volatile List<Integer> equipCandidateCache;
 
     @Override
     public ProvisionedAgent provision(int level, Job job, int mapId, int world) {
@@ -208,9 +212,11 @@ public class DbAgentProvisioner implements AgentProvisioner {
         recipe.setInt(build.int_());
         recipe.setLuk(build.luk());
         recipe.setRemainingAp(build.remainingAp());
-        recipe.setRemainingSp(build.remainingSp());
 
+        int uncappedSp = 0;
+        int spentSp = 0;
         for (CompanionTemplate.SkillGrant grant : build.skills()) {
+            uncappedSp += grant.level();
             final Skill skill = SkillFactory.getSkill(grant.skillId());
             if (skill == null) {
                 continue;
@@ -218,8 +224,13 @@ public class DbAgentProvisioner implements AgentProvisioner {
             final int level = Math.min(grant.level(), skill.getMaxLevel());
             if (level > 0) {
                 recipe.addStartingSkillLevel(skill, level);
+                spentSp += level;
             }
         }
+        // Build.remainingSp was computed against the uncapped requests; recompute it against the
+        // levels actually persisted so a WZ cap (known or newly discovered) never inflates SP.
+        final int totalSp = build.remainingSp() + uncappedSp;
+        recipe.setRemainingSp(Math.max(0, totalSp - spentSp));
 
         recipe.setMaxHp(build.maxHp());
         recipe.setMaxMp(build.maxMp());
@@ -250,13 +261,13 @@ public class DbAgentProvisioner implements AgentProvisioner {
         if (build.role() == null) {
             return fallback;
         }
-        final Set<WeaponType> allowed = CompanionTemplate.roleWeaponTypes(build.role());
+        final Set<WeaponType> allowed = CompanionTemplate.roleWeaponTypes(build.role(), build.level());
         final int jobMask = CompanionTemplate.jobMask(build.role());
         final ItemInformationProvider ii;
-        final List<Pair<Integer, String>> items;
+        final List<Integer> items;
         try {
             ii = ItemInformationProvider.getInstance();
-            items = ii.getAllItems();
+            items = equipCandidateIds(ii);
         } catch (Throwable t) {
             log.debug("WZ item data unavailable for companion weapon; using fallback {}", fallback, t);
             return fallback;
@@ -264,12 +275,8 @@ public class DbAgentProvisioner implements AgentProvisioner {
         int bestId = fallback;
         int bestLevel = -1;
         int bestAtk = -1;
-        for (Pair<Integer, String> entry : items) {
+        for (int itemId : items) {
             try {
-                final int itemId = entry.getLeft();
-                if (itemId / 1000000 != 1) {
-                    continue; // not an equip
-                }
                 if (!allowed.contains(ii.getWeaponType(itemId))) {
                     continue;
                 }
@@ -292,10 +299,27 @@ public class DbAgentProvisioner implements AgentProvisioner {
                     bestId = itemId;
                 }
             } catch (Throwable t) {
-                log.trace("Skipping companion weapon candidate {}", entry.getLeft(), t);
+                log.trace("Skipping companion weapon candidate {}", itemId, t);
             }
         }
         return bestId;
+    }
+
+    /** Equip item ids from the WZ item-name list; cached so provisioning does not rescan it. */
+    private static List<Integer> equipCandidateIds(ItemInformationProvider ii) {
+        List<Integer> cached = equipCandidateCache;
+        if (cached == null) {
+            final List<Integer> ids = new ArrayList<>();
+            for (Pair<Integer, String> entry : ii.getAllItems()) {
+                final int itemId = entry.getLeft();
+                if (itemId / 1000000 == 1) {
+                    ids.add(itemId);
+                }
+            }
+            cached = List.copyOf(ids);
+            equipCandidateCache = cached;
+        }
+        return cached;
     }
 
     private static boolean isCash(Map<String, Integer> stats) {

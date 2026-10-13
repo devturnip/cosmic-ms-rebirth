@@ -38,9 +38,9 @@ import java.util.Set;
  * turns the result into a {@link client.creator.CharacterFactoryRecipe} and (using the WZ item
  * data) upgrades the fallback weapon to the best one the build can actually wear.
  * <p>
- * The skill grants always put at least one real damaging skill first (and {@code Heal} for the
- * healer role) so {@link AgentCombat#isAttackSkill} and {@link AgentSkill#autoHeal} stay usable at
- * every tier, including the very first job advancement.
+ * The skill grants always put at least one real damaging skill first so
+ * {@link AgentCombat#isAttackSkill} stays usable at every tier, including the very first job
+ * advancement. The healer role learns {@code Heal} from its second job (Cleric, level 30) on.
  */
 final class CompanionTemplate {
 
@@ -124,9 +124,11 @@ final class CompanionTemplate {
     /** A minimal, role-less build (used only for unrecognised base jobs). */
     private static Build blank(Job job, int level) {
         final int safeLevel = Math.max(1, level);
+        final int totalAp = 16 + Math.max(0, safeLevel - 1) * 5;
+        final int lv = Math.max(0, safeLevel - 1);
         return new Build(null, job, safeLevel,
-                4, 4, 4, 4, 0, 0,
-                50, 5, List.of(),
+                4, 4, 4, 4, totalAp - 16, totalSp(safeLevel),
+                50 + 10 * lv, 5 + 5 * lv, List.of(),
                 0, 0, 0, 0, 0,
                 2000001, 2000002, 0, 0,
                 meso(safeLevel));
@@ -144,8 +146,9 @@ final class CompanionTemplate {
         return switch (role) {
             case WARRIOR -> pick(level, Job.WARRIOR, Job.FIGHTER, Job.CRUSADER, Job.HERO);
             case MAGICIAN -> pick(level, Job.MAGICIAN, Job.FP_WIZARD, Job.FP_MAGE, Job.FP_ARCHMAGE);
-            // The healer line tops out at Bishop (there is no 4th job advancement).
-            case HEALER -> pick(level, Job.CLERIC, Job.PRIEST, Job.BISHOP, Job.BISHOP);
+            // The healer line tops out at Bishop (there is no 4th job advancement), so the
+            // level-10 healer is still a Magician and only becomes a Cleric at level 30.
+            case HEALER -> pick(level, Job.MAGICIAN, Job.CLERIC, Job.PRIEST, Job.BISHOP);
             case BOWMAN -> pick(level, Job.BOWMAN, Job.HUNTER, Job.RANGER, Job.BOWMASTER);
             case THIEF -> pick(level, Job.THIEF, Job.ASSASSIN, Job.HERMIT, Job.NIGHTLORD);
             case PIRATE -> pick(level, Job.PIRATE, Job.GUNSLINGER, Job.OUTLAW, Job.CORSAIR);
@@ -258,8 +261,8 @@ final class CompanionTemplate {
     // weapons
     // ------------------------------------------------------------------
 
-    /** Weapon types the role may wield; drives the data-driven {@code ItemInformationProvider} scan. */
-    static Set<WeaponType> roleWeaponTypes(AgentRole role) {
+    /** Weapon types the role may wield at the given level; drives the data-driven item scan. */
+    static Set<WeaponType> roleWeaponTypes(AgentRole role, int level) {
         if (role == null) {
             return EnumSet.noneOf(WeaponType.class);
         }
@@ -269,7 +272,11 @@ final class CompanionTemplate {
             case WARRIOR -> EnumSet.of(WeaponType.SWORD1H, WeaponType.SWORD2H);
             case MAGICIAN, HEALER -> EnumSet.of(WeaponType.WAND, WeaponType.STAFF);
             case BOWMAN -> EnumSet.of(WeaponType.BOW);
-            case THIEF -> EnumSet.of(WeaponType.CLAW);
+            // A thief is a dagger rogue until the Assassin advancement at level 30, when the
+            // dagger attack skill is replaced by the claw line.
+            case THIEF -> level < SECOND_JOB_LEVEL
+                    ? EnumSet.of(WeaponType.DAGGER_OTHER)
+                    : EnumSet.of(WeaponType.CLAW);
             case PIRATE -> EnumSet.of(WeaponType.GUN);
         };
     }
@@ -342,7 +349,7 @@ final class CompanionTemplate {
                         skill(Warrior.SLASH_BLAST, 20),
                         skill(Warrior.IMPROVED_HPREC, 10),
                         skill(Warrior.IMPROVED_MAXHP, 10),
-                        skill(Warrior.ENDURE, 20),
+                        skill(Warrior.ENDURE, 8),
                         skill(Warrior.IRON_BODY, 20)));
                 if (tier >= 2) {
                     addAll(skills, List.of(
@@ -398,22 +405,32 @@ final class CompanionTemplate {
                 }
             }
             case HEALER -> {
-                // Heal first so autoHeal always has a skill at the lowest tier.
+                // A level-10 healer is still a Magician (Cleric needs level 30), so the first
+                // tier grants the standard magician attack/utility skills. Heal arrives with
+                // the Cleric advancement at tier 2.
                 addAll(skills, List.of(
-                        skill(Cleric.HEAL, 30),
-                        skill(Cleric.HOLY_ARROW, 20),
-                        skill(Cleric.BLESS, 20),
-                        skill(Cleric.MP_EATER, 10),
-                        skill(Cleric.TELEPORT, 20),
-                        skill(Cleric.INVINCIBLE, 20)));
+                        skill(Magician.ENERGY_BOLT, 20),
+                        skill(Magician.MAGIC_CLAW, 20),
+                        skill(Magician.MAGIC_GUARD, 20),
+                        skill(Magician.IMPROVED_MAX_MP_INCREASE, 10),
+                        skill(Magician.IMPROVED_MP_RECOVERY, 10)));
                 if (tier >= 2) {
+                    addAll(skills, List.of(
+                            skill(Cleric.HEAL, 30),
+                            skill(Cleric.HOLY_ARROW, 20),
+                            skill(Cleric.BLESS, 20),
+                            skill(Cleric.MP_EATER, 10),
+                            skill(Cleric.TELEPORT, 20),
+                            skill(Cleric.INVINCIBLE, 20)));
+                }
+                if (tier >= 3) {
                     addAll(skills, List.of(
                             skill(Priest.SHINING_RAY, 30),
                             skill(Priest.HOLY_SYMBOL, 30),
                             skill(Priest.DISPEL, 20),
                             skill(Priest.ELEMENTAL_RESISTANCE, 20)));
                 }
-                if (tier >= 3) {
+                if (tier >= 4) {
                     addAll(skills, List.of(
                             skill(Bishop.ANGEL_RAY, 30),
                             skill(Bishop.GENESIS, 30),
@@ -457,9 +474,13 @@ final class CompanionTemplate {
                 }
             }
             case THIEF -> {
+                // Lucky Seven is ranged-only and excluded by AgentCombat, and Double Stab is a
+                // dagger skill, so it only belongs to the dagger tier. From Assassin on, lead
+                // with the claw attack skill instead.
+                addAll(skills, List.of(tier == 1
+                        ? skill(Rogue.DOUBLE_STAB, 20)
+                        : skill(Assassin.DRAIN, 20)));
                 addAll(skills, List.of(
-                        skill(Rogue.LUCKY_SEVEN, 20),
-                        skill(Rogue.DOUBLE_STAB, 20),
                         skill(Rogue.NIMBLE_BODY, 20),
                         skill(Rogue.KEEN_EYES, 8),
                         skill(Rogue.DARK_SIGHT, 20)));
@@ -468,8 +489,7 @@ final class CompanionTemplate {
                             skill(Assassin.CLAW_MASTERY, 20),
                             skill(Assassin.CRITICAL_THROW, 20),
                             skill(Assassin.CLAW_BOOSTER, 20),
-                            skill(Assassin.HASTE, 20),
-                            skill(Assassin.DRAIN, 20)));
+                            skill(Assassin.HASTE, 20)));
                 }
                 if (tier >= 3) {
                     addAll(skills, List.of(
@@ -494,7 +514,7 @@ final class CompanionTemplate {
                         skill(Pirate.FLASH_FIST, 20),
                         skill(Pirate.SOMERSAULT_KICK, 20),
                         skill(Pirate.BULLET_TIME, 20),
-                        skill(Pirate.DASH, 20)));
+                        skill(Pirate.DASH, 10)));
                 if (tier >= 2) {
                     addAll(skills, List.of(
                             skill(Gunslinger.GUN_MASTERY, 20),
@@ -505,7 +525,7 @@ final class CompanionTemplate {
                 }
                 if (tier >= 3) {
                     addAll(skills, List.of(
-                            skill(Outlaw.BURST_FIRE, 30),
+                            skill(Outlaw.BURST_FIRE, 20),
                             skill(Outlaw.FLAME_THROWER, 30),
                             skill(Outlaw.ICE_SPLITTER, 30),
                             skill(Outlaw.HOMING_BEACON, 20),
@@ -516,7 +536,7 @@ final class CompanionTemplate {
                             skill(Corsair.RAPID_FIRE, 30),
                             skill(Corsair.BATTLESHIP_CANNON, 30),
                             skill(Corsair.BATTLESHIP_TORPEDO, 30),
-                            skill(Corsair.WRATH_OF_THE_OCTOPI, 30),
+                            skill(Corsair.WRATH_OF_THE_OCTOPI, 20),
                             skill(Corsair.MAPLE_WARRIOR, 30)));
                 }
             }
@@ -562,7 +582,7 @@ final class CompanionTemplate {
             case PIRATE -> new Gear(ItemId.BROWN_POLLARD,
                     0,
                     ItemId.BROWN_PAULIE_BOOTS,
-                    ItemId.PRIME_HANDS,
+                    ItemId.PISTOL,
                     0,
                     ItemId.WHITE_POTION, ItemId.BLUE_POTION,
                     ItemId.BULLET, 800);
