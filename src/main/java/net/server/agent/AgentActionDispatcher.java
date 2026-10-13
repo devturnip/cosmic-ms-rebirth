@@ -4,6 +4,8 @@ import client.Character;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
+import net.server.world.Party;
+import net.server.world.PartyCharacter;
 import net.server.world.World;
 import net.packet.ByteBufOutPacket;
 import net.packet.InPacket;
@@ -100,7 +102,7 @@ public class AgentActionDispatcher {
     }
 
     private void partyChat(AgentSession session, String message) {
-        if (message == null) {
+        if (message == null || partyHasOptedOutMember(session)) {
             return;
         }
         send(session, RecvOpcode.MULTI_CHAT, p -> {
@@ -108,6 +110,30 @@ public class AgentActionDispatcher {
             p.writeByte(0); // no explicit recipients needed for party chat
             p.writeString(message);
         });
+    }
+
+    /** Whether any other member of the agent's party has opted out of agent interaction. */
+    private static boolean partyHasOptedOutMember(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getParty() == null) {
+            return false;
+        }
+        for (PartyCharacter member : chr.getParty().getMembers()) {
+            if (member.getId() != chr.getId() && AgentManager.getInstance().isOptedOut(member.getId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the named player, when resolvable, has opted out of AI-agent interaction. */
+    private static boolean isOptedOutTarget(AgentSession session, String targetName) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return false;
+        }
+        Character target = findPlayerByName(chr, targetName);
+        return target != null && AgentManager.getInstance().isOptedOut(target.getId());
     }
 
     /** Resolves a nearby or same-world player by name and sets it as the agent's manual follow. */
@@ -120,7 +146,7 @@ public class AgentActionDispatcher {
             return;
         }
         Character target = findPlayerByName(chr, targetName);
-        if (target != null) {
+        if (target != null && !AgentManager.getInstance().isOptedOut(target.getId())) {
             session.setManualFollow(target.getId());
         }
     }
@@ -146,6 +172,9 @@ public class AgentActionDispatcher {
         if (targetName == null || targetName.isBlank() || message == null) {
             return;
         }
+        if (isOptedOutTarget(session, targetName)) {
+            return; // honour the player's opt-out
+        }
         send(session, RecvOpcode.WHISPER, p -> {
             p.writeByte(PacketCreator.WhisperFlag.WHISPER | PacketCreator.WhisperFlag.REQUEST);
             p.writeString(targetName);
@@ -156,6 +185,9 @@ public class AgentActionDispatcher {
     private void inviteToParty(AgentSession session, String targetName) {
         if (targetName == null || targetName.isBlank()) {
             return;
+        }
+        if (isOptedOutTarget(session, targetName)) {
+            return; // honour the player's opt-out
         }
         send(session, RecvOpcode.PARTY_OPERATION, p -> {
             p.writeByte(4); // invite

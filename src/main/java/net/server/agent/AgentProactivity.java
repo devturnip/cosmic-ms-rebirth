@@ -32,8 +32,9 @@ public final class AgentProactivity {
         // Selection is read-only; only the chosen player is marked (otherwise players closer than
         // the current best would be silently suppressed without ever being greeted).
         for (Character other : chr.getMap().getAllPlayers()) {
-            if (other.getId() == chr.getId() || AgentManager.getInstance().isAgent(other.getId())) {
-                continue; // do not greet ourselves or other agents
+            if (other.getId() == chr.getId() || AgentManager.getInstance().isAgent(other.getId())
+                    || AgentManager.getInstance().isOptedOut(other.getId())) {
+                continue; // do not greet ourselves, other agents, or opted-out players
             }
             if (other.isGM() || other.isHidden() || other.getPosition() == null) {
                 continue; // never name a hidden/GM player in public chat

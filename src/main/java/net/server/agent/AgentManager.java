@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +49,9 @@ public class AgentManager {
     private final Map<Integer, Long> lastChannelTransferAt = new ConcurrentHashMap<>();
     private final AtomicLong sessionIdGenerator = new AtomicLong(-5000); // negative to avoid clashing with netty sessions
     private final AgentMemoryStore memoryStore = new AgentMemoryStore();
+    private final AgentOptoutStore optoutStore = new AgentOptoutStore();
+    /** Character ids that have opted out of AI-agent interaction (see /agentoptout). */
+    private final Set<Integer> optedOut = ConcurrentHashMap.newKeySet();
 
     private ExecutorService brainPool;
     private ScheduledExecutorService ticker;
@@ -72,6 +76,7 @@ public class AgentManager {
             t.setDaemon(true);
             return t;
         };
+        optedOut.addAll(optoutStore.loadAll());
         brainPool = Executors.newFixedThreadPool(AgentConfig.maxConcurrentCalls(), daemonFactory);
         ticker = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "agent-ticker");
@@ -344,12 +349,36 @@ public class AgentManager {
     }
 
     // ------------------------------------------------------------------
+    // player opt-out
+    // ------------------------------------------------------------------
+
+    /** Whether {@code characterId} has opted out of all AI-agent interaction. */
+    public boolean isOptedOut(int characterId) {
+        return optedOut.contains(characterId);
+    }
+
+    /** Sets the opt-out state for a player and persists it (best-effort; DB errors are logged). */
+    public void setOptedOut(int characterId, boolean value) {
+        applyOptedOut(characterId, value);
+        optoutStore.set(characterId, value);
+    }
+
+    /** In-memory opt-out update without persistence (also a test seam). */
+    void applyOptedOut(int characterId, boolean value) {
+        if (value) {
+            optedOut.add(characterId);
+        } else {
+            optedOut.remove(characterId);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // event routing (called by lightweight hooks at chat/party choke points)
     // ------------------------------------------------------------------
 
     public void onMapChat(MapleMap map, int speakerId, String speakerName, String message, boolean gmChat) {
-        if (sessionsByCharacterId.isEmpty()) {
-            return;
+        if (sessionsByCharacterId.isEmpty() || isOptedOut(speakerId)) {
+            return; // an opted-out player is invisible to agents
         }
         AgentEvent event = new AgentEvent.MapChat(speakerId, speakerName, message, gmChat);
         for (AgentSession session : sessionsByCharacterId.values()) {
@@ -364,7 +393,17 @@ public class AgentManager {
         if (party == null || sessionsByCharacterId.isEmpty()) {
             return;
         }
-        AgentEvent event = new AgentEvent.PartyChat(-1, speakerName, message);
+        int speakerId = -1;
+        for (PartyCharacter member : party.getMembers()) {
+            if (member.getName().equals(speakerName)) {
+                speakerId = member.getId();
+                break;
+            }
+        }
+        if (isOptedOut(speakerId)) {
+            return; // an opted-out party member is invisible to agents
+        }
+        AgentEvent event = new AgentEvent.PartyChat(speakerId, speakerName, message);
         for (PartyCharacter member : party.getMembers()) {
             if (member.getName().equals(speakerName)) {
                 continue;
@@ -378,14 +417,14 @@ public class AgentManager {
 
     public void onWhisper(int targetId, int speakerId, String speakerName, String message) {
         AgentSession session = sessionsByCharacterId.get(targetId);
-        if (session != null) {
+        if (session != null && !isOptedOut(speakerId)) {
             session.enqueue(new AgentEvent.Whisper(speakerId, speakerName, message));
         }
     }
 
     public void onPartyInvite(int invitedId, int inviterId, String inviterName, int partyId) {
         AgentSession session = sessionsByCharacterId.get(invitedId);
-        if (session != null) {
+        if (session != null && !isOptedOut(inviterId)) {
             session.enqueue(new AgentEvent.PartyInvite(inviterId, inviterName, partyId));
         }
     }
@@ -424,7 +463,7 @@ public class AgentManager {
                 continue;
             }
             int leaderId = party.getLeaderId();
-            if (leaderId != p.getId()) {
+            if (leaderId != p.getId() && !isOptedOut(leaderId)) {
                 session.setFollowTarget(leaderId);
             } else {
                 session.clearFollow();
@@ -479,7 +518,7 @@ public class AgentManager {
             return false;
         }
         Character target = world.getPlayerStorage().getCharacterByName(targetName);
-        if (target == null) {
+        if (target == null || isOptedOut(target.getId())) {
             return false;
         }
         session.setManualFollow(target.getId());

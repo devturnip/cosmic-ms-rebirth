@@ -291,8 +291,9 @@ public class PartySearchCoordinator {
     }
 
     private boolean sendPartyInviteFromSearch(Character chr, Character leader) {
-        if (chr == null || net.server.agent.AgentManager.getInstance().isAgent(chr.getId())) {
-            return false; // never auto-invite another agent into a party
+        if (chr == null || net.server.agent.AgentManager.getInstance().isAgent(chr.getId())
+                || net.server.agent.AgentManager.getInstance().isOptedOut(chr.getId())) {
+            return false; // never auto-invite another agent or an opted-out player
         }
 
         int partyid = leader.getPartyId();

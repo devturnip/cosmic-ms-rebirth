@@ -30,7 +30,7 @@ import server.ThreadManager;
 
 public class AgentCommand extends Command {
     {
-        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute ...");
+        setDescription("Manage in-process LLM agents. Usage: /agent spawn|despawn|list|status|say|follow|stopfollow|search|mute|unmute|optout ...");
     }
 
     @Override
@@ -57,7 +57,7 @@ public class AgentCommand extends Command {
         AgentManager manager = AgentManager.getInstance();
 
         if (params.length < 1) {
-            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name>");
+            player.message("Usage: /agent spawn <name> | despawn <name> | list | status <name> | say <name> <msg> | follow <name> <player> | stopfollow <name> | search <name> | mute <name> | unmute <name> | optout <player>");
             return;
         }
 
@@ -166,6 +166,21 @@ public class AgentCommand extends Command {
                         .append(" lastActions=").append(session.getLastActions());
                 player.message(sb.toString());
             }
+            case "optout" -> {
+                if (params.length < 2) {
+                    player.message("Usage: /agent optout <playerName>");
+                    return;
+                }
+                Character target = player.getWorldServer().getPlayerStorage().getCharacterByName(params[1]);
+                if (target == null) {
+                    player.message("No online player named '" + params[1] + "'.");
+                    return;
+                }
+                boolean optOut = !manager.isOptedOut(target.getId());
+                manager.setOptedOut(target.getId(), optOut);
+                player.message("Player '" + target.getName() + "' is now "
+                        + (optOut ? "opted out of" : "open to") + " AI-agent interaction.");
+            }
             case "mute", "unmute" -> {
                 if (params.length < 2) {
                     player.message("Usage: /agent mute|unmute <agentName>");
@@ -181,7 +196,7 @@ public class AgentCommand extends Command {
                 player.message("Agent '" + session.getName() + "' is now "
                         + (session.isMuted() ? "muted" : "unmuted") + ".");
             }
-            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, status, say, follow, stopfollow, search, mute or unmute.");
+            default -> player.message("Unknown agent action '" + action + "'. Use spawn, despawn, list, status, say, follow, stopfollow, search, mute, unmute or optout.");
         }
     }
 }
