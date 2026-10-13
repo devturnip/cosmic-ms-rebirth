@@ -119,12 +119,6 @@ public class AgentSession {
         this.muted = muted;
     }
 
-    /** Toggles chat suppression and returns the new state. */
-    public boolean toggleMuted() {
-        muted = !muted;
-        return muted;
-    }
-
     public long getLastDecisionAt() {
         return lastDecisionAt;
     }

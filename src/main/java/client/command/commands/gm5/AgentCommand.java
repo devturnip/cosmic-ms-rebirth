@@ -176,10 +176,8 @@ public class AgentCommand extends Command {
                     player.message("No active agent named '" + params[1] + "'.");
                     return;
                 }
-                boolean mute = action.equals("mute");
-                if (session.isMuted() != mute) {
-                    session.toggleMuted();
-                }
+                // Idempotent set (no read-modify-write race between concurrent GMs).
+                session.setMuted(action.equals("mute"));
                 player.message("Agent '" + session.getName() + "' is now "
                         + (session.isMuted() ? "muted" : "unmuted") + ".");
             }
