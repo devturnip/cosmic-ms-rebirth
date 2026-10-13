@@ -67,7 +67,11 @@ class MobSkillFactoryTest {
 
     @Test
     void shouldThrowExceptionOnNonExisting() {
-        assertThrows(IllegalArgumentException.class, () -> MobSkillFactory.getMobSkillOrThrow(MobSkillType.DEFENSE_UP, 1));
+        // Use a level that cannot exist in any WZ (the factory's static provider is initialized once
+        // per JVM, so which data source is active depends on suite ordering; the assertion must hold
+        // for both the real and the test provider).
+        assertThrows(IllegalArgumentException.class,
+                () -> MobSkillFactory.getMobSkillOrThrow(MobSkillType.DEFENSE_UP, 999));
     }
 
 }
