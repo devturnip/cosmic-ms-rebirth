@@ -21,7 +21,7 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
   companions** M5–M7 via `/agents list|find|pause|resume|dismiss`). Also landed: hold-skill
   attack pacing + ranged cast stance, foothold-aware platform stepping, and GM
   `/agent pause|resume`. Remaining open items: companion fairness/lifecycle depth (M8) and a
-  party-quest compatibility audit (M9), `/agent tell`, and deeper pathing/cast fidelity —
+  party-quest compatibility audit (M9), and deeper pathing/cast fidelity —
   see **§11 Resuming the work** and **`docs/llm-agent-companions-plan.md`** for checklists.
 - **Defaults in source:** feature ships **off** (`USE_LLM_AGENTS: false`), proactive behavior
   **off** (`LLM_AGENT_PROACTIVE: false`). The committed `config.yaml` currently has the guide's
@@ -446,8 +446,8 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
   per-skill cast-animation fidelity remain approximate.
-- **`/agent tell`:** not implemented (a parked prototype exists); `/agents pause|resume` and GM
-  `/agent pause|resume` **are implemented**.
+- **`/agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
+  prototype was discarded). `/agents pause|resume` and GM `/agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`/agents list|find|pause|resume|dismiss`);
   see **`docs/llm-agent-companions-plan.md`**. M8 (idle despawn/uptime caps) and M9 (party-quest
   audit) remain open.
@@ -518,8 +518,8 @@ HIGH/MEDIUM findings were addressed:
   `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
 Known low-risk remainder: `/agent search` and auto-matchmaking enable party-search
-auto-invites (documented); `/agent tell` is not implemented (`pause`/`resume` and `mute`/`unmute`
-are); movement is clamped, foothold-aware waypoint stepping, not a full foothold/rope pathfinder
+auto-invites (documented); movement is clamped, foothold-aware waypoint stepping, not a full
+foothold/rope pathfinder
 (no rope/ladder model exists server-side); and there is latent cross-thread map mutation on very
 busy maps
 (soak-test target; map collections use read/write locks).
@@ -587,7 +587,7 @@ this up cold:
 | --- | --- | --- |
 | **Foothold/rope pathing depth** | `AgentMovement` (`moveToSmart`, `stepToward`, `stepAway`, `findPortalTo`, `walkThroughPortalTo`); `FootholdTree` | **Partially done:** `moveToSmart` is now foothold-aware (walks along the current foothold and drops to the landing foothold via `FootholdTree.findBelow`/`getAllFootholds`), falling back to the old clamped stepping when footholds are absent. Still open: a full foothold **graph** search and any rope/ladder model (the server has none, and `MovePlayerHandler` is client-authoritative on position, so this is largely cosmetic). |
 | **Hurricane/Rapid Fire after-delay + cast animation** | `AgentCombat` (`attackDelayMs`, `buildRangedAttackPacket`), `AgentSkill` (buff/heal packets) | **Partially done:** hold skills now use a fixed minimum interval when the WZ cooldown is 0, and the ranged packet's `stance` mirrors `rangedirection` for them. Still open: exact per-weapon attack-speed and per-skill cast-animation fidelity. |
-| **`/agent tell`** | `AgentCommand` | `pause`/`resume` now exist (player `/agents pause|resume`, GM `/agent pause|resume`). `tell` (an out-of-band GM directive distinct from `/agent say`) is still not implemented; a parked, unmerged `ws/agent-tell-pause` branch has a prototype. |
+| **`/agent tell`** | `AgentCommand` | Intentionally dropped: `pause`/`resume` shipped (player `/agents pause|resume`, GM `/agent pause|resume`); the operator-only `tell` directive was judged marginal and its prototype discarded. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop` (untested), opt-out routing gates `onMapChat`/`onWhisper`/`onPartyInvite` (untested), `AgentManager.transferChannel` (no unit test — needs a spawn/DB seam) | Add seams/tests if you touch these paths. Companion provisioning is also only faked in tests, not DB-integration-tested. |
 
 ### 11.2 Environment state (as of the latest session)

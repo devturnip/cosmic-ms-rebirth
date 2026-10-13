@@ -309,5 +309,5 @@ per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 - **Combat fidelity** — hold-skill after-delay pacing (Hurricane/Rapid Fire/etc. now use a fixed
   minimum interval when the WZ cooldown is 0) and the ranged cast stance for those skills are
   implemented; exact per-weapon attack-speed / cast-animation fidelity remains approximate.
-- `/agent tell` (an out-of-band GM directive distinct from `/agent say`) is not implemented on
-  this branch; `/agents pause`/`resume` and GM `/agent pause`/`resume` are.
+- `/agent tell` was intentionally dropped (an operator-only directive of marginal value);
+  `/agents pause`/`resume` and GM `/agent pause`/`resume` are implemented.
