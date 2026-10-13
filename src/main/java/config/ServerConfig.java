@@ -355,4 +355,13 @@ public class ServerConfig {
     public boolean LLM_AGENT_MEMORY_SUMMARIZE = true;
     public int LLM_MAX_CALLS_PER_MIN = 60;
     public boolean LLM_AGENT_NOTICE = false;
+
+    //Player-facing companions (ephemeral, on-demand); all default off/deny.
+    public boolean LLM_AGENT_PLAYER_SPAWN = false;
+    public int LLM_AGENT_MAX_PER_PLAYER = 1;
+    public long LLM_AGENT_REQUEST_COOLDOWN_MS = 60000L;
+    public String LLM_AGENT_LEVEL_MATCH = "EXACT";
+    public boolean LLM_AGENT_AUTO_PARTY = true;
+    public boolean LLM_AGENT_COMPLEMENT_JOB = true;
+    public String LLM_AGENT_ACCOUNT_PREFIX = "agnt";
 }

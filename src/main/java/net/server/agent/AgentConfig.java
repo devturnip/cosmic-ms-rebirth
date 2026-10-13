@@ -252,6 +252,44 @@ public final class AgentConfig {
         return YamlConfig.config.server.LLM_AGENT_NOTICE;
     }
 
+    // ------------------------------------------------------------------
+    // player-facing companions
+    // ------------------------------------------------------------------
+
+    /** Whether players may summon ephemeral companions (requires the master switch too). */
+    public static boolean playerSpawn() {
+        return enabled() && YamlConfig.config.server.LLM_AGENT_PLAYER_SPAWN;
+    }
+
+    public static int maxPerPlayer() {
+        int value = YamlConfig.config.server.LLM_AGENT_MAX_PER_PLAYER;
+        return value > 0 ? value : 1;
+    }
+
+    public static long requestCooldownMs() {
+        long value = YamlConfig.config.server.LLM_AGENT_REQUEST_COOLDOWN_MS;
+        return value > 0 ? value : 60000L;
+    }
+
+    /** Level matching policy: {@code EXACT} or {@code BAND5}. */
+    public static String levelMatch() {
+        String value = YamlConfig.config.server.LLM_AGENT_LEVEL_MATCH;
+        return value == null || value.isBlank() ? "EXACT" : value.toUpperCase();
+    }
+
+    public static boolean autoParty() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_PARTY;
+    }
+
+    public static boolean complementJob() {
+        return YamlConfig.config.server.LLM_AGENT_COMPLEMENT_JOB;
+    }
+
+    public static String accountPrefix() {
+        String value = YamlConfig.config.server.LLM_AGENT_ACCOUNT_PREFIX;
+        return value == null || value.isBlank() ? "agnt" : value;
+    }
+
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }

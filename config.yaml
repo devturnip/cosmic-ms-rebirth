@@ -509,3 +509,12 @@ server:
     LLM_AGENT_MEMORY_SUMMARIZE: true    #Fold old dialogue into durable memory facts.
     LLM_MAX_CALLS_PER_MIN: 60           #Global cap on LLM requests per minute (0 = unlimited).
     LLM_AGENT_NOTICE: false             #Broadcast a map notice that an agent is AI-controlled when it spawns.
+
+    #Player-facing companions (ephemeral, on-demand). Requires USE_LLM_AGENTS.
+    LLM_AGENT_PLAYER_SPAWN: false       #Allow rank-0 players to summon a companion with /agents find.
+    LLM_AGENT_MAX_PER_PLAYER: 1         #Max simultaneous companions summoned by one player.
+    LLM_AGENT_REQUEST_COOLDOWN_MS: 60000 #Minimum ms between /agents find requests by one player.
+    LLM_AGENT_LEVEL_MATCH: "EXACT"      #EXACT (requester's level) or BAND5 (within 5 levels).
+    LLM_AGENT_AUTO_PARTY: true          #Automatically form/join a party with the summoned companion.
+    LLM_AGENT_COMPLEMENT_JOB: true      #Prefer a companion role that complements the requester's job.
+    LLM_AGENT_ACCOUNT_PREFIX: "agnt"    #Prefix for server-owned accounts created for ephemeral companions.
