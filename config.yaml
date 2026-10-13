@@ -493,3 +493,5 @@ server:
     LLM_AGENT_AOE_ATTACK: false         #Allow a multi-target skill attack to hit several nearby monsters at once.
     LLM_AGENT_AOE_MAX_TARGETS: 6        #Upper bound on monsters hit by one multi-target attack.
     LLM_AGENT_FOLLOW_WARP: false        #Warp the agent to its follow target's map when they leave the current map.
+    LLM_AGENT_AUTO_RECHARGE: false      #Allow ranged agents to recharge ammo (meso cost) at a nearby shop NPC.
+    LLM_AGENT_RECHARGE_RANGE_SQ: 150000.0 #Squared distance within which an NPC can act as a recharge shop (~387px).

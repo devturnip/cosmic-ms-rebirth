@@ -152,6 +152,15 @@ public final class AgentConfig {
         return YamlConfig.config.server.LLM_AGENT_FOLLOW_WARP;
     }
 
+    public static boolean autoRecharge() {
+        return YamlConfig.config.server.LLM_AGENT_AUTO_RECHARGE;
+    }
+
+    public static double rechargeRangeSq() {
+        double value = YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ;
+        return value > 0 ? value : 150000.0;
+    }
+
     /** Parses the comma-separated {@code LLM_AGENT_AUTO_BUFF_SKILLS} list. */
     public static int[] autoBuffSkills() {
         String raw = YamlConfig.config.server.LLM_AGENT_AUTO_BUFF_SKILLS;

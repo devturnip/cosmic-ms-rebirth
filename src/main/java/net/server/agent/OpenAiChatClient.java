@@ -156,11 +156,15 @@ public class OpenAiChatClient {
         tools.add(function(mapper, "attack", "Attack a nearby monster, optionally with a learned skill.",
                 new Param("target_object_id", "integer", "The map object id of the monster to attack.", true),
                 new Param("skill_id", "integer", "Optional attack skill id; omit for a basic attack.", false)));
+        tools.add(function(mapper, "attack_many", "Attack several nearby monsters at once with a learned damaging skill. Falls back to a single target when multi-target attacks are disabled or the skill is unusable.",
+                Param.arrayOfInt("target_object_ids", "The map object ids of the monsters to attack, nearest first.", true),
+                new Param("skill_id", "integer", "Optional attack skill id; omit for a basic attack on the first target.", false)));
         tools.add(function(mapper, "respawn", "Respawn at the return point after dying.", new Param[0]));
         tools.add(function(mapper, "cast_buff", "Cast a buff skill the agent has learned.",
                 new Param("skill_id", "integer", "The skill id of the buff to cast.", true)));
         tools.add(function(mapper, "cast_heal", "Cast a heal skill to restore the agent and nearby party members.",
                 new Param("skill_id", "integer", "Heal skill id; 0 or omitted to auto-detect the learned heal skill.", false)));
+        tools.add(function(mapper, "recharge_ammo", "Recharge throwing stars or bullets at a nearby shop NPC; costs mesos. Arrows cannot be recharged and must be bought.", new Param[0]));
         tools.add(function(mapper, "remember", "Persist a durable fact about a player or event.",
                 new Param("fact", "string", "The fact to remember.", true)));
         tools.add(function(mapper, "idle", "Do nothing this cycle.", new Param[0]));
@@ -182,6 +186,9 @@ public class OpenAiChatClient {
             ObjectNode property = properties.putObject(parameter.name());
             property.put("type", parameter.type());
             property.put("description", parameter.description());
+            if (parameter.itemType() != null) {
+                property.putObject("items").put("type", parameter.itemType());
+            }
             if (parameter.required()) {
                 required.add(parameter.name());
             }
@@ -208,6 +215,13 @@ public class OpenAiChatClient {
     public record ToolCall(String name, String argumentsJson) {
     }
 
-    private record Param(String name, String type, String description, boolean required) {
+    private record Param(String name, String type, String description, boolean required, String itemType) {
+        Param(String name, String type, String description, boolean required) {
+            this(name, type, description, required, null);
+        }
+
+        static Param arrayOfInt(String name, String description, boolean required) {
+            return new Param(name, "array", description, required, "integer");
+        }
     }
 }

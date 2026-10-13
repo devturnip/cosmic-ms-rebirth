@@ -1,5 +1,8 @@
 package net.server.agent;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * A high-level action an agent wants to perform. Actions are executed by
  * {@link AgentActionDispatcher}, which translates them into the same inbound packets (or
@@ -57,6 +60,35 @@ public sealed interface AgentAction {
 
     /** Attack a monster with a learned damaging skill. */
     record SkillAttack(int targetObjectId, int skillId) implements AgentAction {
+    }
+
+    /**
+     * Attack several monsters at once with a learned damaging skill. Honours
+     * {@code LLM_AGENT_AOE_ATTACK}: when multi-target attacks are disabled, or the skill is
+     * unusable, only the first target is attacked (with the skill, or a basic attack).
+     */
+    record SkillAttackMany(List<Integer> targetObjectIds, int skillId) implements AgentAction {
+        private static final int MAX_TARGETS = 15;
+
+        public SkillAttackMany {
+            List<Integer> copy = new ArrayList<>();
+            if (targetObjectIds != null) {
+                for (Integer id : targetObjectIds) {
+                    if (id == null || copy.contains(id)) {
+                        continue;
+                    }
+                    copy.add(id);
+                    if (copy.size() >= MAX_TARGETS) {
+                        break;
+                    }
+                }
+            }
+            targetObjectIds = List.copyOf(copy);
+        }
+    }
+
+    /** Recharge ranged projectiles from a nearby NPC (arrows/bullets/throwing stars). */
+    record RechargeAmmo() implements AgentAction {
     }
 
     /** Cast a buff skill the agent has learned. */

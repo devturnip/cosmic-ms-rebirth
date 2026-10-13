@@ -279,6 +279,9 @@ public class AgentSession {
         if (AgentConfig.autoLoot()) {
             runSafely("loot", () -> AgentCombat.lootNearest(this));
         }
+        if (AgentConfig.autoRecharge()) {
+            runSafely("recharge", () -> AgentCombat.rechargeAmmo(this));
+        }
         if (AgentConfig.autoBuff()) {
             runSafely("buff", () -> AgentSkill.autoCast(this));
         }
@@ -295,7 +298,7 @@ public class AgentSession {
     /** Whether any server-driven behaviour needs the per-tick step to run. */
     private static boolean behaviorEnabled() {
         return AgentConfig.autoSustain() || AgentConfig.autoCombat() || AgentConfig.autoBuff()
-                || AgentConfig.autoHeal() || AgentConfig.autoLoot();
+                || AgentConfig.autoHeal() || AgentConfig.autoLoot() || AgentConfig.autoRecharge();
     }
 
     /** Keeps the agent near its follow target (typically the party leader) when on the same map. */

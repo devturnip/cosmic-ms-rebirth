@@ -90,6 +90,16 @@ public class LlmAgentBrain implements AgentBrain {
             sb.append("- HP ").append(observation.hp()).append('/').append(observation.maxHp())
                     .append(", MP ").append(observation.mp()).append('/').append(observation.maxMp()).append('\n');
             sb.append("- Position: (").append(observation.x()).append(", ").append(observation.y()).append(")\n");
+            if (observation.rangedWeapon()) {
+                if (observation.outOfAmmo()) {
+                    sb.append("- Ranged weapon: OUT OF AMMO (recharge at a nearby shop NPC before attacking)\n");
+                } else if (observation.ammoCount() > 0) {
+                    sb.append("- Ranged weapon: ").append(observation.ammoCount())
+                            .append(" projectile(s) available\n");
+                } else {
+                    sb.append("- Ranged weapon: Soul Arrow active (no ammo consumed)\n");
+                }
+            }
             if (observation.buffSkills() != null && !observation.buffSkills().isEmpty()) {
                 sb.append("- Buff skills you can cast: ").append(observation.buffSkills()).append('\n');
             }
@@ -217,7 +227,7 @@ public class LlmAgentBrain implements AgentBrain {
         };
     }
 
-    private AgentAction toAction(OpenAiChatClient.ToolCall call) {
+    AgentAction toAction(OpenAiChatClient.ToolCall call) {
         JsonNode args;
         try {
             String json = call.argumentsJson();
@@ -275,6 +285,15 @@ public class LlmAgentBrain implements AgentBrain {
                         ? new AgentAction.SkillAttack(target.asInt(), skill.asInt())
                         : new AgentAction.Attack(target.asInt());
             }
+            case "attack_many" -> {
+                List<Integer> targets = intArray(args, "target_object_ids");
+                if (targets.isEmpty()) {
+                    yield null;
+                }
+                JsonNode skill = args.path("skill_id");
+                yield new AgentAction.SkillAttackMany(targets, skill.canConvertToInt() ? skill.asInt() : 0);
+            }
+            case "recharge_ammo" -> new AgentAction.RechargeAmmo();
             case "respawn" -> new AgentAction.Respawn();
             case "cast_buff" -> {
                 JsonNode skillId = args.path("skill_id");
@@ -300,6 +319,31 @@ public class LlmAgentBrain implements AgentBrain {
         }
         String value = node.asText().strip();
         return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * Reads an array of integers, dropping non-numeric/duplicate entries and bounding the size
+     * so a hallucinated list cannot force unbounded parsing or map lookups.
+     */
+    private List<Integer> intArray(JsonNode args, String field) {
+        JsonNode node = args.path(field);
+        List<Integer> values = new ArrayList<>();
+        if (!node.isArray()) {
+            return values;
+        }
+        int cap = AgentConfig.aoeMaxTargets(); // already clamped to [1, 15]
+        for (JsonNode element : node) {
+            if (values.size() >= cap) {
+                break;
+            }
+            if (element.canConvertToInt()) {
+                int value = element.asInt();
+                if (!values.contains(value)) {
+                    values.add(value);
+                }
+            }
+        }
+        return values;
     }
 
     private String chat(JsonNode args, String field) {

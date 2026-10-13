@@ -4,6 +4,8 @@ import config.YamlConfig;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentConfigTacticsTest {
 
@@ -34,6 +36,34 @@ class AgentConfigTacticsTest {
             assertEquals(3, AgentConfig.aoeMaxTargets());
         } finally {
             YamlConfig.config.server.LLM_AGENT_AOE_MAX_TARGETS = original;
+        }
+    }
+
+    @Test
+    void autoRechargeReflectsConfig() {
+        boolean original = YamlConfig.config.server.LLM_AGENT_AUTO_RECHARGE;
+        try {
+            YamlConfig.config.server.LLM_AGENT_AUTO_RECHARGE = true;
+            assertTrue(AgentConfig.autoRecharge());
+            YamlConfig.config.server.LLM_AGENT_AUTO_RECHARGE = false;
+            assertFalse(AgentConfig.autoRecharge());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_AUTO_RECHARGE = original;
+        }
+    }
+
+    @Test
+    void rechargeRangeSqFallsBackForNonPositiveValues() {
+        double original = YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ;
+        try {
+            YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ = 0;
+            assertEquals(150000.0, AgentConfig.rechargeRangeSq());
+            YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ = -1;
+            assertEquals(150000.0, AgentConfig.rechargeRangeSq());
+            YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ = 40000.0;
+            assertEquals(40000.0, AgentConfig.rechargeRangeSq());
+        } finally {
+            YamlConfig.config.server.LLM_AGENT_RECHARGE_RANGE_SQ = original;
         }
     }
 

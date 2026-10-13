@@ -111,6 +111,19 @@ public class Inventory implements Iterable<Item> {
         }
     }
 
+    /**
+     * Lock-protected snapshot of the inventory contents, safe to iterate from another thread
+     * (unlike {@link #list()}, which returns a live, unmodifiable view).
+     */
+    public List<Item> listCopy() {
+        lock.lock();
+        try {
+            return new ArrayList<>(inventory.values());
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public Item findById(int itemId) {
         for (Item item : list()) {
             if (item.getItemId() == itemId) {

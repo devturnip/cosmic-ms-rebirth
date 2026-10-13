@@ -67,7 +67,10 @@ public final class AgentPerception {
                 npcs,
                 collectBuffSkills(agent),
                 collectAttackSkills(agent),
-                collectHealSkills(agent)
+                collectHealSkills(agent),
+                AgentCombat.isRangedWeapon(agent),
+                AgentCombat.ammoCount(agent),
+                AgentCombat.outOfAmmo(agent)
         );
     }
 

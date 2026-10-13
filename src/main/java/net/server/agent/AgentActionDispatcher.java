@@ -53,6 +53,10 @@ public class AgentActionDispatcher {
             case AgentAction.Respawn ignored -> AgentCombat.respawn(session);
             case AgentAction.Attack attack -> AgentCombat.attack(session, attack.targetObjectId());
             case AgentAction.SkillAttack attack -> AgentCombat.attackOrFallback(session, attack.targetObjectId(), attack.skillId());
+            case AgentAction.SkillAttackMany attack -> AgentCombat.attackMany(session, attack.targetObjectIds(), attack.skillId());
+            // Explicit LLM decision: always allowed (pays mesos through the shop). The passive
+            // per-tick behaviour is gated separately by AgentConfig.autoRecharge().
+            case AgentAction.RechargeAmmo ignored -> AgentCombat.rechargeAmmo(session);
             case AgentAction.CastBuff buff -> AgentSkill.castBuff(session, buff.skillId());
             case AgentAction.CastHeal heal -> AgentSkill.castHeal(session, heal.skillId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());

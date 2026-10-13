@@ -17,8 +17,11 @@ import net.packet.ByteBufOutPacket;
 import net.packet.InPacket;
 import net.packet.OutPacket;
 import server.ItemInformationProvider;
+import server.Shop;
+import server.ShopFactory;
 import server.StatEffect;
 import server.life.Monster;
+import server.life.NPC;
 import server.maps.MapItem;
 import server.maps.MapObject;
 import server.maps.MapObjectType;
@@ -31,18 +34,24 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Combat helpers: potion self-sustain, respawn, and a basic melee attack.
+ * Combat helpers: potion self-sustain, respawn, ammo perception/recharge, and melee/magic/
+ * ranged basic and skill attacks.
  * <p>
- * Attacks are synthesized as close-range attack packets (see
- * {@code AbstractDealDamageHandler#parseDamage}) with a single target and a single damage
- * line, using a conservative damage value derived from the same base the server validates
- * against. Attacks are only issued for monsters well within the handler's distance-alert
- * threshold, and only by agents that are alive.
+ * Attacks are synthesized as close-range/magic/ranged attack packets (see
+ * {@code AbstractDealDamageHandler#parseDamage}) with one or more targets and up to
+ * {@code max(bulletCount, attackCount)} damage lines each, using a conservative damage value
+ * derived from the same base the server validates against. Attacks are only issued for monsters
+ * well within the handler's distance-alert threshold, and only by agents that are alive.
  */
 public final class AgentCombat {
     /** The handler alerts when squared distance to the monster exceeds 200000. Stay well under it. */
     private static final double MAX_ATTACK_DISTANCE_SQ = 150000.0;
+    /** Basic (skill-0) attacks always hit with a single damage line. */
     private static final int DAMAGE_LINES = 1;
+    /** Hard cap on damage lines per target, so a bad effect cannot build an absurd packet. */
+    private static final int MAX_DAMAGE_LINES = 8;
+    /** A nibble carries the target count, so no packet may name more than 15 monsters. */
+    private static final int MAX_PACKET_TARGETS = 15;
 
     /** Skills for which parseDamage reads an extra charge int (and Poison Bomb a trailing position). */
     private static final int POISON_BOMB = 14111006;
@@ -357,13 +366,14 @@ public final class AgentCombat {
             return;
         }
         int damage = skillDamage(chr, skillId);
+        int lines = damageLines(chr, skillId);
         if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
             if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
                 return; // out of ammo; do not fall back to a melee swing with a ranged weapon
             }
-            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, targetObjectId, damage));
+            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, targetObjectId, damage, lines));
         } else {
-            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, targetObjectId, damage));
+            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, targetObjectId, damage, lines));
         }
     }
 
@@ -374,6 +384,50 @@ public final class AgentCombat {
             skillAttack(session, targetObjectId, skillId);
         } else {
             attack(session, targetObjectId);
+        }
+    }
+
+    /**
+     * Attacks several monsters named by the brain. When multi-target attacks are disabled or
+     * the skill is unusable, only the first target is attacked so the request still does
+     * something sensible instead of being dropped.
+     */
+    public static void attackMany(AgentSession session, List<Integer> targetObjectIds, int skillId) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getMap() == null
+                || targetObjectIds == null || targetObjectIds.isEmpty()) {
+            return;
+        }
+        List<Integer> targets = new ArrayList<>();
+        for (int oid : targetObjectIds) {
+            if (!targets.contains(oid)) {
+                targets.add(oid);
+            }
+        }
+        if (targets.isEmpty()) {
+            return;
+        }
+        boolean skillUsable = skillId > 0 && canUseAttackSkill(chr, skillId);
+        if (skillUsable && targets.size() > 1 && AgentConfig.aoeAttack()) {
+            skillAttackMany(session, targets, skillId);
+            return;
+        }
+        // Single-target fallback: use the first target that is actually alive and in range,
+        // so a stale id does not make the whole action a no-op.
+        double range = Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ);
+        Point self = chr.getPosition();
+        for (int oid : targets) {
+            MapObject object = chr.getMap().getMapObject(oid);
+            if (!(object instanceof Monster monster) || monster.getHp() <= 0 || monster.getPosition() == null
+                    || self == null || self.distanceSq(monster.getPosition()) > range) {
+                continue;
+            }
+            if (skillUsable) {
+                skillAttack(session, oid, skillId);
+            } else {
+                attack(session, oid);
+            }
+            return;
         }
     }
 
@@ -389,6 +443,10 @@ public final class AgentCombat {
         }
         int maxTargets = Math.max(1, Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId)));
         double range = Math.min(AgentConfig.attackRangeSq(), MAX_ATTACK_DISTANCE_SQ);
+        Point self = chr.getPosition();
+        if (self == null) {
+            return;
+        }
         List<Integer> valid = new ArrayList<>();
         for (int oid : targetObjectIds) {
             if (valid.size() >= maxTargets) {
@@ -398,7 +456,7 @@ public final class AgentCombat {
             if (!(object instanceof Monster monster) || monster.getHp() <= 0 || monster.getPosition() == null) {
                 continue;
             }
-            if (chr.getPosition().distanceSq(monster.getPosition()) > range) {
+            if (self.distanceSq(monster.getPosition()) > range) {
                 continue;
             }
             valid.add(oid);
@@ -411,13 +469,14 @@ public final class AgentCombat {
             return;
         }
         int damage = skillDamage(chr, skillId);
+        int lines = damageLines(chr, skillId);
         if (!isMagicSkill(chr, skillId) && isRangedWeapon(chr)) {
             if (!canUseRangedAttack(chr, requiredAmmo(chr, skillId))) {
                 return; // out of ammo; do not fall back to a melee swing with a ranged weapon
             }
-            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, valid, damage));
+            session.dispatchInbound(RecvOpcode.RANGED_ATTACK, buildRangedAttackPacket(skillId, valid, damage, lines));
         } else {
-            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, valid, damage));
+            session.dispatchInbound(attackOpcode(chr, skillId), buildAttackPacket(skillId, valid, damage, lines));
         }
     }
 
@@ -488,6 +547,26 @@ public final class AgentCombat {
         return (int) Math.max(1, computed * 4 / 5);
     }
 
+    /**
+     * Damage lines a skill should send per target, mirroring {@code effect.getAttackCount()}
+     * (the server's own "too many lines" guard uses {@code max(bulletCount, attackCount)}).
+     * Basic attacks always use one line.
+     */
+    static int damageLines(Character chr, int skillId) {
+        if (skillId <= 0) {
+            return DAMAGE_LINES;
+        }
+        Skill skill = SkillFactory.getSkill(skillId);
+        StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
+        if (effect == null) {
+            return DAMAGE_LINES;
+        }
+        // Mirror parseDamage's own maxattack guard: the packet must never claim more lines than
+        // the server allows, but must also not under-send multi-projectile skills (Triple Throw,
+        // Strafe, Burst Fire...) whose WZ carries bulletCount but no attackCount.
+        return clampLines(Math.max(1, Math.max(effect.getBulletCount(), effect.getAttackCount())));
+    }
+
     /** Basic (skill-0) attacks always use the close-range handler. */
     static RecvOpcode basicAttackOpcode() {
         return RecvOpcode.CLOSE_RANGE_ATTACK;
@@ -506,8 +585,8 @@ public final class AgentCombat {
         if (type == null) {
             return false;
         }
-        if (chr.getBuffedValue(BuffStat.SOULARROW) != null) {
-            return true; // Soul Arrow consumes no ammunition
+        if (ammoFree(chr)) {
+            return true; // Soul Arrow / Shadow Claw consume no ammunition
         }
         return hasMatchingAmmo(chr, type, requiredAmmo);
     }
@@ -548,7 +627,7 @@ public final class AgentCombat {
             return false;
         }
         int need = Math.max(1, required);
-        for (Item item : use.list()) {
+        for (Item item : use.listCopy()) {
             if (item == null || item.getQuantity() < need) {
                 continue;
             }
@@ -609,6 +688,130 @@ public final class AgentCombat {
         return count;
     }
 
+    // ------------------------------------------------------------------
+    // ammo
+    // ------------------------------------------------------------------
+
+    /** Total projectiles in the USE inventory that the equipped ranged weapon can fire. */
+    static int ammoCount(Character chr) {
+        WeaponType type = rangedWeaponType(chr);
+        if (type == null) {
+            return 0;
+        }
+        Inventory use = chr.getInventory(InventoryType.USE);
+        if (use == null) {
+            return 0;
+        }
+        long total = 0;
+        for (Item item : use.listCopy()) {
+            if (item != null && item.getQuantity() > 0 && isValidAmmo(chr, type, item.getItemId())) {
+                total += item.getQuantity();
+            }
+        }
+        return (int) Math.min(Integer.MAX_VALUE, total);
+    }
+
+    /**
+     * Whether the agent wields a ranged weapon but cannot fire its best attack for lack of
+     * projectiles. Soul Arrow (and non-ranged agents) are never out of ammo. Uses the largest
+     * projectile cost among the configured/learned attack skills, so a 1-arrow reserve that is
+     * insufficient for a multi-projectile skill still counts as dry.
+     */
+    public static boolean outOfAmmo(Character chr) {
+        WeaponType type = rangedWeaponType(chr);
+        if (type == null || ammoFree(chr)) {
+            return false;
+        }
+        return !hasMatchingAmmo(chr, type, requiredAmmoForBestAttack(chr));
+    }
+
+    /** Largest projectile cost across the configured and learned attack skills (>= 1). */
+    static int requiredAmmoForBestAttack(Character chr) {
+        int required = 1;
+        int configured = AgentConfig.attackSkill();
+        if (configured > 0) {
+            required = Math.max(required, requiredAmmo(chr, configured));
+        }
+        for (Skill skill : chr.getSkills().keySet()) {
+            if (isAttackSkill(chr, skill.getId())) {
+                required = Math.max(required, requiredAmmo(chr, skill.getId()));
+            }
+        }
+        return required;
+    }
+
+    /**
+     * Refills every projectile stack the equipped ranged weapon can fire through the real shop
+     * recharge path ({@link Shop#recharge}), so the agent pays mesos exactly like a player and
+     * only while a shop NPC is in range. Skipped when Soul Arrow makes ammo irrelevant.
+     *
+     * @return whether at least one stack was refilled
+     */
+    public static boolean rechargeAmmo(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null || !chr.isAlive() || chr.getMap() == null || chr.getClient() == null) {
+            return false;
+        }
+        WeaponType type = rangedWeaponType(chr);
+        if (type == null) {
+            return false;
+        }
+        if (ammoFree(chr)) {
+            return false; // no ammunition is consumed, so there is nothing to recharge
+        }
+        Shop shop = findRechargeShop(chr);
+        if (shop == null) {
+            return false;
+        }
+        Inventory use = chr.getInventory(InventoryType.USE);
+        if (use == null) {
+            return false;
+        }
+        boolean recharged = false;
+        for (Item item : use.listCopy()) {
+            // Only stars/bullets are rechargeable; arrows are bought (matches ItemConstants).
+            if (item == null || item.getQuantity() <= 0 || !isValidAmmo(chr, type, item.getItemId())
+                    || !ItemConstants.isRechargeable(item.getItemId())) {
+                continue;
+            }
+            int before = item.getQuantity();
+            try {
+                shop.recharge(chr.getClient(), item.getPosition());
+            } catch (RuntimeException e) {
+                continue;
+            }
+            if (item.getQuantity() > before) {
+                recharged = true;
+            }
+        }
+        return recharged;
+    }
+
+    /** The shop of an NPC in recharge range, or {@code null} when there is none. */
+    // NOTE: any shop NPC qualifies because Shop#recharge itself only checks ItemConstants
+    // rechargeability; v83 recharge shops are not distinguishable through the Shop API.
+    static Shop findRechargeShop(Character chr) {
+        if (chr == null || chr.getMap() == null || chr.getPosition() == null) {
+            return null;
+        }
+        for (MapObject object : chr.getMap().getMapObjectsInRange(
+                chr.getPosition(), AgentConfig.rechargeRangeSq(), Arrays.asList(MapObjectType.NPC))) {
+            if (object instanceof NPC npc) {
+                Shop shop = ShopFactory.getInstance().getShopForNPC(npc.getId());
+                if (shop != null) {
+                    return shop;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Whether a buff removes the need for projectiles entirely (Soul Arrow, Shadow Claw). */
+    private static boolean ammoFree(Character chr) {
+        return chr.getBuffedValue(BuffStat.SOULARROW) != null
+                || chr.getBuffedValue(BuffStat.SHADOW_CLAW) != null;
+    }
+
     private static boolean isMagicSkill(Character chr, int skillId) {
         Skill skill = SkillFactory.getSkill(skillId);
         StatEffect effect = skill == null ? null : skill.getEffect(chr.getSkillLevel(skill));
@@ -623,11 +826,21 @@ public final class AgentCombat {
         return buildRangedAttackPacket(skillId, List.of(targetObjectId), damage);
     }
 
-    /** Ranged attack packet hitting every target in {@code targetObjectIds}. */
+    static InPacket buildRangedAttackPacket(int skillId, int targetObjectId, int damage, int damageLines) {
+        return buildRangedAttackPacket(skillId, List.of(targetObjectId), damage, damageLines);
+    }
+
     static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
+        return buildRangedAttackPacket(skillId, targetObjectIds, damage, DAMAGE_LINES);
+    }
+
+    /** Ranged attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
+    static InPacket buildRangedAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines) {
+        List<Integer> targets = capTargets(targetObjectIds);
+        int lines = clampLines(damageLines);
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
-        out.writeByte(((targetObjectIds.size() & 0xF) << 4) | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
+        out.writeByte(((targets.size() & 0xF) << 4) | (lines & 0xF)); // numAttackedAndDamage
         out.writeInt(skillId);
         if (CHARGE_SKILLS.contains(skillId)) {
             out.writeInt(0);
@@ -644,10 +857,10 @@ public final class AgentCombat {
         if (RANGED_EXTRA_SKILLS.contains(skillId)) {
             out.skip(4);
         }
-        for (int targetObjectId : targetObjectIds) {
+        for (int targetObjectId : targets) {
             out.writeInt(targetObjectId);
             out.skip(14);
-            for (int i = 0; i < DAMAGE_LINES; i++) {
+            for (int i = 0; i < lines; i++) {
                 out.writeInt(damage);
             }
             out.skip(4);
@@ -679,11 +892,22 @@ public final class AgentCombat {
         return buildAttackPacket(skillId, List.of(targetObjectId), damage);
     }
 
+    static InPacket buildAttackPacket(int skillId, int targetObjectId, int damage, int damageLines) {
+        return buildAttackPacket(skillId, List.of(targetObjectId), damage, damageLines);
+    }
+
     /** Attack packet hitting every target in {@code targetObjectIds} with one damage line each. */
     static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage) {
+        return buildAttackPacket(skillId, targetObjectIds, damage, DAMAGE_LINES);
+    }
+
+    /** Attack packet hitting every target in {@code targetObjectIds}, `lines` hits each. */
+    static InPacket buildAttackPacket(int skillId, List<Integer> targetObjectIds, int damage, int damageLines) {
+        List<Integer> targets = capTargets(targetObjectIds);
+        int lines = clampLines(damageLines);
         OutPacket out = new ByteBufOutPacket();
         out.writeByte(0);                       // unknown prefix byte
-        out.writeByte(((targetObjectIds.size() & 0xF) << 4) | (DAMAGE_LINES & 0xF)); // numAttackedAndDamage
+        out.writeByte(((targets.size() & 0xF) << 4) | (lines & 0xF)); // numAttackedAndDamage
         out.writeInt(skillId);
         if (CHARGE_SKILLS.contains(skillId)) {
             out.writeInt(0);                    // charge (read only for charge-list skills)
@@ -695,10 +919,10 @@ public final class AgentCombat {
         out.writeByte(0);                       // (non-ranged unused)
         out.writeByte(4);                       // speed
         out.skip(4);                            // unknown
-        for (int targetObjectId : targetObjectIds) {
+        for (int targetObjectId : targets) {
             out.writeInt(targetObjectId);
             out.skip(14);                       // per-target unknown block
-            for (int i = 0; i < DAMAGE_LINES; i++) {
+            for (int i = 0; i < lines; i++) {
                 out.writeInt(damage);
             }
             out.skip(4);                        // trailing per-target
@@ -708,6 +932,27 @@ public final class AgentCombat {
             out.writePos(new Point(0, 0));
         }
         return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
+    }
+
+    /** Clamps a target list to what the nibble-encoded count can carry and drops duplicates. */
+    private static List<Integer> capTargets(List<Integer> targetObjectIds) {
+        List<Integer> targets = new ArrayList<>();
+        if (targetObjectIds == null) {
+            return targets;
+        }
+        for (int oid : targetObjectIds) {
+            if (targets.size() >= MAX_PACKET_TARGETS) {
+                break;
+            }
+            if (!targets.contains(oid)) {
+                targets.add(oid);
+            }
+        }
+        return targets;
+    }
+
+    private static int clampLines(int damageLines) {
+        return Math.max(1, Math.min(MAX_DAMAGE_LINES, damageLines));
     }
 
     /** Kept for the basic-attack callers/tests. */

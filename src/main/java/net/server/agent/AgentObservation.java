@@ -27,8 +27,40 @@ public record AgentObservation(
         List<ObservedNpc> nearbyNpcs,
         List<Integer> buffSkills,
         List<Integer> attackSkills,
-        List<Integer> healSkills
+        List<Integer> healSkills,
+        boolean rangedWeapon,
+        int ammoCount,
+        boolean outOfAmmo
 ) {
+
+    /** Backwards-compatible view for observations built before ammo tracking existed. */
+    public AgentObservation(
+            String agentName,
+            int level,
+            int jobId,
+            String jobName,
+            int mapId,
+            String mapName,
+            String streetName,
+            int hp,
+            int maxHp,
+            int mp,
+            int maxMp,
+            int x,
+            int y,
+            List<ObservedPlayer> nearbyPlayers,
+            List<ObservedPlayer> partyMembers,
+            List<ObservedMonster> nearbyMonsters,
+            List<ObservedItem> nearbyItems,
+            List<ObservedNpc> nearbyNpcs,
+            List<Integer> buffSkills,
+            List<Integer> attackSkills,
+            List<Integer> healSkills
+    ) {
+        this(agentName, level, jobId, jobName, mapId, mapName, streetName, hp, maxHp, mp, maxMp, x, y,
+                nearbyPlayers, partyMembers, nearbyMonsters, nearbyItems, nearbyNpcs,
+                buffSkills, attackSkills, healSkills, false, 0, false);
+    }
 
     /** A player visible to (or grouped with) the agent. */
     public record ObservedPlayer(
