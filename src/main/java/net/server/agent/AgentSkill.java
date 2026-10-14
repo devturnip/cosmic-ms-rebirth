@@ -26,8 +26,11 @@ import java.util.Set;
  * considered; MP cost is checked first, and a skill whose buff is already active is skipped.
  */
 public final class AgentSkill {
-    private static final int STANCE = 4;
-    private static final int SPEED = 4;
+    /** Stance/speed a real client sends for a cast (captured live); not a movement stance. */
+    private static final int STANCE = 0;
+    private static final int SPEED = 6;
+    /** Direction byte a real client sends for an attack/cast (facing in the low bit). */
+    private static final int DIRECTION = 22;
 
     /**
      * Heal skills we know how to cast safely through {@code SPECIAL_MOVE}.
@@ -227,7 +230,7 @@ public final class AgentSkill {
         out.writeInt(skillId);
         out.skip(8);        // parseDamage's fixed 8-byte skip (charge skills would add 4 here)
         out.writeByte(0);   // display
-        out.writeByte(0);   // direction
+        out.writeByte(DIRECTION); // direction
         out.writeByte(STANCE);
         out.writeByte(0);   // (non-ranged unused)
         out.writeByte(SPEED);

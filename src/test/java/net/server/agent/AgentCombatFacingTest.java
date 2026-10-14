@@ -43,7 +43,7 @@ class AgentCombatFacingTest {
         packet.skip(4); // skill id
         packet.skip(8); // fixed block
         packet.skip(1); // display
-        assertEquals(1, packet.readUnsignedByte(), "direction should be left (1)");
+        assertEquals(23, packet.readUnsignedByte(), "direction should be the left attack action (22|1)");
         packet.skip(1); // stance
     }
 
@@ -56,7 +56,7 @@ class AgentCombatFacingTest {
         packet.skip(4); // skill id
         packet.skip(8); // fixed block
         packet.skip(1); // display
-        assertEquals(1, packet.readUnsignedByte(), "direction");
+        assertEquals(23, packet.readUnsignedByte(), "direction");
         packet.skip(1); // stance
         packet.skip(1); // unused
         packet.skip(1); // speed

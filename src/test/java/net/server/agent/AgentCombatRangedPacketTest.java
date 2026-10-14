@@ -38,7 +38,7 @@ class AgentCombatRangedPacketTest {
         }
         packet.skip(8); // fixed 8-byte block
         assertEquals(0, packet.readUnsignedByte(), "display");
-        assertEquals(direction, packet.readUnsignedByte(), "direction");
+        assertEquals(22 | (direction & 1), packet.readUnsignedByte(), "direction");
         assertEquals(0, packet.readUnsignedByte(), "stance (real clients send 0)");
         assertEquals(0, packet.readUnsignedByte(), "unused");
         assertEquals(6, packet.readUnsignedByte(), "speed (real clients send 6)");

@@ -83,6 +83,13 @@ public final class AgentCombat {
      * faster than the client's real after-delay.
      */
     private static final long HOLD_SKILL_AFTER_DELAY_MS = 200;
+    /**
+     * The direction byte a real client sends for a standing attack (captured live as {@code 22}),
+     * with the facing in the low bit. Agents previously sent only the facing (0/1), which the client
+     * could not resolve into an attack animation; the real client sends this action byte instead
+     * (22 facing right, 23 facing left).
+     */
+    private static final int ATTACK_DIRECTION_ACTION = 22;
     private AgentCombat() {
     }
 
@@ -215,16 +222,21 @@ public final class AgentCombat {
     // attack
     // ------------------------------------------------------------------
 
-    /** Attacks the nearest living monster(s) within range, using the configured skill when usable. */
+    /**
+     * Attacks the nearest living monster(s) within range, using the configured skill when usable or
+     * otherwise the strongest learned attack skill the agent can cast right now (so mixed-class
+     * companions use their own class skills instead of always basic-attacking). Falls back to a
+     * basic attack only when no skill is available.
+     */
     public static boolean attackNearest(AgentSession session) {
         Character chr = session.getPlayer();
         if (chr == null || !chr.isAlive() || chr.getMap() == null) {
             return false;
         }
-        int skillId = AgentConfig.attackSkill();
-        if (skillId > 0 && canUseAttackSkill(chr, skillId) && session.isSkillReady(skillId)) {
+        int skillId = selectAttackSkill(session);
+        if (skillId > 0) {
             int maxTargets = AgentConfig.aoeAttack()
-                    ? Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId))
+                    ? Math.max(1, Math.min(AgentConfig.aoeMaxTargets(), mobCount(chr, skillId)))
                     : 1;
             List<Integer> targets = nearestMonsters(chr, maxTargets);
             if (targets.isEmpty()) {
@@ -243,6 +255,60 @@ public final class AgentCombat {
         }
         attack(session, targets.get(0));
         return true;
+    }
+
+    /**
+     * The attack skill to use this tick. Prefers the explicitly configured
+     * {@code LLM_AGENT_ATTACK_SKILL} when the agent can cast it; otherwise auto-selects the
+     * strongest learned, currently-castable attack skill for the agent's class/weapon (a physical
+     * skill on a ranged-weapon agent also needs matching ammo). Returns {@code 0} when only a basic
+     * attack is possible.
+     */
+    static int selectAttackSkill(AgentSession session) {
+        Character chr = session.getPlayer();
+        if (chr == null) {
+            return 0;
+        }
+        int configured = AgentConfig.attackSkill();
+        if (configured > 0 && canUseAttackSkill(chr, configured) && session.isSkillReady(configured)) {
+            return configured;
+        }
+        int bestSkill = 0;
+        long bestScore = 0;
+        for (Skill skill : chr.getSkills().keySet()) {
+            int skillId = skill.getId();
+            if (skillId == configured) {
+                continue; // rejected above (unusable or still cooling)
+            }
+            if (!canUseAttackSkill(chr, skillId) || !session.isSkillReady(skillId)
+                    || !weaponAllowsSkill(chr, skillId)) {
+                continue;
+            }
+            long score = attackSkillScore(chr, skillId);
+            if (score > bestScore || (score == bestScore && skillId > bestSkill)) {
+                bestScore = score;
+                bestSkill = skillId;
+            }
+        }
+        return bestSkill;
+    }
+
+    /**
+     * Estimated damage of one cast across every target it can hit, used to rank a class's attack
+     * skills. Called only for skills that already passed {@link #canUseAttackSkill}.
+     */
+    private static long attackSkillScore(Character chr, int skillId) {
+        long perTarget = (long) skillDamage(chr, skillId) * damageLines(chr, skillId);
+        int targets = AgentConfig.aoeAttack() ? Math.max(1, mobCount(chr, skillId)) : 1;
+        return perTarget * targets;
+    }
+
+    /** A physical skill on a ranged-weapon agent additionally needs matching ammunition. */
+    private static boolean weaponAllowsSkill(Character chr, int skillId) {
+        if (isMagicSkill(chr, skillId) || !isRangedWeapon(chr)) {
+            return true;
+        }
+        return canUseRangedAttack(chr, requiredAmmo(chr, skillId));
     }
 
     /** Living monsters within attack range, nearest first, capped at {@code max}. */
@@ -1014,7 +1080,7 @@ public final class AgentCombat {
         }
         out.skip(8);
         out.writeByte(0);   // display
-        out.writeByte(dir); // direction (0 = right, 1 = left)
+        out.writeByte((ATTACK_DIRECTION_ACTION | (dir & 1)) & 0xFF); // direction (real-client action)
         // Real clients send stance 0 for attacks (captured from a live client); the client picks
         // the attack animation from the skill/weapon, so this must NOT be a movement stance (2..5).
         out.writeByte(0);   // stance
@@ -1091,7 +1157,7 @@ public final class AgentCombat {
         }
         out.skip(8);                            // fixed 8-byte block
         out.writeByte(0);                       // display
-        out.writeByte(direction & 0xFF);        // direction (0 = right, 1 = left)
+        out.writeByte((ATTACK_DIRECTION_ACTION | (direction & 1)) & 0xFF); // direction (real-client action)
         out.writeByte(0);                       // stance (captured from a real client)
         out.writeByte(0);                       // (non-ranged unused)
         out.writeByte(6);                       // speed

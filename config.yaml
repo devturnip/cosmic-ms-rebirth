@@ -485,7 +485,7 @@ server:
     LLM_AGENT_ATTACK_RANGE_SQ: 150000.0 #Squared attack range for auto-combat (~387px).
     LLM_AGENT_AUTO_BUFF: true           #Auto-cast configured buff skills when they lapse.
     LLM_AGENT_AUTO_BUFF_SKILLS: ""      #Comma-separated skill ids to keep active (e.g. "1001003,2001002").
-    LLM_AGENT_ATTACK_SKILL: 0           #Attack skill id used for auto/LLM attacks (0 = basic attack).
+    LLM_AGENT_ATTACK_SKILL: 0           #Force one attack skill id for all agents. 0 = auto-select the best learned attack skill per agent (falls back to basic attack).
     LLM_AGENT_AUTO_HEAL: true           #Auto-cast a heal skill when the agent or a nearby party member is low.
     LLM_AGENT_AUTO_HEAL_SKILL: 0        #Heal skill id to auto-cast (0 = auto-detect the first learned heal skill).
     LLM_AGENT_HEAL_PERCENT: 90          #Auto-heal when HP is below this percentage.

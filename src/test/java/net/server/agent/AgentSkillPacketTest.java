@@ -23,10 +23,10 @@ class AgentSkillPacketTest {
         assertEquals(1001003, packet.readInt(), "skill id");
         packet.skip(8); // charge / unknown
         assertEquals(0, packet.readUnsignedByte(), "display");
-        assertEquals(0, packet.readUnsignedByte(), "direction");
-        assertEquals(4, packet.readUnsignedByte(), "stance");
+        assertEquals(22, packet.readUnsignedByte(), "direction");
+        assertEquals(0, packet.readUnsignedByte(), "stance");
         assertEquals(0, packet.readUnsignedByte(), "unused");
-        assertEquals(4, packet.readUnsignedByte(), "speed");
+        assertEquals(6, packet.readUnsignedByte(), "speed");
         packet.skip(4); // unknown
         assertEquals(0, packet.available(), "exactly 23 bytes should be consumed");
     }
