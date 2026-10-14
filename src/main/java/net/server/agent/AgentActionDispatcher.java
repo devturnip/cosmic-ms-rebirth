@@ -61,7 +61,8 @@ public class AgentActionDispatcher {
             case AgentAction.AcceptPartyInvite accept -> acceptPartyInvite(session, accept.partyId());
             case AgentAction.DenyPartyInvite deny -> denyPartyInvite(session, deny.inviterName());
             case AgentAction.LeaveParty ignored -> leaveParty(session);
-            case AgentAction.MoveTo move -> AgentMovement.moveTo(session, move.x(), move.y());
+            case AgentAction.MoveTo move -> AgentMovement.moveToSmart(session, new Point(move.x(), move.y()),
+                    AgentMovement.MAX_STEP);
             case AgentAction.Follow follow -> follow(session, follow.targetName());
             case AgentAction.StopFollowing ignored -> session.clearFollow();
             case AgentAction.PickupItem pickup -> {

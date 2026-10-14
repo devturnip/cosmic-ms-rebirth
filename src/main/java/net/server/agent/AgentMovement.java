@@ -44,31 +44,41 @@ public final class AgentMovement {
     static final int PLATFORM_TOLERANCE_SQ = PLATFORM_TOLERANCE * PLATFORM_TOLERANCE;
     /** Horizontal distance at or below which the agent is treated as aligned for a drop. */
     private static final int PLATFORM_ALIGN_TOLERANCE = 20;
+    /** How far above its support surface an agent may sit and still count as standing on it. */
+    private static final int GROUNDED_EPSILON = 8;
+    /** Coarse sampling granularity (px) when probing the ground ahead of a walking agent. */
+    private static final int WALK_SAMPLE_STEP = 8;
     /** Distance (squared) within which a portal can be entered (~60px). */
     static final int PORTAL_ENTER_RANGE_SQ = 60 * 60;
 
     private AgentMovement() {
     }
 
-    /** Moves the agent one foothold-aware step toward {@code target}. */
+    /** Moves the agent one ground-aware step toward {@code target}. */
     public static void stepToward(AgentSession session, Point current, Point target, int maxStep) {
         if (current == null || target == null) {
             return;
-        }
-        if (Math.abs(target.x - current.x) <= 20 && Math.abs(target.y - current.y) <= 20) {
-            return; // close enough
         }
         moveToSmart(session, target, maxStep);
     }
 
     /**
-     * Foothold-aware step. When the target is on roughly the same platform the agent walks
-     * horizontally along it; when the target is on another platform the agent first closes the
-     * horizontal gap (so it drops near the target) and then steps toward it. When the agent's map
-     * exposes footholds, the horizontal approach walks along the agent's <em>current</em> foothold
-     * and is clamped to that foothold's own x-range, so the agent never walks off an edge before
-     * dropping. All movement is clamped per axis by {@link #MAX_STEP}, so a hallucinated
-     * destination can never teleport.
+     * Ground-aware step. An agent must never leave the ground it can actually stand on:
+     * <ul>
+     *   <li>When it is airborne (more than {@link #GROUNDED_EPSILON} above its support) it falls
+     *       <em>straight down</em> to the next foothold beneath its current x instead of drifting
+     *       sideways through the air (the old behaviour, which made agents look like they walked on
+     *       air).</li>
+     *   <li>When the target is on the same level or higher it walks horizontally over whatever
+     *       foothold is under the next step and stops at the platform edge. Agents cannot jump or
+     *       climb, so they must never ascend through open air toward a higher platform.</li>
+     *   <li>When the target is on a lower platform it walks to the drop point on its current
+     *       foothold, then descends onto the landing foothold (falling straight down when the two
+     *       platforms do not overlap horizontally).</li>
+     * </ul>
+     * When the map exposes no footholds (odd maps, tests) the previous per-axis behaviour is kept.
+     * All movement is still clamped per axis by {@link #MAX_STEP}, so a hallucinated destination can
+     * never teleport.
      */
     public static void moveToSmart(AgentSession session, Point target, int maxStep) {
         Character chr = session.getPlayer();
@@ -79,57 +89,151 @@ public final class AgentMovement {
         if (current == null) {
             return;
         }
+        FootholdTree tree = chr.getMap() == null ? null : chr.getMap().getFootholds();
+        if (tree == null) {
+            plainStep(session, current, target, maxStep);
+            return;
+        }
+
+        Foothold ground = footholdAt(tree, current);
+        boolean grounded = ground != null
+                && current.y >= ground.calculateFooting(current.x) - GROUNDED_EPSILON;
+        if (!grounded) {
+            // Airborne: fall straight down onto the first foothold under the current x. Never
+            // translate horizontally while unsupported, or the agent appears to walk on air.
+            Foothold below = tree.findBelow(new Point(current.x, current.y + 1));
+            if (below != null && !below.isWall() && below.calculateFooting(current.x) > current.y) {
+                moveTo(session, current.x, below.calculateFooting(current.x), maxStep);
+            }
+            // Otherwise there is nothing to land on: hold position rather than drift sideways in
+            // the air (which is what made agents look like they were walking on air).
+            return;
+        }
+
         int dx = target.x - current.x;
         int dy = target.y - current.y;
         if (Math.abs(dx) <= PLATFORM_ALIGN_TOLERANCE && Math.abs(dy) <= PLATFORM_ALIGN_TOLERANCE) {
             return;
         }
-        if (stepAlongFootholds(session, chr, current, target, maxStep)) {
+
+        Foothold landing = footholdAt(tree, target);
+        if (landing == null) {
+            landing = tree.findBelow(target); // target mid-jump: use the ground under it
+        }
+        if (landing == null) {
+            walkOnGround(session, tree, ground, current, target.x, maxStep);
             return;
         }
-        if (dy * dy > PLATFORM_TOLERANCE_SQ && Math.abs(dx) > PLATFORM_ALIGN_TOLERANCE) {
+        int landingMin = Math.min(landing.getX1(), landing.getX2());
+        int landingMax = Math.max(landing.getX1(), landing.getX2());
+        int landingX = Math.max(landingMin, Math.min(landingMax, target.x));
+        int landingY = landing.calculateFooting(landingX);
+        if (landingY <= current.y + PLATFORM_ALIGN_TOLERANCE) {
+            // Same level or higher: walk along the ground under the next step; never ascend.
+            walkOnGround(session, tree, ground, current, target.x, maxStep);
+            return;
+        }
+
+        // The target is on a lower platform: close the horizontal gap on the current foothold so we
+        // drop as close to the target as the platform allows, then descend onto the landing surface.
+        int groundMin = Math.min(ground.getX1(), ground.getX2());
+        int groundMax = Math.max(ground.getX1(), ground.getX2());
+        int approachX = Math.max(groundMin, Math.min(groundMax, target.x));
+        if (Math.abs(approachX - current.x) > PLATFORM_ALIGN_TOLERANCE) {
+            moveAlong(session, ground, current.x, approachX, maxStep);
+            return;
+        }
+        if (approachX >= landingMin && approachX <= landingMax) {
+            // The platforms overlap here: step directly onto the landing surface.
+            moveAlong(session, landing, current.x, landingX, maxStep);
+            return;
+        }
+        // A horizontal gap separates the platforms: fall straight down to the next foothold below.
+        Foothold below = tree.findBelow(new Point(current.x, current.y + 1));
+        if (below != null && !below.isWall()) {
+            moveTo(session, current.x, below.calculateFooting(current.x), maxStep);
+        }
+    }
+
+    /**
+     * Walks one step toward {@code targetX} along the ground. The ground ahead is sampled: the agent
+     * advances only as far as a foothold remains under its feet, so it stops at a platform edge or a
+     * gap instead of walking into the air. {@link #standableAt} only considers surfaces at or below
+     * the feet, so a horizontal walk can never ascend onto a higher platform.
+     */
+    private static void walkOnGround(AgentSession session, FootholdTree tree, Foothold ground,
+            Point current, int targetX, int maxStep) {
+        int dx = targetX - current.x;
+        if (dx == 0) {
+            return;
+        }
+        int step = Math.max(1, maxStep);
+        int dir = Integer.signum(dx);
+        int limit = Math.min(Math.abs(dx), step);
+        int reached = 0;
+        Foothold reachedGround = ground;
+        while (reached < limit) {
+            int next = Math.min(reached + WALK_SAMPLE_STEP, limit);
+            Foothold probe = standableAt(tree, current.x + dir * next, current.y);
+            if (probe == null) {
+                // Refine to the exact edge between the last good sample and the gap.
+                for (int fine = reached + 1; fine < next; fine++) {
+                    Foothold finer = standableAt(tree, current.x + dir * fine, current.y);
+                    if (finer == null) {
+                        break;
+                    }
+                    reached = fine;
+                    reachedGround = finer;
+                }
+                break;
+            }
+            reached = next;
+            reachedGround = probe;
+        }
+        if (reached == 0) {
+            return; // the very next ground is already missing: stay put
+        }
+        int destX = current.x + dir * reached;
+        moveTo(session, destX, reachedGround.calculateFooting(destX), maxStep);
+    }
+
+    /**
+     * The foothold the agent can place its feet on at column {@code x} when its feet are at
+     * {@code referenceY}, or {@code null}. Uses {@link FootholdTree#findBelow(Point)}, which only
+     * returns surfaces at or below {@code referenceY}: a candidate can therefore never be a higher
+     * platform (agents do not jump/climb) and never more than {@link #PLATFORM_TOLERANCE} below the
+     * feet.
+     */
+    private static Foothold standableAt(FootholdTree tree, int x, int referenceY) {
+        Foothold fh = tree.findBelow(new Point(x, referenceY));
+        if (fh == null || fh.isWall()) {
+            return null;
+        }
+        return fh.calculateFooting(x) - referenceY <= PLATFORM_TOLERANCE ? fh : null;
+    }
+
+    /** Steps along {@code foothold} from {@code fromX} toward {@code toX}, keeping y on the surface. */
+    private static void moveAlong(AgentSession session, Foothold foothold, int fromX, int toX, int maxStep) {
+        int step = Math.max(1, maxStep);
+        int dx = toX - fromX;
+        int destX = Math.abs(dx) > step ? fromX + Integer.signum(dx) * step : toX;
+        moveTo(session, destX, foothold.calculateFooting(destX), maxStep);
+    }
+
+    /** The previous per-axis behaviour, used when the map exposes no usable footholds. */
+    private static void plainStep(AgentSession session, Point current, Point target, int maxStep) {
+        int dx = target.x - current.x;
+        int dy = target.y - current.y;
+        if (Math.abs(dx) <= PLATFORM_ALIGN_TOLERANCE && Math.abs(dy) <= PLATFORM_ALIGN_TOLERANCE) {
+            return;
+        }
+        if ((long) dy * dy > PLATFORM_TOLERANCE_SQ && Math.abs(dx) > PLATFORM_ALIGN_TOLERANCE) {
             // Different platform: align horizontally first, then approach vertically.
             int step = Integer.signum(dx) * Math.min(Math.abs(dx), Math.max(1, maxStep));
             moveTo(session, current.x + step, current.y, maxStep);
             return;
         }
         moveTo(session, target.x, target.y, maxStep);
-    }
-
-    /**
-     * Walks the agent along the foothold it is standing on toward the target and drops toward the
-     * foothold below the target x. Returns {@code false} (letting the caller use the plain
-     * per-axis step) whenever foothold data is unavailable, the agent is not on a foothold, or the
-     * target is on the same foothold. The walk is clamped to the current foothold's x-range and the
-     * drop aims at the landing foothold's surface via {@link Foothold#calculateFooting(int)}.
-     */
-    private static boolean stepAlongFootholds(AgentSession session, Character chr, Point current, Point target, int maxStep) {
-        if (chr.getMap() == null) {
-            return false;
-        }
-        FootholdTree tree = chr.getMap().getFootholds();
-        if (tree == null) {
-            return false;
-        }
-        Foothold currentFoothold = footholdAt(tree, current);
-        if (currentFoothold == null) {
-            return false; // agent is not on a walkable foothold: keep the old behaviour
-        }
-        Foothold landingFoothold = tree.findBelow(target);
-        if (landingFoothold == null || landingFoothold == currentFoothold) {
-            return false; // same platform (or unknown landing): the plain step is already correct
-        }
-        int minX = Math.min(currentFoothold.getX1(), currentFoothold.getX2());
-        int maxX = Math.max(currentFoothold.getX1(), currentFoothold.getX2());
-        int edgeX = Math.max(minX, Math.min(maxX, target.x));
-        if (Math.abs(edgeX - current.x) > PLATFORM_ALIGN_TOLERANCE) {
-            // Walk along the current foothold toward the target, never past its edge.
-            moveTo(session, edgeX, currentFoothold.calculateFooting(edgeX), maxStep);
-            return true;
-        }
-        // Aligned with the target x on the current foothold: drop toward the landing foothold.
-        moveTo(session, target.x, landingFoothold.calculateFooting(target.x), maxStep);
-        return true;
     }
 
     /**
@@ -155,8 +259,13 @@ public final class AgentMovement {
                 continue;
             }
             int gap = fh.calculateFooting(p.x) - p.y;
+            // A surface below the feet may be up to PLATFORM_TOLERANCE away (the agent is above it,
+            // e.g. part-way through a sloped step). A surface ABOVE the feet is only a rounding
+            // recovery, so accept it solely within GROUNDED_EPSILON: otherwise an overhead platform
+            // within 80px would be mistaken for ground and the agent would climb sideways onto it.
+            int reach = gap < 0 ? GROUNDED_EPSILON : PLATFORM_TOLERANCE;
             int distSq = gap * gap;
-            if (distSq <= PLATFORM_TOLERANCE_SQ && distSq < bestDistSq) {
+            if (Math.abs(gap) <= reach && distSq < bestDistSq) {
                 best = fh;
                 bestDistSq = distSq;
             }
@@ -164,7 +273,11 @@ public final class AgentMovement {
         return best;
     }
 
-    /** Steps directly away from a threat by up to {@code maxStep} pixels (per-axis clamped). */
+    /**
+     * Steps directly away from a threat by up to {@code maxStep} pixels. Routed through
+     * {@link #moveToSmart} so a fleeing agent stays on the ground (it will not back into thin air
+     * or climb a platform it cannot reach).
+     */
     public static void stepAway(AgentSession session, Point self, Point threat, int maxStep) {
         if (self == null || threat == null) {
             return;
@@ -178,7 +291,7 @@ public final class AgentMovement {
         int step = Math.max(1, maxStep);
         int targetX = self.x + (int) Math.round(dx / length * step);
         int targetY = self.y + (int) Math.round(dy / length * step);
-        moveTo(session, targetX, targetY, step);
+        moveToSmart(session, new Point(targetX, targetY), step);
     }
 
     /** Sends a clamped, single-step absolute move toward the given position. */

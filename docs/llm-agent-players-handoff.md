@@ -262,7 +262,17 @@ arrive via lightweight hooks (see §5).
     v83). Both pay mesos exactly like a player. The passive per-tick resupply is gated by
     `LLM_AGENT_AUTO_RECHARGE`; the explicit LLM `recharge_ammo` tool is always allowed.
 19. **Movement is clamped per axis** (`AgentMovement.moveTo`), so a hallucinated destination can
-    never teleport. `moveToSmart` aligns horizontally before crossing platforms. Cross-map
+    never teleport, and it is **ground-aware**: `moveToSmart` never moves an agent through open air.
+    An airborne agent falls straight down to the foothold under its current x; a grounded agent
+    walks only where a foothold exists under the next step (it samples the ground ahead and stops at
+    the platform edge/gap) and only ever descends to a lower foothold (it cannot jump or climb, so it
+    never ascends toward a higher platform). `footholdAt`'s rounding recovery accepts a surface
+    *above* the feet only within `GROUNDED_EPSILON`, so an overhead platform is never mistaken for
+    ground. `AgentAction.MoveTo` (the LLM `move` tool) and `stepAway` (flee) are routed through
+    `moveToSmart` for the same reason. Regression tests live in `AgentMovementFootholdTest`, and
+    `AgentMovementWzRuntimeTest` falsifies the invariant against real `Map.wz` footholds (it skips
+    when the WZ tree is unavailable).
+    Cross-map
     follow first tries to walk to an **open, non-scripted** portal leading to the target map
     (`findPortalTo` skips closed/script portals) and enters it with the same event/trade/cash
     guards as `canWarpTo`; after `PORTAL_ATTEMPT_LIMIT` failed ticks it falls back to the
@@ -472,10 +482,14 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   map-change and party-update.
 
 **Not done (next work)** — see **§11** for file pointers and suggested approaches.
-- **Pathing depth:** movement is clamped waypoint stepping (per-axis clamped, horizontal
-  alignment before drops) with portal travel for cross-map follow **and now foothold-aware
-  platform stepping**; it is not a full foothold graph search and there is no rope/ladder model
-  server-side; patrol randomizes X only.
+- **Pathing depth:** movement is clamped, ground-aware waypoint stepping (walks only on real
+  footholds, probing the ground ahead and stopping at a platform edge or gap; falls straight down
+  when airborne; never ascends through air) with portal travel for cross-map follow. It is still
+  not a foothold graph search, so an agent **cannot jump a gap** or reach a strictly higher /
+  non-underlapping lower platform on its own (it stops at the edge; a full pathfinder would route
+  it via a portal/rope, and the server models no rope/ladder). Gravity falls reuse the captured
+  rope-climb stance (16) because no fall stance was captured — cosmetic only. Patrol randomizes X
+  only.
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
   per-skill cast-animation fidelity remain approximate.
@@ -652,7 +666,7 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
 | **Companion animation** | `AgentMovement`, `AgentCombat` | Done: walk stance `2/3`, stand `4/5`, climb `16`, attack stance `0`/speed `6` (all captured from a real client); normal walking pace (duration/velocity from the step); idle stance broadcast when the agent stops. Remaining: exact per-weapon attack speed (currently the captured `6`). |
-| **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Foothold-aware stepping exists (walk along the current foothold, drop to the landing foothold). Still open: a full foothold graph search and a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). |
+| **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Ground-aware stepping exists: probes the ground ahead, walks only on real footholds, stops at platform edges/gaps, falls straight down when airborne, and never ascends through air (regression tests in `AgentMovementFootholdTest`; real-`Map.wz` falsification in `AgentMovementWzRuntimeTest`). Still open: a full foothold graph search so an agent can jump/reach a gap-separated or strictly higher platform (via a portal/rope); a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). Gravity falls currently reuse the climb stance (16). |
 | **M9 — party-quest compatibility audit** | `scripts/` PQ scripts | Verify a companion filling a party slot does not break PQ objective logic; decide which PQs allow companions. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
 | **`!agent tell`** | `AgentCommand` | Intentionally dropped (operator-only; marginal value). |

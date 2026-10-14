@@ -118,17 +118,6 @@ class AgentMovementFootholdTest {
     }
 
     @Test
-    void moveToSmartFallsBackWhenTheAgentIsNotOnAFoothold() {
-        // A lone wall foothold offers nothing to walk along.
-        Foothold wall = new Foothold(new Point(50, -100), new Point(50, 100), 1);
-        AgentSession session = sessionOn(treeWith(wall), 0, 0);
-
-        AgentMovement.moveToSmart(session, new Point(300, 500), AgentMovement.MAX_STEP);
-
-        assertEquals(new Point(AgentMovement.MAX_STEP, 0), captureMove(session));
-    }
-
-    @Test
     void footholdLookupRecoversWhenTheAgentSitsSlightlyBelowTheSurface() {
         AgentSession session = sessionOn(treeWith(upper(), lower()), 100, 5);
 
@@ -136,6 +125,108 @@ class AgentMovementFootholdTest {
 
         // findBelow skips the current foothold (agent is below it), so enumeration must recover it.
         assertEquals(new Point(200, 0), captureMove(session));
+    }
+
+    @Test
+    void moveToSmartNeverAscendsTowardAHigherPlatform() {
+        // Agent standing on the lower platform, target on the higher one above it.
+        AgentSession session = sessionOn(treeWith(upper(), lower()), 100, 200);
+
+        AgentMovement.moveToSmart(session, new Point(150, 0), AgentMovement.MAX_STEP);
+
+        // It may walk horizontally, but it must stay on its own platform (y = 200), never fly up.
+        assertEquals(new Point(150, 200), captureMove(session));
+    }
+
+    @Test
+    void moveToSmartStaysPutWhenTheTargetIsDirectlyAbove() {
+        AgentSession session = sessionOn(treeWith(upper(), lower()), 100, 200);
+
+        AgentMovement.moveToSmart(session, new Point(100, 0), AgentMovement.MAX_STEP);
+
+        // No horizontal gap and no way to climb: do not move at all rather than walk into the air.
+        verify(session, Mockito.never()).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), Mockito.any());
+    }
+
+    @Test
+    void airborneAgentFallsStraightDownToTheFootholdBelow() {
+        Foothold ground = new Foothold(new Point(0, 200), new Point(400, 200), 1);
+        AgentSession session = sessionOn(treeWith(ground), 100, 0);
+
+        AgentMovement.moveToSmart(session, new Point(400, 200), AgentMovement.MAX_STEP);
+
+        // Falls toward the surface under its own x (150 = 0 + MAX_STEP), with no horizontal drift.
+        assertEquals(new Point(100, AgentMovement.MAX_STEP), captureMove(session));
+    }
+
+    @Test
+    void walkingAgentStopsAtThePlatformEdgeOverAGap() {
+        Foothold platform = new Foothold(new Point(0, 0), new Point(200, 0), 1);
+        AgentSession session = sessionOn(treeWith(platform), 100, 0);
+
+        AgentMovement.moveToSmart(session, new Point(400, 0), AgentMovement.MAX_STEP);
+
+        // The target is over a pit: stop at the edge (200) instead of stepping into thin air.
+        assertEquals(new Point(200, 0), captureMove(session));
+    }
+
+    @Test
+    void walkingAgentAtTheEdgeDoesNotStepIntoAGap() {
+        Foothold platform = new Foothold(new Point(0, 0), new Point(200, 0), 1);
+        AgentSession session = sessionOn(treeWith(platform), 200, 0);
+
+        AgentMovement.moveToSmart(session, new Point(400, 0), AgentMovement.MAX_STEP);
+
+        verify(session, Mockito.never()).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), Mockito.any());
+    }
+
+    @Test
+    void moveToSmartHoldsWhenAirborneWithNoFootholdBelow() {
+        // A lone wall offers nothing to land on: the agent must hold rather than drift sideways.
+        Foothold wall = new Foothold(new Point(50, -100), new Point(50, 100), 1);
+        AgentSession session = sessionOn(treeWith(wall), 0, 0);
+
+        AgentMovement.moveToSmart(session, new Point(300, 500), AgentMovement.MAX_STEP);
+
+        verify(session, Mockito.never()).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), Mockito.any());
+    }
+
+    @Test
+    void walkingAgentDoesNotCrossAGapSmallerThanTheStep() {
+        // A [0,200] and B [300,600] at the same height, with a 100px void between them. A 250px step
+        // would land on B (the old behaviour) - it must stop at A's edge instead.
+        Foothold left = new Foothold(new Point(0, 0), new Point(200, 0), 1);
+        Foothold right = new Foothold(new Point(300, 0), new Point(600, 0), 2);
+        AgentSession session = sessionOn(treeWith(left, right), 150, 0);
+
+        AgentMovement.moveToSmart(session, new Point(500, 0), 250);
+
+        assertEquals(new Point(200, 0), captureMove(session), "must not step across the void");
+    }
+
+    @Test
+    void walkOnGroundNeverStepsUpOntoAHigherPlatform() {
+        // B is 70px ABOVE A but overlaps in x. A horizontal walk must not climb onto it.
+        Foothold lower = new Foothold(new Point(0, 0), new Point(200, 0), 1);
+        Foothold higher = new Foothold(new Point(150, -70), new Point(400, -70), 2);
+        AgentSession session = sessionOn(treeWith(lower, higher), 100, 0);
+
+        AgentMovement.moveToSmart(session, new Point(300, -70), AgentMovement.MAX_STEP);
+
+        assertEquals(new Point(200, 0), captureMove(session), "must stay on its own platform");
+    }
+
+    @Test
+    void footholdLookupDoesNotTreatAnOverheadPlatformAsGround() {
+        // The agent is 40px BELOW an overhead platform with nothing else around. It must not treat
+        // that platform as ground and climb sideways/up onto it (a real-map air-walk the WZ-backed
+        // runtime test surfaced).
+        Foothold overhead = new Foothold(new Point(0, 0), new Point(400, 0), 1);
+        AgentSession session = sessionOn(treeWith(overhead), 100, 40);
+
+        AgentMovement.moveToSmart(session, new Point(300, 0), AgentMovement.MAX_STEP);
+
+        verify(session, Mockito.never()).dispatchInbound(eq(RecvOpcode.MOVE_PLAYER), Mockito.any());
     }
 
     @Test
