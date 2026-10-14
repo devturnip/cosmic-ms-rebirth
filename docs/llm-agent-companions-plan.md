@@ -292,5 +292,11 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   secrets moved to env vars. Two notable bugs found and fixed: the companion cash-candidate
   scan was an inline O(n²) WZ scan that hung `@agents find` (now a cached, warmed, single-pass
   scan), and the live provisioning path NPE'd on `Client.createMock()`'s null channel (now
-  guarded). `DbAgentProvisionerIT` covers the live path. The companion **attack animation** is
-  fixed by mirroring the captured client attack stance (`0`) and speed (`6`).
+  guarded). `DbAgentProvisionerIT` covers the live path.
+- **Attack animation & skill choice** (latest session): companions now auto-select the strongest
+  learned class attack skill per tick (`AgentCombat.selectAttackSkill`, used when
+  `LLM_AGENT_ATTACK_SKILL` is `0`) instead of always basic-attacking, and the attack/cast packet
+  carries the real client's `direction` **action** byte (`22 | facing`) rather than the raw
+  facing (`0`/`1`) — without it the client silently skips the cast animation while damage still
+  lands. Confirmed live: a mage companion's **Fire Arrow** renders. Melee (`CLOSE_RANGE_ATTACK`)
+  rendering was not re-confirmed — see the handoff §4.25 and §11.1.

@@ -141,7 +141,7 @@ server:
   # Combat assist
   LLM_AGENT_AUTO_SUSTAIN: true
   LLM_AGENT_AUTO_COMBAT: true
-  LLM_AGENT_ATTACK_SKILL: 0          # 0 = basic attack; otherwise a learned skill id
+  LLM_AGENT_ATTACK_SKILL: 0          # 0 = auto-select the best learned skill; otherwise force this id
   LLM_AGENT_AUTO_HEAL: true
   LLM_AGENT_AUTO_BUFF: true
   LLM_AGENT_AUTO_BUFF_SKILLS: ""
@@ -323,6 +323,9 @@ per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
   graph search and the server models no ropes/ladders.
 - **Combat fidelity** — hold-skill after-delay pacing (Hurricane/Rapid Fire/etc. now use a fixed
   minimum interval when the WZ cooldown is 0) and the ranged cast stance for those skills are
-  implemented; exact per-weapon attack-speed / cast-animation fidelity remains approximate.
+  implemented, and agents auto-select their strongest learned attack skill and emit the real
+  client's attack `direction` byte (so skill casts animate). Melee (`CLOSE_RANGE_ATTACK`)
+  rendering was not re-confirmed and exact per-weapon attack-speed / cast-animation fidelity
+  remains approximate.
 - `!agent tell` was intentionally dropped (an operator-only directive of marginal value);
   `@agents pause`/`resume` and GM `!agent pause`/`resume` are implemented.

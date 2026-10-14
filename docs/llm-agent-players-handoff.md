@@ -16,11 +16,14 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 
 - **Branch:** `feature/llm-agent-players` (pushed, in sync with origin). **Not merged to
   `master`** — a PR/merge is the final release step.
-- **HEAD:** `6c944199b` (companions, cosmetics, movement-animation fixes; full history in §10).
+- **HEAD:** `cda7ee885` (per-class auto attack-skill selection + the client attack-direction
+  byte fix; full history in §10). Ground-aware walking landed just before it (`f2247025b`).
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
   pursued; M9 (party-quest compatibility audit) is open. See §11 and
-  `docs/llm-agent-companions-plan.md`.
+  `docs/llm-agent-companions-plan.md`. **Open animation follow-up:** melee/basic
+  (`CLOSE_RANGE_ATTACK`) casts were not re-confirmed after the direction fix (magic is
+  confirmed), and the exact per-weapon action byte is unverified — see §11.1.
 - **Player commands (this server's headings):** players use **`@`** (`@agents list|find|pause|
   resume|dismiss`, `@agentoptout`); GMs use **`!`** (`!agent spawn|…`). **`/…` is not a command
   heading here** — a `/…` line from a non-GM is silently dropped.
@@ -33,9 +36,20 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
   **Secrets are read from the environment** (`LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL`,
   `DB_USER`/`DB_PASS`); `.env` is gitignored and `config.yaml` has blank placeholders.
 - **Build:** `mvn -q clean test` (green). Fast loop: `mvn -q -Dtest='net.server.agent.*Test' test`.
-- **Client animation:** companion walk/stand/climb stances and the attack stance (`0`)/speed
-  (`6`) were captured from a real client and are mirrored in `AgentMovement`/`AgentCombat`. Do
-  not regress them without a client check (see §4.25).
+- **Client animation (attacks/casts):** the attack packet's `direction` byte must mirror a real
+  client — an **action value with the facing in the low bit** (`22` facing right, `23` facing
+  left), **not** the raw facing (`0`/`1`). The client silently refuses to animate a cast whose
+  `direction` byte is `0`/`1`, so agents used to swing invisibly while mobs still took damage.
+  `stance` stays `0`, `speed` `6`, `display` `0`. Confirmed live against a real client: a mage
+  companion's **Fire Arrow** renders after this fix. Mirrored in `AgentCombat` (attacks) and
+  `AgentSkill` (buffs). See §4.25.
+- **Combat skill choice:** agents auto-select the strongest learned class attack skill when
+  `LLM_AGENT_ATTACK_SKILL` is `0` (`AgentCombat.selectAttackSkill`), falling back to a basic
+  attack; a non-zero value still forces that skill. This is what makes mixed-class companions
+  actually cast instead of always basic-attacking.
+- **Client animation (movement):** companion walk/stand/climb stances (`2`/`3`, `4`/`5`, `16`)
+  were captured from a real client and are mirrored in `AgentMovement`. Do not regress them
+  without a client check (see §4.25).
 
 ---
 
@@ -302,6 +316,14 @@ arrive via lightweight hooks (see §5).
     `WALK_SPEED_PX_PER_SEC` (a fixed 120 ms made every step a dash), writes
     `xwobble`/`ywobble` as pixels-per-second (0 = animate without translating), and broadcasts
     an idle stance when the agent stops. Do not regress these without a client check.
+    **Attacks/casts use a different `direction` byte:** it is an *action* value with the facing
+    in the low bit (`AgentCombat.ATTACK_DIRECTION_ACTION = 22`, so `22` facing right / `23`
+    facing left), while `stance` stays `0`, `speed` `6`, `display` `0`. Writing the raw facing
+    (`0`/`1`) into `direction` makes the client silently skip the cast animation even though the
+    damage still lands — this was the "agents don't animate" bug. `AgentCombat` (attacks) and
+    `AgentSkill` (buffs) both mirror it. Verified by capturing a real client's printed packet
+    (`who=qwerty skill=0 dir=22`, `skill=3001005 dir=22`) and by a live Fire Arrow rendering; if
+    another class still does not animate, capture that class's real packet the same way (§5).
 26. **Companions are server-owned and disposable.** `DbAgentProvisioner` creates a dedicated
     `agnt%` account + character; `AgentManager.despawn`/`stop` delete them, and
     `AgentManager.start()` reaps leftovers for ungraceful shutdowns. `CompanionAppearance`'s WZ
@@ -355,6 +377,26 @@ arrive via lightweight hooks (see §5).
 Edit `AgentCommand.executeInternal` in `client/command/commands/gm5/AgentCommand.java`.
 It already runs off the Netty loop.
 
+### Verify agent animation with the real client (vision)
+
+There is no automated check for "does the client render the cast" — verify it by looking.
+1. Launch the client `C:\Nexon\MapleStory\HeavenMS-localhost-WINDOW.exe` (windowed) and log in
+   (click the world button if the server was just rebuilt).
+2. Summon a companion in-game by typing `@agents find` in chat.
+3. Screenshot the client window from PowerShell — bring it topmost, then `CopyFromScreen` the
+   window rect to a PNG — and read the PNG. To catch a short animation, capture a burst of frames
+   (~80 ms apart) and tile them into one contact sheet.
+4. To correlate server packet ↔ client pixels, temporarily log the broadcast attack fields in
+   `PacketCreator.addAttackBody` (see §11.2), rebuild, and compare the agent's line
+   (`who=Agent-…`) with a real client's (`who=<player>`). They must agree on
+   `direction`/`stance`/`speed`/`display`; the client needs `direction` to be the action byte
+   (`22 | facing`), not the raw facing.
+
+PowerShell input notes: bring the window topmost (`SetWindowPos(... HWND_TOPMOST ...)`), click
+inside the client area to focus, then drive it with `keybd_event` / `SetCursorPos`+`mouse_event`.
+Injected input works for chat/UI; the client prints an "unlawful programs" notice when synthetic
+keys are used, which is expected on a local server.
+
 ---
 
 ## 6. Configuration (`config.yaml`, `server:` section)
@@ -384,7 +426,7 @@ It already runs off the Netty loop.
 | `LLM_AGENT_ATTACK_RANGE_SQ` | `150000.0` | Squared auto-attack range (~387px). |
 | `LLM_AGENT_AUTO_BUFF` | `false` | Auto-cast configured buff skills. |
 | `LLM_AGENT_AUTO_BUFF_SKILLS` | `""` | Comma-separated buff skill ids. |
-| `LLM_AGENT_ATTACK_SKILL` | `0` | Attack skill id for auto/LLM attacks (0 = basic). |
+| `LLM_AGENT_ATTACK_SKILL` | `0` | Force one attack skill id for all agents. `0` = auto-select the best learned attack skill per agent (falls back to a basic attack). |
 | `LLM_AGENT_AUTO_HEAL` | `false` | Auto-cast a heal skill when the agent/party is low. |
 | `LLM_AGENT_AUTO_HEAL_SKILL` | `0` | Heal skill id (0 = auto-detect the learned heal skill). |
 | `LLM_AGENT_HEAL_PERCENT` | `90` | HP % below which auto-heal fires. |
@@ -478,6 +520,15 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
 - Player-facing opt-out: `@agentoptout` (rank 0) and GM `!agent optout <player>` suppress
   agent greetings, party-search invites, whispers, party invites, party chat and follow;
   persisted in `agent_optout` and loaded at start.
+- Ground-aware walking (see §4.19): `moveToSmart` never moves an agent through open air — it
+  samples the ground ahead, stops at platform edges/gaps, falls straight down when airborne,
+  never ascends, and refuses overhead platforms. Verified by `AgentMovementFootholdTest` and the
+  real-`Map.wz` `AgentMovementWzRuntimeTest` (6000 steps, 0 counterexamples).
+- Combat animation: agent attack/cast packets now carry the real client's `direction` **action**
+  byte (`AgentCombat.ATTACK_DIRECTION_ACTION = 22`, `22 | facing`), so skill casts render on
+  other clients (confirmed live for a mage's Fire Arrow). Agents also auto-select the strongest
+  learned class attack skill each tick (`AgentCombat.selectAttackSkill`), so mixed-class
+  companions cast real skills instead of always basic-attacking.
 - Ops: rate limiting, audit logging, content filter, config, GM command, wake hooks for
   map-change and party-update.
 
@@ -492,7 +543,10 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   only.
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
-  per-skill cast-animation fidelity remain approximate.
+  per-skill cast-animation fidelity remain approximate. The attack `direction` action byte is
+  fixed and magic casts are confirmed live, but **melee (`CLOSE_RANGE_ATTACK`) and ranged casts
+  were not re-confirmed** after the fix, and the action byte is a single captured value (`22`)
+  rather than per-weapon — capture another class's real packet if it does not animate (§5, §11.1).
 - **`!agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
   prototype was discarded). `@agents pause|resume` and GM `!agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`@agents list|find|pause|resume|dismiss`)
@@ -579,6 +633,9 @@ busy maps
 
 | Commit | Summary |
 | --- | --- |
+| `cda7ee885` | agent: per-class auto attack-skill selection + client attack-`direction` byte (casts render) |
+| `f2247025b` | agent: ground-aware walking (no more air-walking) + real-`Map.wz` runtime test |
+| `0b0c85a5e` | agent: endpoint completion, role diversity, find/dismiss feedback, dismiss fix |
 | `a7a6288c7` | agent: diversify companion roles; acknowledge find/dismiss; fix dismiss world NPE |
 | `c6610fb63` | agent: complete bare LLM base URLs to the chat-completions endpoint |
 | `6c944199b` | agent: use the climb stance for vertical companion steps |
@@ -665,7 +722,7 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Companion animation** | `AgentMovement`, `AgentCombat` | Done: walk stance `2/3`, stand `4/5`, climb `16`, attack stance `0`/speed `6` (all captured from a real client); normal walking pace (duration/velocity from the step); idle stance broadcast when the agent stops. Remaining: exact per-weapon attack speed (currently the captured `6`). |
+| **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | Done: walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; **attack/cast `direction` action byte `22 | facing`** with `stance=0`, `speed=6`, `display=0` — confirmed live (a mage's **Fire Arrow** now renders). Remaining: **re-confirm melee (`CLOSE_RANGE_ATTACK`) and ranged casts** (only magic was confirmed); the action byte is the single captured `22` rather than per-weapon; exact per-weapon attack speed (currently `6`). |
 | **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Ground-aware stepping exists: probes the ground ahead, walks only on real footholds, stops at platform edges/gaps, falls straight down when airborne, and never ascends through air (regression tests in `AgentMovementFootholdTest`; real-`Map.wz` falsification in `AgentMovementWzRuntimeTest`). Still open: a full foothold graph search so an agent can jump/reach a gap-separated or strictly higher platform (via a portal/rope); a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). Gravity falls currently reuse the climb stance (16). |
 | **M9 — party-quest compatibility audit** | `scripts/` PQ scripts | Verify a companion filling a party slot does not break PQ objective logic; decide which PQs allow companions. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
@@ -696,8 +753,17 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
   OpenAI-compatible endpoint (via `.env`) for real LLM behavior.
 - **In-game commands:** players use `@agents ...`/`@agentoptout`; GMs use `!agent ...`.
   **`/…` does not dispatch** on this server.
-- **Temporary diagnostics:** none currently (the `[ATKDBG]` movement/attack capture was removed
-  after the animation stances were fixed).
+- **Temporary diagnostics:** none in the committed tree. To debug client-side rendering, add a
+  temporary `System.out.println` of the broadcast attack fields in
+  `PacketCreator.addAttackBody` (and/or the agent's chosen action in `AgentCombat.attackNearest`),
+  rebuild, and read the fields for both an agent and a **real** client attack (the `who=` name
+  distinguishes them). Remove before committing.
+- **Observing the game (vision):** the v83 client is at
+  `C:\Nexon\MapleStory\HeavenMS-localhost-WINDOW.exe` (windowed). A `pi` agent can screenshot and
+  drive it via PowerShell — see the §5 recipe "Verify agent animation with the real client".
+  `config.yaml`/`wz/` are bind-mounted, but a **Java change needs `docker compose up --build -d`**;
+  restarting the server drops the client to the world-select screen and reaps ephemeral
+  companions (`@agents find` again after).
 - **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree
   clean; **not merged to `master`** yet.
 

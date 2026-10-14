@@ -71,10 +71,13 @@ Not yet implemented (hardening / fidelity remainder):
   (auto-invites nearby solos), idle patrol; persona `greeting`/`traits`; memory compaction;
   `LLM_MAX_CALLS_PER_MIN` global request budget; `!agent status|mute|unmute`; optional map AI
   notice.
-- [ ] Deeper pathing: movement is clamped waypoint stepping (per-axis clamped, horizontal
-  alignment before drops), not a full foothold/rope pathfinder; portal travel is used for
-  cross-map follow, with party-warp fallback.
-- [ ] Hurricane/Rapid Fire after-delay timing and cast animation/stance fidelity (minor).
+- [~] Deeper pathing: ground-aware clamped stepping (walks only on real footholds, stops at
+  platform edges/gaps, falls straight down when airborne, never ascends) plus portal travel for
+  cross-map follow. Still not a full foothold/rope graph search, so an agent cannot jump a gap or
+  reach a strictly higher platform — see the handoff §4.19 / §11.1.
+- [x] Cast animation/stance: attack/cast packets emit the real client's `direction` action byte
+  (`22 | facing`) and agents auto-select their best learned attack skill; hold-skill after-delay
+  timing is implemented. Melee (`CLOSE_RANGE_ATTACK`) rendering was not re-confirmed (minor).
 - [x] Player-facing opt-out: `@agentoptout` (self) and GM `!agent optout <player>` suppress
   agent greetings, party-search invites, whispers, party invites, party chat and follow;
   persisted in the `agent_optout` table (`database/sql/migration/v0.16.0.sql`).
