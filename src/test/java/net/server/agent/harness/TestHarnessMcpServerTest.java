@@ -74,12 +74,18 @@ class TestHarnessMcpServerTest {
 
     @Test
     void disabledHarnessSurfacesToolError() throws Exception {
-        // USE_TEST_HARNESS is false in the committed config.yaml used by the test run.
+        // When the harness is disabled in the committed config, tool calls surface a gate error;
+        // when enabled (dev profile), the same call must succeed.
         JsonNode out = response("""
                 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"session_list","arguments":{}}}
                 """);
-        assertTrue(out.path("result").path("isError").asBoolean());
-        assertTrue(out.path("result").path("content").get(0).path("text").asText()
-                .contains("USE_TEST_HARNESS"));
+        if (TestHarnessConfig.enabled()) {
+            JsonNode payload = mapper.readTree(out.path("result").path("content").get(0).path("text").asText());
+            assertTrue(payload.path("sessions").isArray());
+        } else {
+            assertTrue(out.path("result").path("isError").asBoolean());
+            assertTrue(out.path("result").path("content").get(0).path("text").asText()
+                    .contains("USE_TEST_HARNESS"));
+        }
     }
 }

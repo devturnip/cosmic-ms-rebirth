@@ -8,6 +8,7 @@ import net.server.agent.AgentManager;
 import net.server.agent.AgentProvisioner;
 import net.server.agent.AgentSession;
 import net.server.agent.DbAgentProvisioner;
+import net.server.agent.harness.HarnessVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -155,13 +156,21 @@ public final class TestHarnessService {
 
     /**
      * Submits actions through the real packet pipeline. Blocks until the server has applied
-     * every action; returns one dispatch result per action.
+     * every action; returns per-action {@code dispatched} (packet sent through the real
+     * handlers) and {@code accepted} (server actually applied it; null = not observable).
      */
     public Map<String, Object> act(int characterId, List<AgentAction> actions) {
         AgentSession session = session(characterId);
-        boolean[] results = session.applyExternalActions(actions);
+        List<HarnessVerifier.Result> results = session.applyExternalActions(actions);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (HarnessVerifier.Result r : results) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("dispatched", r.dispatched());
+            row.put("accepted", r.accepted());
+            rows.add(row);
+        }
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("dispatched", results);
+        out.put("results", rows);
         out.put("observation", HarnessObservation.describe(session, List.of()));
         return out;
     }

@@ -42,7 +42,7 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 | --- | --- |
 | `session_start` `{jobId?, level?, mapId?, world?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. |
 | `observe` `{sessionId}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops, NPCs, players, inventory, equipment, quests (started/completed), buffered events. |
-| `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action dispatch results + fresh observation. |
+| `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
 | `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `set_level`, `set_quest_state`, `spawn_drop`, `heal`. |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
 | `session_end` `{sessionId}` | Despawn + delete character and account (idempotent). |
@@ -59,8 +59,21 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
-same validation a human player would hit. `act` returns `[true/false]` per action; a `false`
-usually means the server refused something — check the observation to find out why.
+same validation a human player would hit.
+
+### `dispatched` vs `accepted` (important)
+
+Each `act` result reports two flags:
+
+- **`dispatched: true`** — the action's packet was synthesized and processed by the real
+  handler. This alone does **not** mean the server agreed to it.
+- **`accepted: true/false/null`** — the server actually applied the action, verified by
+  comparing game state before/after (drop left the map, mob HP dropped, MP decreased, item
+  quantity decreased, position changed). `null` means acceptance is not cheaply observable
+  (chat/social actions). A silent `accepted: false` is usually the server faithfully refusing
+  something a real client would also be refused — e.g. picking up a **quest-bound drop**
+  (`items[]` entries carry a `questId` for exactly this case) while not on that quest, or
+  casting a skill the character hasn't learned.
 
 **Test-harness sessions may loot** (unlike player companions, whose inventory dies with them),
 which is what makes the drop→pickup→inventory flow testable.

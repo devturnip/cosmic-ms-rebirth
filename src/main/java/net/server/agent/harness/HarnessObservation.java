@@ -10,6 +10,9 @@ import net.server.agent.AgentEvent;
 import net.server.agent.AgentObservation;
 import net.server.agent.AgentPerception;
 import net.server.agent.AgentSession;
+import server.ItemInformationProvider;
+import server.maps.MapItem;
+import server.maps.MapObject;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -55,7 +58,7 @@ public final class HarnessObservation {
         out.put("nearbyPlayers", obs.nearbyPlayers());
         out.put("partyMembers", obs.partyMembers());
         out.put("monsters", obs.nearbyMonsters());
-        out.put("items", obs.nearbyItems());
+        out.put("items", describeDrops(chr, obs.nearbyItems()));
         out.put("npcs", obs.nearbyNpcs());
         out.put("buffSkills", obs.buffSkills());
         out.put("attackSkills", obs.attackSkills());
@@ -73,6 +76,34 @@ public final class HarnessObservation {
             events.add(event.toString());
         }
         out.put("recentEvents", events);
+        return out;
+    }
+
+    /**
+     * Enriches observed drops with the metadata an agent needs to understand pickup rules:
+     * item name, owner, and the gating quest id (drops bound to a quest are only pickable by
+     * characters on that quest — the server refuses silently, like for a real client).
+     */
+    private static List<Object> describeDrops(Character chr, List<AgentObservation.ObservedItem> items) {
+        ItemInformationProvider ii = ItemInformationProvider.getInstance();
+        List<Object> out = new ArrayList<>();
+        for (AgentObservation.ObservedItem item : items) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("objectId", item.objectId());
+            e.put("itemId", item.itemId());
+            e.put("name", ii.getName(item.itemId()));
+            e.put("quantity", item.quantity());
+            e.put("ownerId", item.ownerId());
+            e.put("x", item.x());
+            e.put("y", item.y());
+            MapObject ob = chr.getMap() == null ? null : chr.getMap().getMapObject(item.objectId());
+            if (ob instanceof MapItem mapItem) {
+                int questId = mapItem.getQuest();
+                e.put("questId", questId > 0 ? questId : null);
+                e.put("pickedUp", mapItem.isPickedUp());
+            }
+            out.add(e);
+        }
         return out;
     }
 

@@ -7,6 +7,7 @@ import net.opcodes.RecvOpcode;
 import net.packet.InPacket;
 import net.server.world.World;
 import net.server.agent.harness.HarnessBrain;
+import net.server.agent.harness.HarnessVerifier;
 import org.slf4j.Logger;
 import server.maps.Portal;
 import org.slf4j.LoggerFactory;
@@ -352,33 +353,46 @@ public class AgentSession {
      * session's action executor so state changes stay serialized with any other dispatch, and
      * blocks the caller until every action has been applied — an MCP `act` call returns only
      * after the server has processed its actions.
+     * <p>
+     * Each result reports {@code dispatched} (the packet went through the real handlers) and
+     * {@code accepted} (the server actually applied it, verified by comparing pre/post state —
+     * see {@link HarnessVerifier}; null when acceptance is not observable, e.g. chat actions).
      *
-     * @return one result flag per action (true = dispatched through the real handlers)
+     * @return one {@link HarnessVerifier.Result} per action, in order
      */
-    public boolean[] applyExternalActions(List<AgentAction> actions) {
+    public java.util.List<HarnessVerifier.Result> applyExternalActions(java.util.List<AgentAction> actions) {
         if (!harness) {
             throw new IllegalStateException("applyExternalActions is only valid for harness sessions");
         }
+        java.util.List<HarnessVerifier.Result> results = new java.util.ArrayList<>(actions.size());
         if (!active.get()) {
-            return new boolean[actions.size()];
+            for (int i = 0; i < actions.size(); i++) {
+                results.add(HarnessVerifier.Result.of(false, false));
+            }
+            return results;
         }
         try {
-            return actionExecutor.submit(() -> {
-                boolean[] results = new boolean[actions.size()];
-                for (int i = 0; i < actions.size(); i++) {
+            actionExecutor.submit(() -> {
+                for (AgentAction action : actions) {
+                    Object pre = HarnessVerifier.capture(this, action);
+                    boolean dispatched = false;
                     try {
-                        results[i] = dispatcher.dispatch(this, actions.get(i));
+                        dispatched = dispatcher.dispatch(this, action);
                     } catch (Throwable t) {
-                        log.warn("Agent {} failed to perform {}", getName(), actions.get(i), t);
-                        results[i] = false;
+                        log.warn("Agent {} failed to perform {}", getName(), action, t);
                     }
+                    Boolean accepted = dispatched ? HarnessVerifier.verify(this, action, pre) : Boolean.FALSE;
+                    results.add(HarnessVerifier.Result.of(dispatched, accepted));
                 }
-                return results;
-            }).get(30, java.util.concurrent.TimeUnit.SECONDS);
+                return true;
+            }).get(60, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
             log.warn("Harness agent {}: external action batch failed", getName(), e);
-            return new boolean[actions.size()];
+            while (results.size() < actions.size()) {
+                results.add(HarnessVerifier.Result.of(false, false));
+            }
         }
+        return results;
     }
 
     private void applyActions(List<AgentAction> actions) {
