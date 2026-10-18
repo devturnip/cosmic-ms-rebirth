@@ -130,6 +130,18 @@ public sealed interface AgentAction {
     record NpcEndDialog() implements AgentAction {
     }
 
+    /**
+     * Start a scripted quest through its quest script (the real client's QUEST_ACTION path),
+     * with {@code npcId} nearby. The script's dialog frames flow through the normal dialog
+     * actions ({@code NpcSelect}/{@code NpcRespondText}).
+     */
+    record QuestStart(int questId, int npcId) implements AgentAction {
+    }
+
+    /** Complete a scripted quest through its quest script (same path as {@link QuestStart}). */
+    record QuestComplete(int questId, int npcId) implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

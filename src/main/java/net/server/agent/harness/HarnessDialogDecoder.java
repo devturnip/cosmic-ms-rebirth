@@ -24,9 +24,9 @@ public final class HarnessDialogDecoder {
 
     /** v83 msg types seen in PacketCreator dialog packets (subset the harness understands). */
     private static final String[] TYPE_NAMES = {
-            "say", "yes_no", "text_input", "number_input", "selection", "accept_decline",
-            "unknown6", "style", "quiz", "speed_quiz", "unknown10", "unknown11", "unknown12",
-            "unknown13", "dimensional_mirror"
+            "say", "yes_no", "text_input", "number_input", "selection", "unknown5",
+            "unknown6", "style", "quiz", "speed_quiz", "unknown10", "unknown11",
+            "accept_decline", "unknown13", "dimensional_mirror"
     };
 
     private HarnessDialogDecoder() {

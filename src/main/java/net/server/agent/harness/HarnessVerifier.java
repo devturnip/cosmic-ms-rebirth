@@ -79,6 +79,12 @@ public final class HarnessVerifier {
             String text = session.getNpcDialogText();
             return new long[]{msgType, npcId, text == null ? -1L : text.hashCode()};
         }
+        if (action instanceof AgentAction.QuestStart quest) {
+            return new long[]{questStatus(chr, quest.questId()), dialogKey(session)};
+        }
+        if (action instanceof AgentAction.QuestComplete quest) {
+            return new long[]{questStatus(chr, quest.questId()), dialogKey(session)};
+        }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
 
@@ -142,11 +148,41 @@ public final class HarnessVerifier {
                     && dialogChanged(session, before); // opening a dialog always sets msgType >= 0
         }
         if (action instanceof AgentAction.NpcSelect || action instanceof AgentAction.NpcRespondText) {
-            // Accepted iff the dialog advanced (new frame) or closed (script disposed).
             long[] before = (long[]) pre;
+            if (before[0] < 0) {
+                return false; // there was no dialog open to respond to
+            }
+            // Accepted iff the dialog advanced (new frame) or closed (script disposed).
             return session.getNpcDialogMsgType() < 0 || dialogChanged(session, before);
         }
+        if (action instanceof AgentAction.QuestStart || action instanceof AgentAction.QuestComplete) {
+            // Accepted iff the quest script opened (dialog appeared/changed) or the quest state
+            // actually transitioned. The status flip alone would miss scripted starts, which
+            // only force the state several dialog frames in.
+            long[] before = (long[]) pre;
+            return before[0] != questStatus(chr, questIdOf(action)) || before[1] != dialogKey(session);
+        }
         return null;
+    }
+
+    private static int questIdOf(AgentAction action) {
+        return action instanceof AgentAction.QuestStart q ? q.questId() : ((AgentAction.QuestComplete) action).questId();
+    }
+
+    private static long dialogKey(AgentSession session) {
+        String text = session.getNpcDialogText();
+        return session.getNpcDialogMsgType() * 31L + session.getNpcDialogNpcId() * 8191L
+                + (text == null ? -1L : text.hashCode());
+    }
+
+    /** Quest status snapshot: -1 unknown, 0 not started, 1 started, 2 completed. */
+    private static int questStatus(Character chr, int questId) {
+        return switch (chr.getQuest(questId).getStatus()) {
+            case UNDEFINED -> -1;
+            case NOT_STARTED -> 0;
+            case STARTED -> 1;
+            case COMPLETED -> 2;
+        };
     }
 
     private static boolean dialogChanged(AgentSession session, long[] before) {

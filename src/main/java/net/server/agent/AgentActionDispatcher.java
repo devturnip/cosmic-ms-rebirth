@@ -89,6 +89,8 @@ public class AgentActionDispatcher {
             case AgentAction.NpcSelect select -> npcRespond(session, select.selection(), null);
             case AgentAction.NpcRespondText respond -> npcRespond(session, null, respond.text());
             case AgentAction.NpcEndDialog ignored -> npcEndDialog(session);
+            case AgentAction.QuestStart start -> questAction(session, start.questId(), start.npcId(), (byte) 4);
+            case AgentAction.QuestComplete complete -> questAction(session, complete.questId(), complete.npcId(), (byte) 5);
             case AgentAction.Idle ignored -> {
             }
         }
@@ -282,21 +284,70 @@ public class AgentActionDispatcher {
         send(session, RecvOpcode.NPC_TALK, p -> p.writeInt(oid));
     }
 
-    /** Responds to the pending dialog: a selection/number (or yes/no via selection), or text input. */
+    /**
+     * Responds to the pending dialog. The response encoding must mirror the real client per
+     * frame type:
+     * <ul>
+     *     <li>{@code yes_no} (1) and {@code accept_decline} (5) — the answer rides the
+     *     <em>action</em> byte (1 = yes/accept, 0 = no/decline), no selection bytes.</li>
+     *     <li>{@code selection} (4) and {@code number_input} (3) — action 1 + int selection.</li>
+     *     <li>{@code say} (0) — action 1 ("next"), no extra bytes.</li>
+     *     <li>{@code text_input} (2) — action 1 + string (only via {@code NpcRespondText}).</li>
+     * </ul>
+     * Mismatched responses are refused (mirroring a real client, which cannot send them).
+     */
     private void npcRespond(AgentSession session, Integer selection, String text) {
         int msgType = session.getNpcDialogMsgType();
-        if (msgType < 0) {
-            log.debug("Agent {} tried to respond with no NPC dialog open", session.getName());
+        if (msgType < 0 || !isValidResponse(msgType, selection, text)) {
+            log.debug("Agent {} cannot respond to dialog type {} (selection={}, text={})",
+                    session.getName(), msgType, selection, text);
             return;
         }
         send(session, RecvOpcode.NPC_TALK_MORE, p -> {
             p.writeByte(msgType);
-            p.writeByte(1); // 1 = continue (0 would end the chat)
-            if (text != null) {
-                p.writeString(text);
-            } else if (selection != null) {
-                p.writeInt(selection);
+            switch (msgType) {
+                case 2 -> {
+                    p.writeByte(1);
+                    p.writeString(text);
+                }
+                case 1, 5, 12 -> p.writeByte(selection == 1 ? (byte) 1 : (byte) 0); // answer in the action byte
+                case 3, 4 -> {
+                    p.writeByte(1);
+                    p.writeInt(selection);
+                }
+                default -> p.writeByte(1); // say and other single-response frames: "next"
             }
+        });
+    }
+
+    private static boolean isValidResponse(int msgType, Integer selection, String text) {
+        return switch (msgType) {
+            case 2 -> text != null && selection == null;
+            case 1, 5, 12, 3, 4 -> text == null && selection != null;
+            default -> text == null; // say frames take a plain continue
+        };
+    }
+
+    /**
+     * Fires a scripted-quest start/complete (the client's QUEST_ACTION path, actions 4/5 —
+     * these run the quest's JS script, whose dialog frames flow through the normal dialog
+     * actions). Actions 1/2 are the silent WZ-driven variants and are deliberately not used:
+     * they bypass the script's checks, rewards and dialogs.
+     */
+    private void questAction(AgentSession session, int questId, int npcId, byte action) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        if (findNpcOid(chr, npcId) == null) {
+            log.debug("Agent {} cannot {} quest {}: npc {} is not on map {}", session.getName(),
+                    action == 4 ? "start" : "complete", questId, npcId, chr.getMapId());
+            return;
+        }
+        send(session, RecvOpcode.QUEST_ACTION, p -> {
+            p.writeByte(action);
+            p.writeShort(questId);
+            p.writeInt(npcId);
         });
     }
 

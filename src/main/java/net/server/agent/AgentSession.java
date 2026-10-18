@@ -86,6 +86,8 @@ public class AgentSession {
     private volatile int npcDialogNpcId = -1;
     private volatile int npcDialogMsgType = -1;
     private volatile String npcDialogText;
+    /** Map the dialog was opened on; a dialog whose map no longer matches is stale (post-warp). */
+    private volatile int npcDialogMapId = -1;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this(client, player, brain, memory, false, -1, false);
@@ -195,6 +197,8 @@ public class AgentSession {
         this.npcDialogNpcId = npcId;
         this.npcDialogMsgType = msgType;
         this.npcDialogText = text;
+        Character p = player;
+        this.npcDialogMapId = p == null ? -1 : p.getMapId();
     }
 
     /** Clears dialog state (dialog ended or agent changed maps). */
@@ -210,11 +214,17 @@ public class AgentSession {
 
     /** The pending dialog's msg type (0 say, 1 yes/no, 2 text, 3 number, 4 selection, 5 accept/decline...). */
     public int getNpcDialogMsgType() {
-        return npcDialogMsgType;
+        return isNpcDialogStale() ? -1 : npcDialogMsgType;
     }
 
     public String getNpcDialogText() {
-        return npcDialogText;
+        return isNpcDialogStale() ? null : npcDialogText;
+    }
+
+    /** A dialog captured on another map is stale (the script disposed itself via a warp). */
+    private boolean isNpcDialogStale() {
+        Character p = player;
+        return npcDialogMsgType >= 0 && p != null && p.getMap() != null && p.getMapId() != npcDialogMapId;
     }
 
     /** Suspends/resumes an agent (idempotent; single volatile write so concurrent toggles cannot race). */

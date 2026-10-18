@@ -50,7 +50,11 @@ public class ItemRequirement extends AbstractQuestRequirement {
     public void processData(Data data) {
         for (Data itemEntry : data.getChildren()) {
             int itemId = DataTool.getInt(itemEntry.getChildByPath("id"));
-            int count = DataTool.getInt(itemEntry.getChildByPath("count"), 0);
+            // A missing count means "1 needed" (Nexon semantics, e.g. Roger's Apple 1021).
+            // Defaulting to 0 here used to make HAVING the required item fail the check
+            // (countNeeded <= 0 && count > 0), permanently blocking completion of those quests.
+            // Explicit count="0" entries keep their deliberate "must not have" meaning.
+            int count = DataTool.getInt(itemEntry.getChildByPath("count"), 1);
 
             items.put(itemId, count);
         }

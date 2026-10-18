@@ -68,6 +68,8 @@ public final class HarnessActions {
             case "NPCSELECT" -> new AgentAction.NpcSelect(intField(node, "selection"));
             case "NPCRESPONDTEXT" -> new AgentAction.NpcRespondText(text(node, "text"));
             case "NPCENDDIALOG" -> new AgentAction.NpcEndDialog();
+            case "QUESTSTART" -> new AgentAction.QuestStart(intField(node, "questId"), intField(node, "npcId"));
+            case "QUESTCOMPLETE" -> new AgentAction.QuestComplete(intField(node, "questId"), intField(node, "npcId"));
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };
