@@ -16,15 +16,16 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 
 - **Branch:** `feature/llm-agent-players` (pushed, in sync with origin). **Not merged to
   `master`** — a PR/merge is the final release step.
-- **HEAD:** `cda7ee885` (per-class auto attack-skill selection + the client attack-direction
-  byte fix; full history in §10). Ground-aware walking landed just before it (`f2247025b`).
+- **HEAD:** `fd0c6a118` (§11.1 closed: foothold/rope pathfinding, test-gap suites, per-weapon
+  animation analysis, M9 PQ guard + audit; full history in §10).
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
-  pursued; M9 (party-quest compatibility audit) is open. See §11 and
-  `docs/llm-agent-companions-plan.md`. **Animation fully verified:** magic (Fire Arrow),
-  melee (Fighter `CLOSE_RANGE_ATTACK`) and ranged (Assassin `RANGED_ATTACK` + Lucky Seven) all
-  render on a real client with the `22 | facing` direction byte; only per-weapon byte/speed
-  polish remains (see §11.1).
+  pursued; **M9 (party-quest compatibility audit) is closed** — companions are blocked from all
+  scripted event instances and CPQ (`docs/llm-agent-pq-audit.md`). **§11.1 open work is fully
+  closed** (pathing depth, test gaps, per-weapon animation). **Animation fully verified:**
+  magic (Fire Arrow), melee (Fighter `CLOSE_RANGE_ATTACK`) and ranged (Assassin `RANGED_ATTACK`
+  + Lucky Seven) all render on a real client with the `22 | facing` direction byte; only
+  per-weapon booster-adjusted speed is accepted as out of scope.
 - **Player commands (this server's headings):** players use **`@`** (`@agents list|find|pause|
   resume|dismiss`, `@agentoptout`); GMs use **`!`** (`!agent spawn|…`). **`/…` is not a command
   heading here** — a `/…` line from a non-GM is silently dropped.
@@ -562,9 +563,10 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   prototype was discarded). `@agents pause|resume` and GM `!agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`@agents list|find|pause|resume|dismiss`)
   with level-appropriate builds (`CompanionTemplate`: job tiers, AP, skills, gear);
-  see **`docs/llm-agent-companions-plan.md`**. M9 (party-quest audit) remains open; M8 (idle
-  despawn/uptime caps) is intentionally not pursued — the per-player cap + request cooldown +
-  no-value-transfer + no-auto-loot posture is accepted.
+  see **`docs/llm-agent-companions-plan.md`**. M9 (party-quest audit) is **closed** —
+  companions are blocked from scripted events and CPQ (§11.1, `docs/llm-agent-pq-audit.md`);
+  M8 (idle despawn/uptime caps) is intentionally not pursued — the per-player cap + request
+  cooldown + no-value-transfer + no-auto-loot posture is accepted.
 - **Persistence guidance:** the two agent migrations are manual (like other repo migrations);
   without them, memory/opt-out changes simply do not survive a restart.
 
@@ -644,6 +646,11 @@ busy maps
 
 | Commit | Summary |
 | --- | --- |
+| `fd0c6a118` | docs: §11.1 closed — pathing depth, test gaps, per-weapon animation analysis |
+| `6ff7dd980` | test: §11.1 test gaps (ammo shop, opt-out gates, transfer channel) |
+| `f8064f241` | feat: foothold + rope pathfinding (`AgentPathing`) — §11.1 pathing depth |
+| `4a90290b7` | docs: M9 PQ audit + all attack animations verified live |
+| `a636de9b5` | fix: keep ephemeral companions out of party quests and CPQ (M9) |
 | `cda7ee885` | agent: per-class auto attack-skill selection + client attack-`direction` byte (casts render) |
 | `f2247025b` | agent: ground-aware walking (no more air-walking) + real-`Map.wz` runtime test |
 | `0b0c85a5e` | agent: endpoint completion, role diversity, find/dismiss feedback, dismiss fix |
@@ -776,7 +783,9 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
   restarting the server drops the client to the world-select screen and reaps ephemeral
   companions (`@agents find` again after).
 - **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree
-  clean; **not merged to `master`** yet.
+  clean; **not merged to `master`** yet. All §11.1 items are closed — only the accepted
+  cosmetic remainders in §8 remain (gravity falls reuse the climb stance, ropes/ladders treated
+  identically, >256-foothold maps decline pathing, per-weapon booster-adjusted speed).
 
 ### 11.3 Definition of done for a change
 

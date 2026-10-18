@@ -209,7 +209,7 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 | **M6 — Discovery/spawn** | `@agents list\|find\|dismiss`, `AgentCompanionService`, auto-follow, per-player caps/cooldown, tests. | done |
 | **M7 — Auto-party** | `CompanionPartyService` (form/join), guard cases. | done |
 | **M8 — Fairness/lifecycle** | idle despawn, daily uptime cap, metrics/audit, opt-out interplay. | not required (accepted posture) |
-| **M9 — Quest/PQ audit** | Verify party-quest scripts tolerate companions; level-band/PQ eligibility rules; guide. | deferred |
+| **M9 — Quest/PQ audit** | Verify party-quest scripts tolerate companions; level-band/PQ eligibility rules; guide. | **done (2026-10-19)** — companions are blocked from all scripted event instances and CPQ; see `docs/llm-agent-pq-audit.md` |
 
 ### Definition of done (per repo process)
 
@@ -228,8 +228,11 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
 - ~~**Idle despawn & uptime caps** (M8)~~ — intentionally not pursued: the accepted anti-AFK
   posture is the per-player cap + request cooldown + no value transfer + no auto-loot. (The
   `Character` idle signal / reap hook would be needed if this is ever revisited.)
-- **PQ script audit** (M9) — some v83 party-quest scripts assume human players; companions may
-  break objective logic even though they can fill slots.
+- **PQ script audit** (M9) — **done (2026-10-19).** The audit (`docs/llm-agent-pq-audit.md`)
+  found companions break most PQs and the recommended block-all policy is implemented:
+  `EventInstanceManager.registerPlayer` refuses ephemeral companions, `EventManager.getEligibleParty`
+  filters them from PQ gates, and CPQ (`isCPQParty`/`canStartCPQ`/`MonsterCarnival`) rejects
+  parties containing them.
 - **Persistent vs ephemeral toggle for GM spawns** — `!agent spawn` keeps the persistent
   character path; a future `!agent spawn --ephemeral` could unify both.
 - **Recipe breadth** — **done.** `CompanionTemplate` builds a level-appropriate character:
@@ -298,5 +301,6 @@ LLM_AGENT_ACCOUNT_PREFIX       "agnt"  # server-owned account name prefix
   `LLM_AGENT_ATTACK_SKILL` is `0`) instead of always basic-attacking, and the attack/cast packet
   carries the real client's `direction` **action** byte (`22 | facing`) rather than the raw
   facing (`0`/`1`) — without it the client silently skips the cast animation while damage still
-  lands. Confirmed live: a mage companion's **Fire Arrow** renders. Melee (`CLOSE_RANGE_ATTACK`)
-  rendering was not re-confirmed — see the handoff §4.25 and §11.1.
+  lands. Confirmed live: a mage companion's **Fire Arrow** renders; melee and ranged were
+  re-confirmed later (2026-10-18/19) — all three attack types render with the same
+  `22 | facing` action byte, which needs no per-weapon table (see handoff §4.25/§11.1).

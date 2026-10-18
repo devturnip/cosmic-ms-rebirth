@@ -272,8 +272,11 @@ is generated at their level and deleted when dismissed (see
 | Safety | Content filter, per-agent rate limit, global request budget, mute, opt-out | `LLM_AGENT_CONTENT_FILTER`, `…_MAX_ACTIONS_PER_SEC`, `LLM_MAX_CALLS_PER_MIN` |
 
 Agents are **reactive by default**; proactive behavior only runs when you turn it on.
-Movement is clamped waypoint stepping (they cannot teleport from hallucinated coordinates),
+Movement is clamped waypoint stepping plus a foothold/rope pathfinder (they cannot teleport from
+hallucinated coordinates; they can walk, fall, jump small gaps and climb real ropes/ladders),
 and all actions go through the real packet handlers, so normal validation still applies.
+Companions never enter scripted event instances or the Monster Carnival (party quests would
+debuglock on them; see `docs/llm-agent-pq-audit.md`) — they stay outside and keep following you.
 
 ---
 
@@ -319,13 +322,15 @@ per-player caps/cooldown, and lifecycle deletion on dismiss/GM-despawn/shutdown.
 
 - **Pathing depth** — movement is clamped waypoint stepping with portal travel **and now
   foothold-aware platform stepping** (`AgentMovement` consults `FootholdTree` to walk along the
-  current foothold before dropping to the landing foothold); there is still no full foothold/rope
-  graph search and the server models no ropes/ladders.
+  current foothold before dropping to the landing foothold); pathing depth is now **done**
+  (2026-10-19): a bounded foothold + WZ `ladderRope` graph search (`AgentPathing`) routes agents
+  over small gaps (jump arcs) and up/down real ropes and ladders when the direct step stalls.
 - **Combat fidelity** — hold-skill after-delay pacing (Hurricane/Rapid Fire/etc. now use a fixed
   minimum interval when the WZ cooldown is 0) and the ranged cast stance for those skills are
   implemented, and agents auto-select their strongest learned attack skill and emit the real
-  client's attack `direction` byte (so skill casts animate). Melee (`CLOSE_RANGE_ATTACK`)
-  rendering was not re-confirmed and exact per-weapon attack-speed / cast-animation fidelity
-  remains approximate.
+  client's attack `direction` byte (so skill casts animate). All three attack types (melee,
+  magic, ranged) were re-confirmed live (2026-10-18/19): the `22 | facing` action byte is the
+  generic v83 attack action — no per-weapon table is needed — and `speed=6` matches the real
+  client baseline; per-weapon booster-adjusted speed is accepted as out of scope.
 - `!agent tell` was intentionally dropped (an operator-only directive of marginal value);
   `@agents pause`/`resume` and GM `!agent pause`/`resume` are implemented.
