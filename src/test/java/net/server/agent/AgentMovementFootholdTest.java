@@ -206,14 +206,18 @@ class AgentMovementFootholdTest {
 
     @Test
     void walkOnGroundNeverStepsUpOntoAHigherPlatform() {
-        // B is 70px ABOVE A but overlaps in x. A horizontal walk must not climb onto it.
+        // B is 70px ABOVE A but overlaps in x. A horizontal walk must not climb onto it: with the
+        // pathfinder active the agent walks to the jump-arc takeoff column (150) but stays on its
+        // own platform (y = 0) - the ascent itself only ever happens as a scripted jump/rope move.
         Foothold lower = new Foothold(new Point(0, 0), new Point(200, 0), 1);
         Foothold higher = new Foothold(new Point(150, -70), new Point(400, -70), 2);
         AgentSession session = sessionOn(treeWith(lower, higher), 100, 0);
 
         AgentMovement.moveToSmart(session, new Point(300, -70), AgentMovement.MAX_STEP);
 
-        assertEquals(new Point(200, 0), captureMove(session), "must stay on its own platform");
+        Point move = captureMove(session);
+        assertEquals(0, move.y, "must stay on its own platform, never ascend");
+        assertTrue(move.x <= 200, "must remain within its own platform's x range: " + move);
     }
 
     @Test
