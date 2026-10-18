@@ -301,6 +301,13 @@ class AgentMovementPathingTest {
         MapleMap map = Mockito.mock(MapleMap.class);
         AgentSession session = Mockito.mock(AgentSession.class);
         when(session.getPlayer()).thenReturn(chr);
+        // Track the climbing flag like the real session would (position classification reads it).
+        java.util.concurrent.atomic.AtomicBoolean climbing = new java.util.concurrent.atomic.AtomicBoolean(false);
+        when(session.isClimbingRope()).thenAnswer(inv -> climbing.get());
+        doAnswer(inv -> {
+            climbing.set(inv.getArgument(0));
+            return null;
+        }).when(session).setClimbingRope(org.mockito.ArgumentMatchers.anyBoolean());
         when(chr.getPosition()).thenAnswer(invocation -> new Point(position[0], position[1]));
         when(chr.getMap()).thenReturn(map);
         when(map.getId()).thenReturn(mapId);

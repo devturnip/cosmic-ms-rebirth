@@ -384,6 +384,10 @@ public final class AgentMovement {
         }
         session.dispatchInbound(RecvOpcode.MOVE_PLAYER,
                 buildMovePacket(clamped.x, clamped.y, stance, fromX, fromY));
+        // Pathing classification: a climb step means the agent is hanging on a rope; any other
+        // step (walk, jump, stand, fall) means it is not — position alone is ambiguous when a
+        // rope column overlaps platform surfaces.
+        session.setClimbingRope(stance == CLIMB_STANCE);
         session.markMoved();
     }
 

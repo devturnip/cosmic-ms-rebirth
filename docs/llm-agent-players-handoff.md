@@ -294,7 +294,10 @@ arrive via lightweight hooks (see §5).
     `AgentPathing.routeStep` takes the tick and may emit a bounded jump arc (stances 6/7) landing
     on a real foothold or a stance-16 climb along a real WZ `ladderRope`; every such move is still
     clamped by `MAX_STEP`, and a mid-climb agent is never "fallen" off its rope. Routing is
-    bounded (256 footholds) and declines gracefully on oversized/unpathable maps. `footholdAt`'s rounding recovery accepts a surface
+    bounded (256 footholds) and declines gracefully on oversized/unpathable maps. Whether an
+    agent is mid-climb is tracked **explicitly** (`AgentSession#isClimbingRope`, set by the last
+    emitted step) — position-based classification is ambiguous when a rope column overlaps
+    platform surfaces, which froze agents at rope tops and dropped them off ropes mid-climb. `footholdAt`'s rounding recovery accepts a surface
     *above* the feet only within `GROUNDED_EPSILON`, so an overhead platform is never mistaken for
     ground. `AgentAction.MoveTo` (the LLM `move` tool) and `stepAway` (flee) are routed through
     `moveToSmart` for the same reason. Regression tests live in `AgentMovementFootholdTest`, and

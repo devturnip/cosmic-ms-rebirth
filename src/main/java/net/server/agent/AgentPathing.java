@@ -218,8 +218,17 @@ public final class AgentPathing {
         if (footholds.isEmpty() || footholds.size() > MAX_PATH_FOOTHOLDS) {
             return false;
         }
-        Ladder onLadder = ladderAt(ladders, current);
-        Foothold ground = onLadder == null ? AgentMovement.footholdAt(tree, current) : null;
+        // Climbing state is tracked explicitly (AgentSession#isClimbingRope, set by the last
+        // emitted step) because position alone is ambiguous: a rope column often overlaps
+        // platform surfaces, which misclassified landed agents as mid-climb (froze them at the
+        // rope top) and mid-climb agents as grounded (dropped them off the rope).
+        boolean hanging = session.isClimbingRope() && ladderAt(ladders, current) != null;
+        Ladder onLadder = hanging ? ladderAt(ladders, current) : null;
+        Foothold ground = hanging ? null : AgentMovement.footholdAt(tree, current);
+        if (!hanging && ground == null) {
+            // Position fallback (e.g. no step emitted yet): on a rope column without support.
+            onLadder = ladderAt(ladders, current);
+        }
         if (onLadder == null && ground == null) {
             return false; // unsupported: the direct step holds position
         }
@@ -437,22 +446,17 @@ public final class AgentPathing {
     }
 
     /**
-     * Whether the agent is mid-climb on a real rope: its position sits on a usable rope's column
-     * and span while not standing on a foothold. The direct step would otherwise read that
-     * position as unsupported and fall straight down, interrupting the climb.
+     * Whether the agent is mid-climb on a real rope: its session's last step was a climb and its
+     * position sits on a usable rope's column and span. The direct step would otherwise read that
+     * position as unsupported (or worse, grounded) and interrupt the climb.
      */
     static boolean hangingOnLadder(AgentSession session) {
         Character chr = session == null ? null : session.getPlayer();
         MapleMap map = chr == null ? null : chr.getMap();
         Point current = chr == null ? null : chr.getPosition();
         FootholdTree tree = map == null ? null : map.getFootholds();
-        if (tree == null || current == null) {
+        if (tree == null || current == null || !session.isClimbingRope()) {
             return false;
-        }
-        Foothold ground = AgentMovement.footholdAt(tree, current);
-        if (ground != null
-                && current.y >= ground.calculateFooting(current.x) - AgentMovement.GROUNDED_EPSILON) {
-            return false; // standing on ground next to the rope, not hanging on it
         }
         return ladderAt(ladders(map), current) != null;
     }

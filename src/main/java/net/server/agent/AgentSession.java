@@ -72,6 +72,8 @@ public class AgentSession {
     private volatile long lastPatrolAt;
     /** When muted, the agent's chat actions are dropped (GM moderation). */
     private volatile boolean muted;
+    /** Whether the last emitted movement step was a rope/ladder climb (drives pathing classification). */
+    private volatile boolean climbingRope;
     /** Whether a movement step ran in the current behaviour tick (drives idle-stance sync). */
     private volatile boolean movedThisTick;
     /** When paused, the agent skips all decisions and server-driven behaviour until resumed. */
@@ -154,6 +156,15 @@ public class AgentSession {
     /** Sets chat suppression (idempotent; single volatile write so concurrent GMs cannot race). */
     public void setMuted(boolean muted) {
         this.muted = muted;
+    }
+
+    /** Whether the agent's last movement step was a rope/ladder climb step. */
+    public boolean isClimbingRope() {
+        return climbingRope;
+    }
+
+    public void setClimbingRope(boolean climbingRope) {
+        this.climbingRope = climbingRope;
     }
 
     public boolean isPaused() {
