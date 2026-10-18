@@ -21,9 +21,10 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
   pursued; M9 (party-quest compatibility audit) is open. See §11 and
-  `docs/llm-agent-companions-plan.md`. **Open animation follow-up:** melee/basic
-  (`CLOSE_RANGE_ATTACK`) casts were not re-confirmed after the direction fix (magic is
-  confirmed), and the exact per-weapon action byte is unverified — see §11.1.
+  `docs/llm-agent-companions-plan.md`. **Animation fully verified:** magic (Fire Arrow),
+  melee (Fighter `CLOSE_RANGE_ATTACK`) and ranged (Assassin `RANGED_ATTACK` + Lucky Seven) all
+  render on a real client with the `22 | facing` direction byte; only per-weapon byte/speed
+  polish remains (see §11.1).
 - **Player commands (this server's headings):** players use **`@`** (`@agents list|find|pause|
   resume|dismiss`, `@agentoptout`); GMs use **`!`** (`!agent spawn|…`). **`/…` is not a command
   heading here** — a `/…` line from a non-GM is silently dropped.
@@ -203,6 +204,10 @@ arrive via lightweight hooks (see §5).
   so perception can read the USE inventory off the brain thread without racing the action
   executor.
 - `config/ServerConfig.java` + `config.yaml` — agent config keys.
+- `scripting/event/EventInstanceManager.java`, `scripting/event/EventManager.java`,
+  `scripting/npc/NPCConversationManager.java`, `server/partyquest/MonsterCarnival.java` —
+  M9: ephemeral companions are kept out of scripted event instances and the Monster Carnival
+  (see `docs/llm-agent-pq-audit.md`).
 - `pom.xml` — `jackson-databind:2.17.2`.
 
 ---
@@ -543,10 +548,10 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   only.
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
-  per-skill cast-animation fidelity remain approximate. The attack `direction` action byte is
-  fixed and magic casts are confirmed live, but **melee (`CLOSE_RANGE_ATTACK`) and ranged casts
-  were not re-confirmed** after the fix, and the action byte is a single captured value (`22`)
-  rather than per-weapon — capture another class's real packet if it does not animate (§5, §11.1).
+  per-skill cast-animation fidelity remain approximate. All three attack types (melee, magic,
+  ranged) were re-confirmed to render after the direction fix (see §11.1); the action byte is a
+  single captured value (`22`) rather than per-weapon — capture another class's real packet if a
+  specific weapon does not animate (§5, §11.1).
 - **`!agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
   prototype was discarded). `@agents pause|resume` and GM `!agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`@agents list|find|pause|resume|dismiss`)
@@ -722,9 +727,9 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | Done: walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; **attack/cast `direction` action byte `22 | facing`** with `stance=0`, `speed=6`, `display=0` — confirmed live (a mage's **Fire Arrow** now renders). Remaining: **re-confirm melee (`CLOSE_RANGE_ATTACK`) and ranged casts** (only magic was confirmed); the action byte is the single captured `22` rather than per-weapon; exact per-weapon attack speed (currently `6`). |
+| **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | Done: walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; **attack/cast `direction` action byte `22 | facing`** with `stance=0`, `speed=6`, `display=0`. **All three attack types verified live against the real client (2026-10-18): magic (Fire Arrow), melee (Fighter sword-swing, `op=CLOSE_RANGE dir=22/23`), and ranged (Assassin Lucky Seven with Subi stars, `op=RANGED dir=22/23 proj=2070000`) all render.** Remaining (cosmetic polish): the action byte is the single captured `22` rather than per-weapon, and exact per-weapon attack speed is still approximated (`6`). Note: `USE_AUTOHIDE_GM` hides GMs on login and hidden clients silently refuse to attack — `!unhide` before any in-client capture session. |
 | **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Ground-aware stepping exists: probes the ground ahead, walks only on real footholds, stops at platform edges/gaps, falls straight down when airborne, and never ascends through air (regression tests in `AgentMovementFootholdTest`; real-`Map.wz` falsification in `AgentMovementWzRuntimeTest`). Still open: a full foothold graph search so an agent can jump/reach a gap-separated or strictly higher platform (via a portal/rope); a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). Gravity falls currently reuse the climb stance (16). |
-| **M9 — party-quest compatibility audit** | `scripts/` PQ scripts | Verify a companion filling a party slot does not break PQ objective logic; decide which PQs allow companions. |
+| **M9 — party-quest compatibility audit** | `docs/llm-agent-pq-audit.md`, `EventManager`, `EventInstanceManager`, `NPCConversationManager`, `MonsterCarnival` | **Closed.** The audit found companions break most PQs (auto-registered/stranded/counted, dismissal aborts the run) and recommended blocking them from all scripted event instances. Implemented and verifier-passed: `AgentManager.isEphemeralAgent`, an under-writeLock early-return in `EventInstanceManager.registerPlayer`, an eligibility filter in `EventManager.getEligibleParty`, and full CPQ coverage (`isCPQParty`/`canStartCPQ`/`MonsterCarnival` entry loops). Persistent GM agents remain PQ-eligible by design. See `docs/llm-agent-pq-audit.md`. |
 | **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
 | **`!agent tell`** | `AgentCommand` | Intentionally dropped (operator-only; marginal value). |
 | **M8 — idle despawn / uptime caps** | — | Intentionally not pursued; the accepted posture is per-player cap + request cooldown + no value transfer + no auto-loot. |
