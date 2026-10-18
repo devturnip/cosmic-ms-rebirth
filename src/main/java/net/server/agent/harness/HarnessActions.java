@@ -64,6 +64,10 @@ public final class HarnessActions {
             case "CASTBUFF" -> new AgentAction.CastBuff(intField(node, "skillId"));
             case "CASTHEAL" -> new AgentAction.CastHeal(intField(node, "skillId"));
             case "REMEMBER" -> new AgentAction.Remember(text(node, "fact"));
+            case "NPCTALK" -> new AgentAction.NpcTalk(intField(node, "npcId"));
+            case "NPCSELECT" -> new AgentAction.NpcSelect(intField(node, "selection"));
+            case "NPCRESPONDTEXT" -> new AgentAction.NpcRespondText(text(node, "text"));
+            case "NPCENDDIALOG" -> new AgentAction.NpcEndDialog();
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };

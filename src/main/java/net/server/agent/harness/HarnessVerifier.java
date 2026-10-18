@@ -72,6 +72,13 @@ public final class HarnessVerifier {
             Point pos = chr.getPosition();
             return pos == null ? null : new Point(pos);
         }
+        if (action instanceof AgentAction.NpcTalk || action instanceof AgentAction.NpcSelect
+                || action instanceof AgentAction.NpcRespondText) {
+            int msgType = session.getNpcDialogMsgType();
+            int npcId = session.getNpcDialogNpcId();
+            String text = session.getNpcDialogText();
+            return new long[]{msgType, npcId, text == null ? -1L : text.hashCode()};
+        }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
 
@@ -129,7 +136,24 @@ public final class HarnessVerifier {
             double dy = post.y - move.y();
             return dx * dx + dy * dy <= 150.0 * 150.0;
         }
+        if (action instanceof AgentAction.NpcTalk) {
+            long[] before = (long[]) pre;
+            return session.getNpcDialogMsgType() >= 0
+                    && dialogChanged(session, before); // opening a dialog always sets msgType >= 0
+        }
+        if (action instanceof AgentAction.NpcSelect || action instanceof AgentAction.NpcRespondText) {
+            // Accepted iff the dialog advanced (new frame) or closed (script disposed).
+            long[] before = (long[]) pre;
+            return session.getNpcDialogMsgType() < 0 || dialogChanged(session, before);
+        }
         return null;
+    }
+
+    private static boolean dialogChanged(AgentSession session, long[] before) {
+        String text = session.getNpcDialogText();
+        return before[0] != session.getNpcDialogMsgType()
+                || before[1] != session.getNpcDialogNpcId()
+                || before[2] != (text == null ? -1L : text.hashCode());
     }
 
     private static boolean hpDropped(int before, int after) {

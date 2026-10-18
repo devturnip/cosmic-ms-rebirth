@@ -106,8 +106,13 @@ The testing agent judges outcomes from observations — these recipes are the *s
   re-casts (`SkillAttack` returning false until ready), and death → `Respawn` works.
 - **Skills & buffs** — `setup set_level` + provision with job skills; `CastBuff` then check
   `buffSkills` in observation; verify MP cost in `mp`.
-- **Quests** — `setup set_quest_state` to arrange preconditions, then use `act` to progress
-  through NPC-driven content; check `quests.started`/`completed`.
+- **Quests & NPC dialogs** — `act {NpcTalk{npcId}}` opens the dialog; `observe` returns
+  `npcDialog{npcId, msgType, type, text}` (type: `say`, `yes_no`, `text_input`, `number_input`,
+  `selection`, `accept_decline`, `style`...). Respond with `NpcSelect{selection}` (menus, yes/no,
+  accept/decline, numbers), `NpcRespondText{text}` (text input) or `NpcEndDialog`. Each response's
+  `accepted` flag tells you whether the dialog advanced. Quest state can also be arranged with
+  `setup set_quest_state`; `quests.started/completed` tracks progress. Quest-bound drops carry a
+  `questId` in `items[]` and refuse pickup (`accepted: false`) unless the character is on that quest.
 - **Equipment & inventory** — `setup grant_item`; verify counts in `inventory` maps; drop rules
   via `setup spawn_drop` + `PickupItem` ownership (FFA vs owned).
 - **Cash shop** — the v83 cash shop is a separate server process; purchase flow is currently

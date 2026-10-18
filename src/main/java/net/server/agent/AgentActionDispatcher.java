@@ -12,6 +12,7 @@ import net.packet.InPacket;
 import net.packet.OutPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import server.life.NPC;
 import server.maps.MapItem;
 import server.maps.MapObject;
 import tools.PacketCreator;
@@ -84,6 +85,10 @@ public class AgentActionDispatcher {
             case AgentAction.CastBuff buff -> AgentSkill.castBuff(session, buff.skillId());
             case AgentAction.CastHeal heal -> AgentSkill.castHeal(session, heal.skillId());
             case AgentAction.Remember remember -> session.getMemory().rememberFact(remember.fact());
+            case AgentAction.NpcTalk talk -> npcTalk(session, talk.npcId());
+            case AgentAction.NpcSelect select -> npcRespond(session, select.selection(), null);
+            case AgentAction.NpcRespondText respond -> npcRespond(session, null, respond.text());
+            case AgentAction.NpcEndDialog ignored -> npcEndDialog(session);
             case AgentAction.Idle ignored -> {
             }
         }
@@ -257,6 +262,65 @@ public class AgentActionDispatcher {
             p.writePos(pos);
             p.writeInt(objectId);
         });
+    }
+
+    // ------------------------------------------------------------------
+    // npc dialogs
+    // ------------------------------------------------------------------
+
+    /** Opens a dialog with the NPC {@code npcId} (must be present on the agent's map). */
+    private void npcTalk(AgentSession session, int npcId) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        Integer oid = findNpcOid(chr, npcId);
+        if (oid == null) {
+            log.debug("Agent {} cannot talk to npc {}: not on map {}", session.getName(), npcId, chr.getMapId());
+            return;
+        }
+        send(session, RecvOpcode.NPC_TALK, p -> p.writeInt(oid));
+    }
+
+    /** Responds to the pending dialog: a selection/number (or yes/no via selection), or text input. */
+    private void npcRespond(AgentSession session, Integer selection, String text) {
+        int msgType = session.getNpcDialogMsgType();
+        if (msgType < 0) {
+            log.debug("Agent {} tried to respond with no NPC dialog open", session.getName());
+            return;
+        }
+        send(session, RecvOpcode.NPC_TALK_MORE, p -> {
+            p.writeByte(msgType);
+            p.writeByte(1); // 1 = continue (0 would end the chat)
+            if (text != null) {
+                p.writeString(text);
+            } else if (selection != null) {
+                p.writeInt(selection);
+            }
+        });
+    }
+
+    /** Ends the pending dialog (Esc / End Chat). */
+    private static void npcEndDialog(AgentSession session) {
+        int msgType = session.getNpcDialogMsgType();
+        if (msgType < 0) {
+            return;
+        }
+        send(session, RecvOpcode.NPC_TALK_MORE, p -> {
+            p.writeByte(msgType);
+            p.writeByte(0); // 0 = end chat
+        });
+        session.clearNpcDialog();
+    }
+
+    private static Integer findNpcOid(Character chr, int npcId) {
+        for (MapObject obj : chr.getMap().getMapObjectsInRange(new Point(0, 0), Double.POSITIVE_INFINITY,
+                java.util.List.of(server.maps.MapObjectType.NPC))) {
+            if (obj instanceof NPC npc && npc.getId() == npcId) {
+                return obj.getObjectId();
+            }
+        }
+        return null;
     }
 
     private static void send(AgentSession session, RecvOpcode opcode, Consumer<OutPacket> writer) {

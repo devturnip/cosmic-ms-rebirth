@@ -82,6 +82,10 @@ public class AgentSession {
     private volatile boolean movedThisTick;
     /** When paused, the agent skips all decisions and server-driven behaviour until resumed. */
     private volatile boolean paused;
+    /** Currently open NPC dialog (harness perception): npc id, msg type and last dialog text. */
+    private volatile int npcDialogNpcId = -1;
+    private volatile int npcDialogMsgType = -1;
+    private volatile String npcDialogText;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this(client, player, brain, memory, false, -1, false);
@@ -184,6 +188,33 @@ public class AgentSession {
 
     public boolean isPaused() {
         return paused;
+    }
+
+    /** Records the currently open NPC dialog (called by the outbound packet decoder). */
+    public void setNpcDialog(int npcId, int msgType, String text) {
+        this.npcDialogNpcId = npcId;
+        this.npcDialogMsgType = msgType;
+        this.npcDialogText = text;
+    }
+
+    /** Clears dialog state (dialog ended or agent changed maps). */
+    public void clearNpcDialog() {
+        this.npcDialogNpcId = -1;
+        this.npcDialogMsgType = -1;
+        this.npcDialogText = null;
+    }
+
+    public int getNpcDialogNpcId() {
+        return npcDialogNpcId;
+    }
+
+    /** The pending dialog's msg type (0 say, 1 yes/no, 2 text, 3 number, 4 selection, 5 accept/decline...). */
+    public int getNpcDialogMsgType() {
+        return npcDialogMsgType;
+    }
+
+    public String getNpcDialogText() {
+        return npcDialogText;
     }
 
     /** Suspends/resumes an agent (idempotent; single volatile write so concurrent toggles cannot race). */

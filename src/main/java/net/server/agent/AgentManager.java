@@ -6,6 +6,7 @@ import net.PacketProcessor;
 import net.server.PlayerLoginService;
 import net.server.Server;
 import net.server.agent.harness.HarnessBrain;
+import net.server.agent.harness.HarnessDialogDecoder;
 import net.server.agent.harness.TestHarnessConfig;
 import net.server.coordinator.session.SessionCoordinator;
 import net.server.world.Party;
@@ -310,8 +311,11 @@ public class AgentManager {
             final AgentSession session = new AgentSession(client, player, brain, memory, ephemeral, ownerPlayerId, harness);
             session.setProvisioned(provisioned);
             client.setPacketListener(packet -> {
-                // Outbound packets are currently dropped; retained as the seam for future
-                // faithful-transcript / packet-decoding perception.
+                // Harness sessions decode NPC dialog frames so `observe` can show the pending
+                // dialog; all other outbound packets (and non-harness agents) are dropped.
+                if (harness) {
+                    HarnessDialogDecoder.process(session, packet);
+                }
             });
 
             PlayerLoginService.finishLogin(client, player, true, noteService());

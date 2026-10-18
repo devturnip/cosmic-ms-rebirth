@@ -70,6 +70,7 @@ public final class HarnessObservation {
         out.put("equipment", describeEquipment(chr));
         out.put("inventory", describeInventory(chr));
         out.put("quests", describeQuests(chr));
+        out.put("npcDialog", describeNpcDialog(session));
 
         List<Object> events = new ArrayList<>();
         for (AgentEvent event : drainedEvents) {
@@ -105,6 +106,19 @@ public final class HarnessObservation {
             out.add(e);
         }
         return out;
+    }
+
+    /** The currently open NPC dialog (null when none). Drives NpcSelect/NpcRespondText. */
+    private static Map<String, Object> describeNpcDialog(AgentSession session) {
+        if (session.getNpcDialogMsgType() < 0) {
+            return null;
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("npcId", session.getNpcDialogNpcId());
+        e.put("msgType", session.getNpcDialogMsgType());
+        e.put("type", HarnessDialogDecoder.typeName(session.getNpcDialogMsgType()));
+        e.put("text", session.getNpcDialogText());
+        return e;
     }
 
     private static List<Map<String, Object>> describeEquipment(Character chr) {

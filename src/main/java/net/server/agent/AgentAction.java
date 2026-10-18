@@ -111,6 +111,25 @@ public sealed interface AgentAction {
     record Remember(String fact) implements AgentAction {
     }
 
+    /** Open a dialog with an NPC by its npc id (resolved to an object on the agent's map). */
+    record NpcTalk(int npcId) implements AgentAction {
+    }
+
+    /**
+     * Respond to the pending NPC dialog with a selection (menu option, yes=1/no=0,
+     * accept=1/decline=0, number answer). Requires an open dialog (see {@code NpcTalk}).
+     */
+    record NpcSelect(int selection) implements AgentAction {
+    }
+
+    /** Respond to a pending text-input dialog (msgType 2). */
+    record NpcRespondText(String text) implements AgentAction {
+    }
+
+    /** End the currently open NPC dialog (as if the agent pressed Esc / End Chat). */
+    record NpcEndDialog() implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

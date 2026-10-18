@@ -24,7 +24,7 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 | Mesos | ✅ | drops, `grant_mesos` |
 | Death & respawn | ✅ | `Respawn` action |
 | Cash shop | ⛔ | separate CS server process; needs session transfer support |
-| NPC dialog scripting | 🟡 | no `NPC_TALK`/`NPC_TALK_MORE` actions yet; quest-state workaround |
+| NPC dialog scripting | ✅ | `NpcTalk` opens a dialog; observation exposes `npcDialog{npcId,type,text}`; `NpcSelect`/`NpcRespondText`/`NpcEndDialog` respond — live-verified against Roger (2101) |
 | Trade / storage / Duey | ⛔ | needs partner sessions + more actions |
 | Guild / alliance | ⛔ | needs multi-session + match-checker coordination |
 | Buddy list | ⛔ | needs a second session |
@@ -38,6 +38,6 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 
 ## Next additions (cheapest first)
 
-1. `NpcTalk`/`NpcSelect` actions + outbound-dialog perception → unlocks real NPC/quest flows.
+1. ~~NpcTalk/NpcSelect actions + outbound-dialog perception~~ — **done** (live-verified).
 2. Second-session support (`session_start` twice) → trade, buddy, guild invitation paths.
 3. Cash-shop session transfer → CS purchase tests.
