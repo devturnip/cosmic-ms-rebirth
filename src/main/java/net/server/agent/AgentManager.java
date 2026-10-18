@@ -71,6 +71,17 @@ public class AgentManager {
         return INSTANCE;
     }
 
+    /**
+     * Whether {@code characterId} currently has a live <em>ephemeral</em> agent session
+     * (a server-provisioned player companion). Callers use this to keep companions out of
+     * contexts that assume a durable participant — notably scripted event instances
+     * (party quests), see {@code docs/llm-agent-pq-audit.md}.
+     */
+    public boolean isEphemeralAgent(int characterId) {
+        AgentSession session = sessionsByCharacterId.get(characterId);
+        return session != null && session.isEphemeral();
+    }
+
     // ------------------------------------------------------------------
     // lifecycle
     // ------------------------------------------------------------------

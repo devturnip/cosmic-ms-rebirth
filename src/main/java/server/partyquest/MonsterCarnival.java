@@ -4,6 +4,7 @@ import client.Character;
 import config.YamlConfig;
 import constants.string.LanguageConstants;
 import net.server.Server;
+import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.world.Party;
 import net.server.world.PartyCharacter;
@@ -56,6 +57,11 @@ public class MonsterCarnival {
             for (PartyCharacter mpc : p1.getMembers()) {
                 Character mc = mpc.getPlayer();
                 if (mc != null) {
+                    // Ephemeral agent companions never enter the Carnival (they cannot fight
+                    // and their dismissal would abort the match) — docs/llm-agent-pq-audit.md.
+                    if (AgentManager.getInstance().isEphemeralAgent(mc.getId())) {
+                        continue;
+                    }
                     mc.setMonsterCarnival(this);
                     mc.setTeam(0);
                     mc.setFestivalPoints(0);
@@ -70,6 +76,9 @@ public class MonsterCarnival {
             for (PartyCharacter mpc : p2.getMembers()) {
                 Character mc = mpc.getPlayer();
                 if (mc != null) {
+                    if (AgentManager.getInstance().isEphemeralAgent(mc.getId())) {
+                        continue;
+                    }
                     mc.setMonsterCarnival(this);
                     mc.setTeam(1);
                     mc.setFestivalPoints(0);

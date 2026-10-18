@@ -26,6 +26,7 @@ import client.Skill;
 import client.SkillFactory;
 import config.YamlConfig;
 import constants.inventory.ItemConstants;
+import net.server.agent.AgentManager;
 import net.server.coordinator.world.EventRecallCoordinator;
 import net.server.world.Party;
 import net.server.world.PartyCharacter;
@@ -240,10 +241,17 @@ public class EventInstanceManager {
         if (chr == null || !chr.isLoggedinWorld() || disposed) {
             return;
         }
-
         writeLock.lock();
         try {
             if (chars.containsKey(chr.getId())) {
+                return;
+            }
+            // Ephemeral agent companions never join scripted events: they cannot progress PQ
+            // stages (scripted portals, NPC/reactor actions), would be counted by
+            // member-iteration stage logic, and their despawn would abort the run for the
+            // remaining humans (docs/llm-agent-pq-audit.md). Checked under the writeLock to
+            // narrow the despawn/registration race window.
+            if (AgentManager.getInstance().isEphemeralAgent(chr.getId())) {
                 return;
             }
 

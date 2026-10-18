@@ -25,6 +25,7 @@ import client.Character;
 import config.YamlConfig;
 import constants.game.GameConstants;
 import net.server.Server;
+import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.guild.Guild;
 import net.server.world.Party;
@@ -724,7 +725,7 @@ public class EventManager {
             return new ArrayList<>();
         }
         try {
-            Object o = iv.invokeFunction("getEligibleParty", party.getPartyMembersOnline());
+            Object o = iv.invokeFunction("getEligibleParty", filterEphemeralAgents(party.getPartyMembersOnline()));
 
             if (o instanceof PartyCharacter[] partyChrs) {
                 final List<PartyCharacter> eligibleParty = new ArrayList<>(Arrays.asList(partyChrs));
@@ -736,6 +737,21 @@ public class EventManager {
         }
 
         return new ArrayList<>();
+    }
+
+    /**
+     * Drops ephemeral agent companions from a PQ eligibility list: they never satisfy party
+     * gates (and exact-size/job-mask entries fail closed without them), so the entry script
+     * must not see them (docs/llm-agent-pq-audit.md).
+     */
+    static List<PartyCharacter> filterEphemeralAgents(List<PartyCharacter> members) {
+        List<PartyCharacter> eligible = new ArrayList<>(members.size());
+        for (PartyCharacter mpc : members) {
+            if (!AgentManager.getInstance().isEphemeralAgent(mpc.getId())) {
+                eligible.add(mpc);
+            }
+        }
+        return eligible;
     }
 
     public void clearPQ(EventInstanceManager eim) {

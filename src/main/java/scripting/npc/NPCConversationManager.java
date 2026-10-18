@@ -33,6 +33,7 @@ import constants.id.NpcId;
 import constants.inventory.ItemConstants;
 import constants.string.LanguageConstants;
 import net.server.Server;
+import net.server.agent.AgentManager;
 import net.server.channel.Channel;
 import net.server.coordinator.matchchecker.MatchCheckerListenerFactory.MatchCheckerType;
 import net.server.guild.Alliance;
@@ -726,6 +727,12 @@ public class NPCConversationManager extends AbstractPlayerInteraction {
 
         List<PartyCharacter> partyMembers = party.getPartyMembers();
         for (PartyCharacter pchr : partyMembers) {
+            // Ephemeral agent companions are invisible to CPQ: they neither satisfy the
+            // level/lobby gates nor participate in the battle (see canStartCPQ and
+            // MonsterCarnival — docs/llm-agent-pq-audit.md).
+            if (AgentManager.getInstance().isEphemeralAgent(pchr.getId())) {
+                continue;
+            }
             if (pchr.getLevel() >= cpqMinLvl && pchr.getLevel() <= cpqMaxLvl) {
                 if (lobby.getCharacterById(pchr.getId()) == null) {
                     return 1;  // party member detected out of area
@@ -738,6 +745,15 @@ public class NPCConversationManager extends AbstractPlayerInteraction {
         return 0;
     }
 
+    private boolean partyHasEphemeralAgent(Party party) {
+        for (PartyCharacter pchr : party.getPartyMembers()) {
+            if (AgentManager.getInstance().isEphemeralAgent(pchr.getId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int canStartCPQ(MapleMap lobby, Party party, Party challenger) {
         int ret = isCPQParty(lobby, party);
         if (ret != 0) {
@@ -747,6 +763,17 @@ public class NPCConversationManager extends AbstractPlayerInteraction {
         ret = isCPQParty(lobby, challenger);
         if (ret != 0) {
             return -ret;
+        }
+
+        // A party with an ephemeral agent companion can never start a Carnival battle: the
+        // companion cannot fight (no Reactor/NPC actions, no stage progression) and its
+        // dismissal mid-match would abort the game for the humans
+        // (docs/llm-agent-pq-audit.md).
+        if (partyHasEphemeralAgent(party)) {
+            return 3;
+        }
+        if (partyHasEphemeralAgent(challenger)) {
+            return -3;
         }
 
         return 0;
@@ -804,6 +831,15 @@ public class NPCConversationManager extends AbstractPlayerInteraction {
                 if (status == 0) {
                     new MonsterCarnival(lobbyParty, challengerParty, mapid, true, (field / 100) % 10);
                 } else {
+                    if (status == 3 || status == -3) {
+                        String msg = "Parties containing an AI companion cannot join the Monster Carnival.";
+                        for (Party p : new Party[]{lobbyParty, challengerParty}) {
+                            Character leaderChr = (p != null && p.getLeader() != null) ? p.getLeader().getPlayer() : null;
+                            if (leaderChr != null) {
+                                leaderChr.dropMessage(6, msg);
+                            }
+                        }
+                    }
                     warpoutCPQLobby(lobbyMap);
                 }
             }, 11000);
@@ -856,6 +892,15 @@ public class NPCConversationManager extends AbstractPlayerInteraction {
                 if (status == 0) {
                     new MonsterCarnival(lobbyParty, challengerParty, mapid, false, (field / 1000) % 10);
                 } else {
+                    if (status == 3 || status == -3) {
+                        String msg = "Parties containing an AI companion cannot join the Monster Carnival.";
+                        for (Party p : new Party[]{lobbyParty, challengerParty}) {
+                            Character leaderChr = (p != null && p.getLeader() != null) ? p.getLeader().getPlayer() : null;
+                            if (leaderChr != null) {
+                                leaderChr.dropMessage(6, msg);
+                            }
+                        }
+                    }
                     warpoutCPQLobby(lobbyMap);
                 }
             }, 10000);
