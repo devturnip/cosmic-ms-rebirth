@@ -159,6 +159,7 @@ arrive via lightweight hooks (see §5).
 | `AgentCombat` | Potion self-sustain, respawn, auto-looting, ammo perception/resupply, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target + multi-line + facing). |
 | `AgentProactivity` | Opt-in proactive behaviors: greet nearby players, party-search matchmaking, patrol (all gated by `LLM_AGENT_PROACTIVE`). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
+| `AgentPathing` | Foothold + rope/ladder pathfinder: WZ `ladderRope` model (lazy, cached, async-warmed), bounded BFS (walk/fall/jump/climb edges), and one-clamped-step-per-tick route execution when the direct step stalls. |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
 | `AgentOptoutStore` | JDBC persistence for player opt-out (`agent_optout` table); loaded into `AgentManager` at start. |
@@ -181,7 +182,10 @@ arrive via lightweight hooks (see §5).
 - `database/sql/migration/v0.15.0.sql` — `agent_memory` table.
 - `database/sql/migration/v0.16.0.sql` — `agent_optout` table.
 - `src/main/java/client/command/commands/gm0/AgentOptoutCommand.java` — player `@agentoptout`.
-- `src/test/java/net/server!agent/*` — 23 test classes (85 tests).
+- `src/test/java/net/server!agent/*` — 23 test classes (85 tests), plus the M9 guard, pathing
+  (`AgentMovementPathingTest`, incl. a real-`Map.wz` rope-route falsification) and test-gap
+  suites (`AgentCombatAmmoShopTest`, `AgentManagerOptoutGateTest`,
+  `AgentManagerTransferChannelTest`) — 2173 tests total as of 2026-10-19.
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -284,8 +288,12 @@ arrive via lightweight hooks (see §5).
     never teleport, and it is **ground-aware**: `moveToSmart` never moves an agent through open air.
     An airborne agent falls straight down to the foothold under its current x; a grounded agent
     walks only where a foothold exists under the next step (it samples the ground ahead and stops at
-    the platform edge/gap) and only ever descends to a lower foothold (it cannot jump or climb, so it
-    never ascends toward a higher platform). `footholdAt`'s rounding recovery accepts a surface
+    the platform edge/gap) and only ever descends to a lower foothold — **except through an
+    explicit pathfinder move**: when the direct step stalls (edge/gap/strictly-higher target),
+    `AgentPathing.routeStep` takes the tick and may emit a bounded jump arc (stances 6/7) landing
+    on a real foothold or a stance-16 climb along a real WZ `ladderRope`; every such move is still
+    clamped by `MAX_STEP`, and a mid-climb agent is never "fallen" off its rope. Routing is
+    bounded (256 footholds) and declines gracefully on oversized/unpathable maps. `footholdAt`'s rounding recovery accepts a surface
     *above* the feet only within `GROUNDED_EPSILON`, so an overhead platform is never mistaken for
     ground. `AgentAction.MoveTo` (the LLM `move` tool) and `stepAway` (flee) are routed through
     `moveToSmart` for the same reason. Regression tests live in `AgentMovementFootholdTest`, and
@@ -538,20 +546,18 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   map-change and party-update.
 
 **Not done (next work)** — see **§11** for file pointers and suggested approaches.
-- **Pathing depth:** movement is clamped, ground-aware waypoint stepping (walks only on real
-  footholds, probing the ground ahead and stopping at a platform edge or gap; falls straight down
-  when airborne; never ascends through air) with portal travel for cross-map follow. It is still
-  not a foothold graph search, so an agent **cannot jump a gap** or reach a strictly higher /
-  non-underlapping lower platform on its own (it stops at the edge; a full pathfinder would route
-  it via a portal/rope, and the server models no rope/ladder). Gravity falls reuse the captured
-  rope-climb stance (16) because no fall stance was captured — cosmetic only. Patrol randomizes X
-  only.
+- **Pathing depth — DONE (2026-10-19, §11.1):** movement is clamped, ground-aware waypoint
+  stepping, and now routed: `AgentPathing` (foothold + WZ `ladderRope` graph search) takes over
+  when the direct step stalls — jump arcs over small gaps/heights, real rope/ladder climbs, and
+  bounded BFS to the target platform. See §4.19 and `AgentMovementPathingTest`. Remaining
+  cosmetics: gravity falls reuse the climb stance (16) and ropes/ladders are treated identically
+  (no one-way semantics). Patrol randomizes X only.
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
-  Hurricane/Rapid Fire-family skills **are implemented**; exact per-weapon attack-speed and
-  per-skill cast-animation fidelity remain approximate. All three attack types (melee, magic,
-  ranged) were re-confirmed to render after the direction fix (see §11.1); the action byte is a
-  single captured value (`22`) rather than per-weapon — capture another class's real packet if a
-  specific weapon does not animate (§5, §11.1).
+  Hurricane/Rapid Fire-family skills **are implemented**. The per-weapon action byte and
+  attack-speed questions were **closed (2026-10-19)**: every class captures/sends the same
+  `22 | facing` action value (generic v83 attack action — the receiving client animates from
+  the attacker's avatar), and `speed=6` matches the real client's baseline. Per-weapon
+  booster-adjusted speed is accepted as out of scope.
 - **`!agent tell`:** intentionally dropped (an operator-only directive of marginal value; the
   prototype was discarded). `@agents pause|resume` and GM `!agent pause|resume` **are implemented**.
 - **Player-facing companions (M5–M7):** implemented (`@agents list|find|pause|resume|dismiss`)
@@ -727,10 +733,10 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
-| **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | Done: walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; **attack/cast `direction` action byte `22 | facing`** with `stance=0`, `speed=6`, `display=0`. **All three attack types verified live against the real client (2026-10-18): magic (Fire Arrow), melee (Fighter sword-swing, `op=CLOSE_RANGE dir=22/23`), and ranged (Assassin Lucky Seven with Subi stars, `op=RANGED dir=22/23 proj=2070000`) all render.** Remaining (cosmetic polish): the action byte is the single captured `22` rather than per-weapon, and exact per-weapon attack speed is still approximated (`6`). Note: `USE_AUTOHIDE_GM` hides GMs on login and hidden clients silently refuse to attack — `!unhide` before any in-client capture session. |
+| **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | **Closed (2026-10-19).** Walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; attack/cast `direction` action byte `22 | facing` with `stance=0`, `speed=6`, `display=0`. All three attack types verified live (magic Fire Arrow, melee Fighter sword, ranged Assassin Lucky Seven). The action byte needs **no per-weapon table**: every captured class sends the same `22|facing` (it is the v83 generic attack-action value — the receiving client picks the per-weapon animation from the attacker's avatar), and `speed=6` matches the real client's own baseline packet. Per-weapon booster-adjusted speed would need WZ attack-delay parsing — accepted as out of scope. Note: `USE_AUTOHIDE_GM` hides GMs on login and hidden clients silently refuse to attack — `!unhide` before any in-client capture session. |
 | **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Ground-aware stepping exists: probes the ground ahead, walks only on real footholds, stops at platform edges/gaps, falls straight down when airborne, and never ascends through air (regression tests in `AgentMovementFootholdTest`; real-`Map.wz` falsification in `AgentMovementWzRuntimeTest`). Still open: a full foothold graph search so an agent can jump/reach a gap-separated or strictly higher platform (via a portal/rope); a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). Gravity falls currently reuse the climb stance (16). |
 | **M9 — party-quest compatibility audit** | `docs/llm-agent-pq-audit.md`, `EventManager`, `EventInstanceManager`, `NPCConversationManager`, `MonsterCarnival` | **Closed.** The audit found companions break most PQs (auto-registered/stranded/counted, dismissal aborts the run) and recommended blocking them from all scripted event instances. Implemented and verifier-passed: `AgentManager.isEphemeralAgent`, an under-writeLock early-return in `EventInstanceManager.registerPlayer`, an eligibility filter in `EventManager.getEligibleParty`, and full CPQ coverage (`isCPQParty`/`canStartCPQ`/`MonsterCarnival` entry loops). Persistent GM agents remain PQ-eligible by design. See `docs/llm-agent-pq-audit.md`. |
-| **Fidelity/test gaps** | `AgentActionDispatcher.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | Provisioning now has a DB integration test (`DbAgentProvisionerIT`); these paths still have no direct test. |
+| **Fidelity/test gaps** | `AgentCombat.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | **Closed (2026-10-19):** `AgentCombatAmmoShopTest` (8 tests: recharge-vs-buy, affordability, scan-on, stock/weapon gating), `AgentManagerOptoutGateTest` (8 tests: chat/whisper/invite suppression), `AgentManagerTransferChannelTest` (10 tests: rollback, moderation capture, refusals, throttle). Provisioning has `DbAgentProvisionerIT`. |
 | **`!agent tell`** | `AgentCommand` | Intentionally dropped (operator-only; marginal value). |
 | **M8 — idle despawn / uptime caps** | — | Intentionally not pursued; the accepted posture is per-player cap + request cooldown + no value transfer + no auto-loot. |
 
