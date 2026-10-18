@@ -6,6 +6,7 @@ import net.PacketProcessor;
 import net.opcodes.RecvOpcode;
 import net.packet.InPacket;
 import net.server.world.World;
+import net.server.agent.harness.HarnessBrain;
 import org.slf4j.Logger;
 import server.maps.Portal;
 import org.slf4j.LoggerFactory;
@@ -48,6 +49,8 @@ public class AgentSession {
     private final int ownerPlayerId;
     /** For ephemeral companions: the provisioning record used to delete the character on despawn. */
     private volatile AgentProvisioner.ProvisionedAgent provisioned;
+    /** Whether this session is a test-harness session (driven externally via MCP, not by a brain tick). */
+    private final boolean harness;
     private final AgentActionDispatcher dispatcher = new AgentActionDispatcher();
 
     private final Queue<AgentEvent> inbox = new ConcurrentLinkedQueue<>();
@@ -80,17 +83,23 @@ public class AgentSession {
     private volatile boolean paused;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
-        this(client, player, brain, memory, false, -1);
+        this(client, player, brain, memory, false, -1, false);
     }
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory,
                         boolean ephemeral, int ownerPlayerId) {
+        this(client, player, brain, memory, ephemeral, ownerPlayerId, false);
+    }
+
+    public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory,
+                        boolean ephemeral, int ownerPlayerId, boolean harness) {
         this.client = client;
         this.player = player;
         this.brain = brain;
         this.memory = memory;
         this.ephemeral = ephemeral;
         this.ownerPlayerId = ownerPlayerId;
+        this.harness = harness;
         final int id = THREAD_COUNTER.incrementAndGet();
         this.actionExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "agent-actions-" + id);
@@ -128,6 +137,11 @@ public class AgentSession {
     /** Whether this session is an ephemeral, player-summoned companion. */
     public boolean isEphemeral() {
         return ephemeral;
+    }
+
+    /** Whether this session is a test-harness session (external MCP control, no autonomous behaviour). */
+    public boolean isHarness() {
+        return harness;
     }
 
     /** Character id of the player who summoned this companion, or -1 for operator spawns. */
@@ -206,6 +220,9 @@ public class AgentSession {
      * @return whether another action may be performed in the current one-second window
      */
     public synchronized boolean allowAction() {
+        if (harness) {
+            return true; // harness sessions are externally driven; per-second throttling would break tests
+        }
         long now = System.currentTimeMillis();
         if (now - actionWindowStart >= 1000) {
             actionWindowStart = now;
@@ -251,6 +268,17 @@ public class AgentSession {
         if (!active.get() || paused) {
             // Paused: do not schedule behaviour or drain/decide the inbox. Queued events survive
             // the pause and are handled on resume.
+            return;
+        }
+        if (harness) {
+            // Harness sessions are driven externally (TestHarnessService). The tick only drains
+            // events into the harness brain's buffer so `observe` can return them.
+            if (brain instanceof HarnessBrain harnessBrain) {
+                List<AgentEvent> drained;
+                while (!(drained = drainInbox()).isEmpty()) {
+                    harnessBrain.recordEvents(drained);
+                }
+            }
             return;
         }
         if (followTargetId >= 0 || behaviorEnabled()) {
@@ -316,6 +344,40 @@ public class AgentSession {
         }
         if (AgentConfig.memorySummarize()) {
             memory.compact();
+        }
+    }
+
+    /**
+     * Applies externally supplied actions synchronously (harness sessions only). Runs on this
+     * session's action executor so state changes stay serialized with any other dispatch, and
+     * blocks the caller until every action has been applied — an MCP `act` call returns only
+     * after the server has processed its actions.
+     *
+     * @return one result flag per action (true = dispatched through the real handlers)
+     */
+    public boolean[] applyExternalActions(List<AgentAction> actions) {
+        if (!harness) {
+            throw new IllegalStateException("applyExternalActions is only valid for harness sessions");
+        }
+        if (!active.get()) {
+            return new boolean[actions.size()];
+        }
+        try {
+            return actionExecutor.submit(() -> {
+                boolean[] results = new boolean[actions.size()];
+                for (int i = 0; i < actions.size(); i++) {
+                    try {
+                        results[i] = dispatcher.dispatch(this, actions.get(i));
+                    } catch (Throwable t) {
+                        log.warn("Agent {} failed to perform {}", getName(), actions.get(i), t);
+                        results[i] = false;
+                    }
+                }
+                return results;
+            }).get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("Harness agent {}: external action batch failed", getName(), e);
+            return new boolean[actions.size()];
         }
     }
 

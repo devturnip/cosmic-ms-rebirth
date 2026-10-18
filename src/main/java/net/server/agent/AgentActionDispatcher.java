@@ -67,8 +67,9 @@ public class AgentActionDispatcher {
             case AgentAction.StopFollowing ignored -> session.clearFollow();
             case AgentAction.PickupItem pickup -> {
                 // Ephemeral companions never loot: their inventory is destroyed with them, so the
-                // drop (and any party value) would be lost. Applies to brain-driven pickups too.
-                if (!session.isEphemeral()) {
+                // drop (and any party value) would be lost. Harness sessions are ephemeral too, but
+                // they exist precisely to test the drop→pickup→inventory flow, so they may loot.
+                if (!session.isEphemeral() || session.isHarness()) {
                     pickupItemFor(session, pickup.objectId());
                 }
             }

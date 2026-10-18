@@ -4801,7 +4801,8 @@ public class Character extends AbstractCharacterObject {
         return client.getAbstractPlayerInteraction();
     }
 
-    private List<QuestStatus> getQuests() {
+    /** All quest statuses known to this character (package-private before the test harness needed it). */
+    public List<QuestStatus> getQuests() {
         synchronized (quests) {
             return new ArrayList<>(quests.values());
         }

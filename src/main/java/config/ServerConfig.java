@@ -307,6 +307,12 @@ public class ServerConfig {
     //Custom NPC overrides. List of NPC IDs.
     public Map<String, String> NPCS_SCRIPTABLE = new HashMap<>();
 
+    //Test harness for LLM-agent end-to-end testing (default off).
+    public boolean USE_TEST_HARNESS;
+    public int TEST_HARNESS_MAX_SESSIONS;
+    public String TEST_HARNESS_TRANSPORT;
+    public int TEST_HARNESS_HTTP_PORT;
+
     //LLM agents (all default off).
     public boolean USE_LLM_AGENTS;
     public int LLM_AGENTS_MAX;

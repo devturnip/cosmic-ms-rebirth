@@ -1006,6 +1006,8 @@ public class Server {
     public static void main(String[] args) {
         System.setProperty("polyglot.engine.WarnInterpreterOnly", "false"); // Mute GraalVM warning: "The polyglot context is using an implementation that does not support runtime compilation."
         Server.getInstance().init();
+        // Starts the test-harness MCP surface when USE_TEST_HARNESS is on (no-op otherwise).
+        net.server.agent.harness.TestHarnessMcpServer.bootstrap(args);
     }
 
     public Properties getSubnetInfo() {

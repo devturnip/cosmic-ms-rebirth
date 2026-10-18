@@ -5,6 +5,8 @@ import client.Client;
 import net.PacketProcessor;
 import net.server.PlayerLoginService;
 import net.server.Server;
+import net.server.agent.harness.HarnessBrain;
+import net.server.agent.harness.TestHarnessConfig;
 import net.server.coordinator.session.SessionCoordinator;
 import net.server.world.Party;
 import net.server.world.PartyCharacter;
@@ -75,11 +77,12 @@ public class AgentManager {
      * Whether {@code characterId} currently has a live <em>ephemeral</em> agent session
      * (a server-provisioned player companion). Callers use this to keep companions out of
      * contexts that assume a durable participant — notably scripted event instances
-     * (party quests), see {@code docs/llm-agent-pq-audit.md}.
+     * (party quests), see {@code docs/llm-agent-pq-audit.md}. Test-harness sessions are
+     * exempt: they must be able to enter scripted instances to test them.
      */
     public boolean isEphemeralAgent(int characterId) {
         AgentSession session = sessionsByCharacterId.get(characterId);
-        return session != null && session.isEphemeral();
+        return session != null && session.isEphemeral() && !session.isHarness();
     }
 
     // ------------------------------------------------------------------
@@ -196,8 +199,30 @@ public class AgentManager {
     public synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
                                            AgentMemory existingMemory, boolean ephemeral, int ownerPlayerId,
                                            AgentProvisioner.ProvisionedAgent provisioned) {
-        if (!AgentConfig.enabled()) {
-            log.warn("Refusing to spawn agent {}: USE_LLM_AGENTS is disabled", characterName);
+        return spawn(characterName, world, channel, brain, existingMemory, ephemeral, ownerPlayerId, provisioned, false);
+    }
+
+    /**
+     * Spawns a <em>test-harness</em> session: an ephemeral character driven externally over the
+     * test-harness MCP surface instead of by an autonomous brain. Harness sessions are gated by
+     * {@code USE_TEST_HARNESS} and capped by {@code TEST_HARNESS_MAX_SESSIONS} — they never
+     * consume {@code LLM_AGENTS_MAX} slots, require {@code USE_LLM_AGENTS}, or run autonomous
+     * behaviour ticks. The session loots normally (unlike companions) so item-drop tests work.
+     *
+     * @return the created session, or {@code null} if the harness is disabled, a cap is reached,
+     *         or the login failed
+     */
+    public synchronized AgentSession spawnHarness(String characterName, int world, int channel,
+                                                  AgentProvisioner.ProvisionedAgent provisioned) {
+        return spawn(characterName, world, channel, new HarnessBrain(), null, true, -1, provisioned, true);
+    }
+
+    private synchronized AgentSession spawn(String characterName, int world, int channel, AgentBrain brain,
+                                            AgentMemory existingMemory, boolean ephemeral, int ownerPlayerId,
+                                            AgentProvisioner.ProvisionedAgent provisioned, boolean harness) {
+        if (harness ? !TestHarnessConfig.enabled() : !AgentConfig.enabled()) {
+            log.warn("Refusing to spawn agent {}: {} is disabled", characterName,
+                    harness ? "USE_TEST_HARNESS" : "USE_LLM_AGENTS");
             return null;
         }
         if (stopping) {
@@ -207,7 +232,14 @@ public class AgentManager {
         if (ticker == null) {
             start(); // defensive: ensure the tick loop/pool exist even if server auto-start was skipped
         }
-        if (sessionsByCharacterId.size() >= AgentConfig.maxAgents()) {
+        if (harness) {
+            long harnessSessions = sessionsByCharacterId.values().stream().filter(AgentSession::isHarness).count();
+            if (harnessSessions >= TestHarnessConfig.maxSessions()) {
+                log.warn("Refusing to spawn harness agent {}: harness session limit ({}) reached",
+                        characterName, TestHarnessConfig.maxSessions());
+                return null;
+            }
+        } else if (sessionsByCharacterId.size() >= AgentConfig.maxAgents()) {
             log.warn("Refusing to spawn agent {}: agent limit ({}) reached", characterName, AgentConfig.maxAgents());
             return null;
         }
@@ -242,7 +274,7 @@ public class AgentManager {
             return null;
         }
 
-        if (!hasAgentPrefix(characterName)) {
+        if (!harness && !hasAgentPrefix(characterName)) {
             if (AgentConfig.requireNamePrefix()) {
                 log.warn("Refusing to spawn agent {}: name does not start with the label prefix '{}' or companion prefix '{}'",
                         characterName, AgentConfig.namePrefix(), AgentConfig.companionNamePrefix());
@@ -273,8 +305,9 @@ public class AgentManager {
             client.updateLoginState(Client.LOGIN_LOGGEDIN);
 
             final AgentMemory memory = existingMemory != null ? existingMemory
-                    : ((!ephemeral && AgentConfig.memoryPersist()) ? memoryStore.load(player.getId()) : new AgentMemory(player.getId()));
-            final AgentSession session = new AgentSession(client, player, brain, memory, ephemeral, ownerPlayerId);
+                    : (harness ? new AgentMemory(player.getId())
+                       : ((!ephemeral && AgentConfig.memoryPersist()) ? memoryStore.load(player.getId()) : new AgentMemory(player.getId())));
+            final AgentSession session = new AgentSession(client, player, brain, memory, ephemeral, ownerPlayerId, harness);
             session.setProvisioned(provisioned);
             client.setPacketListener(packet -> {
                 // Outbound packets are currently dropped; retained as the seam for future
@@ -287,14 +320,14 @@ public class AgentManager {
             // follow (and any transition guard) would never fire.
             player.setMapTransitionComplete();
 
-            if (AgentConfig.notice() && player.getMap() != null) {
+            if (AgentConfig.notice() && !harness && player.getMap() != null) {
                 player.getMap().broadcastMessage(PacketCreator.serverNotice(6,
                         player.getName() + " is an AI-controlled agent."));
             }
 
             sessionsByCharacterId.put(player.getId(), session);
-            log.info("Spawned agent {} (chr {}, world {}, channel {}) using brain {}",
-                    player.getName(), player.getId(), world, channel, brain.describe());
+            log.info("Spawned agent {} (chr {}, world {}, channel {}) using brain {}{}",
+                    player.getName(), player.getId(), world, channel, brain.describe(), harness ? " [harness]" : "");
             return session;
         } catch (Exception e) {
             log.error("Failed to spawn agent {}; rolling back partial login", characterName, e);
