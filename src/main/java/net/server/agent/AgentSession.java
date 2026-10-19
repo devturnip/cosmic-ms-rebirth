@@ -88,6 +88,16 @@ public class AgentSession {
     private volatile String npcDialogText;
     /** Map the dialog was opened on; a dialog whose map no longer matches is stale (post-warp). */
     private volatile int npcDialogMapId = -1;
+    /** Whether the server-side dialog/quest context is currently open (cleared by enable-actions). */
+    private volatile boolean dialogOpen;
+    /** Whether a dispose signal (enable-actions) arrived after the last dialog frame. */
+    private volatile boolean dialogDisposed;
+    /** Monotonic counter of decoded dialog frames — distinguishes a re-opened identical dialog. */
+    private volatile long dialogFrameSeq;
+    /** Whether the account-storage UI is open for this agent (set by the outbound decoder). */
+    private volatile boolean storageOpened;
+    /** Map the storage UI was opened on (stale after warping). */
+    private volatile int storageMapId = -1;
 
     public AgentSession(AgentClient client, Character player, AgentBrain brain, AgentMemory memory) {
         this(client, player, brain, memory, false, -1, false);
@@ -197,15 +207,17 @@ public class AgentSession {
         this.npcDialogNpcId = npcId;
         this.npcDialogMsgType = msgType;
         this.npcDialogText = text;
+        this.dialogOpen = true;
+        this.dialogDisposed = false;
+        this.dialogFrameSeq++;
         Character p = player;
         this.npcDialogMapId = p == null ? -1 : p.getMapId();
     }
 
-    /** Clears dialog state (dialog ended or agent changed maps). */
-    public void clearNpcDialog() {
-        this.npcDialogNpcId = -1;
-        this.npcDialogMsgType = -1;
-        this.npcDialogText = null;
+    /** Marks the dialog context closed (script dispose). The last frame text is kept visible. */
+    public void setNpcDialogClosed() {
+        this.dialogOpen = false;
+        this.dialogDisposed = true;
     }
 
     public int getNpcDialogNpcId() {
@@ -221,10 +233,38 @@ public class AgentSession {
         return isNpcDialogStale() ? null : npcDialogText;
     }
 
+    /** Whether the server-side dialog context is currently open (vs disposed by the script). */
+    public boolean isNpcDialogOpen() {
+        return dialogOpen && !isNpcDialogStale();
+    }
+
+    /** Whether a dispose signal arrived after the last dialog frame (the response likely succeeded). */
+    public boolean isNpcDialogDisposed() {
+        return dialogDisposed;
+    }
+
+    /** Monotonic dialog-frame sequence (bumps on every decoded dialog frame). */
+    public long getNpcDialogFrameSeq() {
+        return dialogFrameSeq;
+    }
+
     /** A dialog captured on another map is stale (the script disposed itself via a warp). */
     private boolean isNpcDialogStale() {
         Character p = player;
         return npcDialogMsgType >= 0 && p != null && p.getMap() != null && p.getMapId() != npcDialogMapId;
+    }
+
+    /** Marks the account-storage UI open/closed (called by the outbound packet decoder). */
+    public void setStorageOpened(boolean opened) {
+        this.storageOpened = opened;
+        Character p = player;
+        this.storageMapId = opened && p != null ? p.getMapId() : -1;
+    }
+
+    /** Whether the storage UI is open (stale after a map change reports false). */
+    public boolean isStorageOpened() {
+        Character p = player;
+        return storageOpened && p != null && p.getMap() != null && p.getMapId() == storageMapId;
     }
 
     /** Suspends/resumes an agent (idempotent; single volatile write so concurrent toggles cannot race). */

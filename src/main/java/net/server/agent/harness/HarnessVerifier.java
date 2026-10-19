@@ -74,10 +74,8 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.NpcTalk || action instanceof AgentAction.NpcSelect
                 || action instanceof AgentAction.NpcRespondText) {
-            int msgType = session.getNpcDialogMsgType();
-            int npcId = session.getNpcDialogNpcId();
-            String text = session.getNpcDialogText();
-            return new long[]{msgType, npcId, text == null ? -1L : text.hashCode()};
+            return new long[]{session.getNpcDialogFrameSeq(), session.isNpcDialogOpen() ? 1 : 0,
+                    session.isNpcDialogDisposed() ? 1 : 0};
         }
         if (action instanceof AgentAction.QuestStart quest) {
             return new long[]{questStatus(chr, quest.questId()), dialogKey(session)};
@@ -103,6 +101,13 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.TradeConfirm) {
             return tradeKey(chr);
+        }
+        if (action instanceof AgentAction.StorageStore || action instanceof AgentAction.StorageTakeOut
+                || action instanceof AgentAction.StorageMesos || action instanceof AgentAction.StorageClose) {
+            return new long[]{storageKey(chr), session.isStorageOpened() ? 1 : 0};
+        }
+        if (action instanceof AgentAction.DueySend || action instanceof AgentAction.DueyAction) {
+            return chr.getMeso(); // parcels move items/mesos; meso delta is the cheap observable
         }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
@@ -163,16 +168,18 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.NpcTalk) {
             long[] before = (long[]) pre;
-            return session.getNpcDialogMsgType() >= 0
-                    && dialogChanged(session, before); // opening a dialog always sets msgType >= 0
+            // A fresh dialog frame must have arrived (handles re-opened identical dialogs).
+            return session.getNpcDialogFrameSeq() != before[0];
         }
         if (action instanceof AgentAction.NpcSelect || action instanceof AgentAction.NpcRespondText) {
             long[] before = (long[]) pre;
-            if (before[0] < 0) {
-                return false; // there was no dialog open to respond to
+            if (before[0] == 0) {
+                return false; // no dialog frame was ever seen
             }
-            // Accepted iff the dialog advanced (new frame) or closed (script disposed).
-            return session.getNpcDialogMsgType() < 0 || dialogChanged(session, before);
+            // Accepted iff a new frame arrived, or the script disposed in response (the final
+            // response of a script disposes without sending a new frame).
+            return session.getNpcDialogFrameSeq() != before[0]
+                    || (session.isNpcDialogDisposed() && before[2] == 0);
         }
         if (action instanceof AgentAction.QuestStart || action instanceof AgentAction.QuestComplete) {
             // Accepted iff the quest script opened (dialog appeared/changed) or the quest state
@@ -202,7 +209,28 @@ public final class HarnessVerifier {
                 || action instanceof AgentAction.TradeConfirm) {
             return !pre.equals(tradeKey(chr)); // trade contents changed (items/mesos/stage)
         }
+        if (action instanceof AgentAction.StorageStore || action instanceof AgentAction.StorageTakeOut
+                || action instanceof AgentAction.StorageMesos || action instanceof AgentAction.StorageClose) {
+            long[] before = (long[]) pre;
+            return before[0] != storageKey(chr) || before[1] != (session.isStorageOpened() ? 1 : 0);
+        }
+        if (action instanceof AgentAction.DueySend || action instanceof AgentAction.DueyAction) {
+            return !pre.equals((long) chr.getMeso()); // mesos moved (parcel fee/payment)
+        }
         return null;
+    }
+
+    /** Storage snapshot key: hash of slots, mesos and stored items. */
+    private static long storageKey(Character chr) {
+        var storage = chr.getStorage();
+        if (storage == null) {
+            return 0;
+        }
+        long key = storage.getSlots() * 31L + storage.getMeso();
+        for (var item : storage.getItems()) {
+            key = key * 31 + item.getItemId() * 1000L + item.getQuantity();
+        }
+        return key;
     }
 
     private static boolean hasBuddy(Character chr, String name) {
@@ -246,13 +274,6 @@ public final class HarnessVerifier {
             case STARTED -> 1;
             case COMPLETED -> 2;
         };
-    }
-
-    private static boolean dialogChanged(AgentSession session, long[] before) {
-        String text = session.getNpcDialogText();
-        return before[0] != session.getNpcDialogMsgType()
-                || before[1] != session.getNpcDialogNpcId()
-                || before[2] != (text == null ? -1L : text.hashCode());
     }
 
     private static boolean hpDropped(int before, int after) {

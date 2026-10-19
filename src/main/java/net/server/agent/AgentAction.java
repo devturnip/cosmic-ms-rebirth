@@ -178,6 +178,31 @@ public sealed interface AgentAction {
     record TradeConfirm() implements AgentAction {
     }
 
+    /** Store an item into the account storage (requires a storage NPC's UI to be open, level 15+). */
+    record StorageStore(short slot, int itemId, short quantity) implements AgentAction {
+    }
+
+    /** Take an item out of the account storage (slot is the storage's 0-based slot for the type). */
+    record StorageTakeOut(String inventoryType, byte slot) implements AgentAction {
+    }
+
+    /** Move mesos to/from the storage: positive withdraws from storage, negative stores. */
+    record StorageMesos(int amount) implements AgentAction {
+    }
+
+    /** Close the storage UI. */
+    record StorageClose() implements AgentAction {
+    }
+
+    /** Send a Duey parcel: item from the given inventory slot plus mesos, to another character. */
+    record DueySend(String inventoryType, short slot, short quantity, int mesos, String recipient,
+                    String message) implements AgentAction {
+    }
+
+    /** Refresh/claim Duey state: op 0 re-lists packages; a nonzero packageId claims that parcel. */
+    record DueyAction(int operation, int packageId) implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

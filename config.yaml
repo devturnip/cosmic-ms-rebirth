@@ -463,7 +463,7 @@ server:
 
     #Test Harness Configuration (all default off) - MCP surface for LLM-agent end-to-end testing.
     USE_TEST_HARNESS: true              #Master switch: exposes the test-harness MCP server (sessions, observe, act, setup ops).
-    TEST_HARNESS_MAX_SESSIONS: 4        #Max concurrent harness sessions. Independent of LLM_AGENTS_MAX.
+    TEST_HARNESS_MAX_SESSIONS: 8        #Max concurrent harness sessions. Independent of LLM_AGENTS_MAX.
     TEST_HARNESS_TRANSPORT: "http"      #"http" (streamable HTTP, for docker/remote agents) | "stdio" (embedded local agent).
     TEST_HARNESS_HTTP_PORT: 8123        #TCP port for the "http" transport.
 

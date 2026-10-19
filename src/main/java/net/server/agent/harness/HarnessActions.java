@@ -80,6 +80,17 @@ public final class HarnessActions {
                     (short) intField(node, "slot"), (short) intField(node, "quantity"), (byte) intField(node, "targetSlot"));
             case "TRADEPUTMESOS" -> new AgentAction.TradePutMesos(intField(node, "amount"));
             case "TRADECONFIRM" -> new AgentAction.TradeConfirm();
+            case "STORAGESTORE" -> new AgentAction.StorageStore((short) intField(node, "slot"),
+                    intField(node, "itemId"), (short) intField(node, "quantity"));
+            case "STORAGETAKEOUT" -> new AgentAction.StorageTakeOut(text(node, "inventoryType"),
+                    (byte) intField(node, "slot"));
+            case "STORAGEMESOS" -> new AgentAction.StorageMesos(intField(node, "amount"));
+            case "STORAGECLOSE" -> new AgentAction.StorageClose();
+            case "DUEYSEND" -> new AgentAction.DueySend(text(node, "inventoryType"),
+                    (short) intField(node, "slot"), (short) intField(node, "quantity"),
+                    intField(node, "mesos"), text(node, "recipient"), text(node, "message"));
+            case "DUEYACTION" -> new AgentAction.DueyAction(intField(node, "operation"),
+                    intField(node, "packageId", 0));
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };
@@ -99,5 +110,10 @@ public final class HarnessActions {
             throw new IllegalArgumentException("action '" + node.path("type").asText() + "' requires integer '" + field + "'");
         }
         return value.asInt();
+    }
+
+    private static int intField(JsonNode node, String field, int fallback) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? fallback : value.asInt();
     }
 }

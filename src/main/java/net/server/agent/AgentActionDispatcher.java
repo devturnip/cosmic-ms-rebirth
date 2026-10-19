@@ -126,6 +126,52 @@ public class AgentActionDispatcher {
                 p.writeInt(mesos.amount());
             });
             case AgentAction.TradeConfirm ignored -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x11));
+            case AgentAction.StorageStore store -> send(session, RecvOpcode.STORAGE, p -> {
+                p.writeByte(5); // store
+                p.writeShort(store.slot());
+                p.writeInt(store.itemId());
+                p.writeShort(store.quantity());
+            });
+            case AgentAction.StorageTakeOut takeOut -> {
+                InventoryType type = parseInventoryType(takeOut.inventoryType());
+                if (type == null) {
+                    log.debug("Agent {} storage take-out: unknown inventory type '{}'", session.getName(), takeOut.inventoryType());
+                } else {
+                    send(session, RecvOpcode.STORAGE, p -> {
+                        p.writeByte(4); // take out
+                        p.writeByte(type.getType());
+                        p.writeByte(takeOut.slot());
+                    });
+                }
+            }
+            case AgentAction.StorageMesos mesos -> send(session, RecvOpcode.STORAGE, p -> {
+                p.writeByte(7); // mesos
+                p.writeInt(mesos.amount());
+            });
+            case AgentAction.StorageClose ignored -> {
+                send(session, RecvOpcode.STORAGE, p -> p.writeByte(8));
+                session.setStorageOpened(false); // the server sends no close frame; model the UI flow
+            }
+            case AgentAction.DueySend send_ -> send(session, RecvOpcode.DUEY_ACTION, p -> {
+                p.writeByte(0x02); // TOSERVER_SEND_ITEM
+                InventoryType type = parseInventoryType(send_.inventoryType());
+                p.writeByte(type == null ? 0 : type.getType());
+                p.writeShort(send_.slot());
+                p.writeShort(send_.quantity());
+                p.writeInt(send_.mesos());
+                p.writeString(send_.recipient() == null ? "" : send_.recipient());
+                boolean quick = send_.message() == null;
+                p.writeByte(quick ? 1 : 0);
+                if (!quick) {
+                    p.writeString(send_.message());
+                }
+            });
+            case AgentAction.DueyAction duey -> send(session, RecvOpcode.DUEY_ACTION, p -> {
+                p.writeByte((byte) duey.operation());
+                if (duey.operation() == 0x04 || duey.operation() == 0x05) {
+                    p.writeInt(duey.packageId());
+                }
+            });
             case AgentAction.Idle ignored -> {
             }
         }
@@ -389,7 +435,8 @@ public class AgentActionDispatcher {
         });
     }
 
-    /** Ends the pending dialog (Esc / End Chat). */
+    /** Ends the pending dialog (Esc / End Chat). Always sendable while any frame is known —
+     * this is the escape hatch when the server-side context is stuck open. */
     private static void npcEndDialog(AgentSession session) {
         int msgType = session.getNpcDialogMsgType();
         if (msgType < 0) {
@@ -399,7 +446,7 @@ public class AgentActionDispatcher {
             p.writeByte(msgType);
             p.writeByte(0); // 0 = end chat
         });
-        session.clearNpcDialog();
+        session.setNpcDialogClosed();
     }
 
     private static InventoryType parseInventoryType(String name) {

@@ -82,6 +82,7 @@ public final class HarnessObservation {
         out.put("inventory", describeInventory(chr));
         out.put("quests", describeQuests(chr));
         out.put("npcDialog", describeNpcDialog(session));
+        out.put("storage", describeStorage(chr, session));
         out.put("buddies", describeBuddies(chr));
         out.put("cashShop", describeCashShop(chr));
         out.put("trade", describeTrade(chr));
@@ -132,6 +133,30 @@ public final class HarnessObservation {
         e.put("msgType", session.getNpcDialogMsgType());
         e.put("type", HarnessDialogDecoder.typeName(session.getNpcDialogMsgType()));
         e.put("text", session.getNpcDialogText());
+        e.put("open", session.isNpcDialogOpen());
+        e.put("disposed", session.isNpcDialogDisposed());
+        return e;
+    }
+
+    /** Account-storage state: UI-open flag, slots, mesos and stored items. */
+    private static Map<String, Object> describeStorage(Character chr, AgentSession session) {
+        var storage = chr.getStorage();
+        if (storage == null) {
+            return null;
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("opened", session.isStorageOpened());
+        e.put("slots", storage.getSlots());
+        e.put("mesos", storage.getMeso());
+        List<Object> items = new ArrayList<>();
+        for (Item item : storage.getItems()) {
+            Map<String, Object> ie = new LinkedHashMap<>();
+            ie.put("itemId", item.getItemId());
+            ie.put("quantity", item.getQuantity());
+            ie.put("inventoryType", item.getInventoryType().name());
+            items.add(ie);
+        }
+        e.put("items", items);
         return e;
     }
 

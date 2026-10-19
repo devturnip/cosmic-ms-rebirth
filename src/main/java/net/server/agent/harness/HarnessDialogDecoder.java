@@ -36,18 +36,27 @@ public final class HarnessDialogDecoder {
     public static boolean process(AgentSession session, Packet packet) {
         byte[] bytes = packet.getBytes();
         if (bytes == null || bytes.length < 10) {
-            // 7-byte enable-actions frame (STAT_CHANGED + true + empty mask) marks dialog dispose:
-            // scripts send it from dispose() with no dialog frame, so clear any pending dialog.
+            // 7-byte enable-actions frame (STAT_CHANGED + true + empty mask) = the script called
+            // dispose(). Mark the context closed but KEEP the last frame text visible — quiz and
+            // confirm frames are often followed by an immediate dispose in the same script tick.
             if (bytes != null && bytes.length == 7
                     && (bytes[0] & 0xFF | (bytes[1] & 0xFF) << 8) == SendOpcode.STAT_CHANGED.getValue()
                     && bytes[2] == 1
                     && (bytes[3] | bytes[4] << 8 | bytes[5] << 16 | bytes[6] << 24) == 0) {
-                session.clearNpcDialog();
+                session.setNpcDialogClosed();
                 return true;
             }
             return false;
         }
         final int opcode = (bytes[0] & 0xFF) | ((bytes[1] & 0xFF) << 8);
+        if (opcode == SendOpcode.STORAGE.getValue()) {
+            // getStorage frame: [opcode:2][0x16][npcId:4]... - the account-storage UI just opened.
+            if (bytes.length >= 7) {
+                session.setStorageOpened(true);
+                return true;
+            }
+            return false;
+        }
         if (opcode != SendOpcode.NPC_TALK.getValue()) {
             return false;
         }
