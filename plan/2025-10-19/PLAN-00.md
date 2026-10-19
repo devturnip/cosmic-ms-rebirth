@@ -52,7 +52,7 @@ inbound packets with full server validation), `AgentPerception` (structured worl
         │  MCP (stdio for embedded runs, HTTP for docker-compose runs)
         ▼
  TestHarnessMcpServer  (new, in-process MCP server in the Cosmic JVM)
-        │  tool calls: session_*, observe, act, setup_*, wait_for
+        │  tool calls: session_*, observe (omniscient?), act, setup, drain_events
         ▼
  TestHarnessService ──── gate: AgentConfig.USE_TEST_HARNESS (own flag & cap,
         │                 independent of USE_LLM_AGENTS / LLM_AGENTS_MAX)
@@ -97,7 +97,7 @@ inbound packets with full server validation), `AgentPerception` (structured worl
 ### Edge cases & error handling
 - Invalid action (bad itemId, unreachable move, wrong NPC state) → returned as a structured error to the agent, server state unchanged.
 - Session crash/desync → `session_end` is idempotent; orphaned test accounts removed by reaper.
-- `wait_for` timeout → returns last observation + explicit timeout error.
+- `wait_for` → not implemented (agents poll `observe`; keeps the MCP surface minimal).
 - Concurrent sessions on one channel → respect existing per-agent rate limits and a separate `TEST_HARNESS_MAX_SESSIONS` cap (never counted against `LLM_AGENTS_MAX`).
 - Harness and player agents must be independently toggleable: `USE_TEST_HARNESS: true` + `USE_LLM_AGENTS: false` (and the reverse) are both valid configurations.
 - Harness session action latency must not depend on the player-agent tick cadence (`LLM_AGENT_TICK_MS`); externally submitted actions are applied immediately, not on the 2s heartbeat.
@@ -147,8 +147,8 @@ inbound packets with full server validation), `AgentPerception` (structured worl
 - [x] M4: Exemplar scenario — combat, damage, mob death & item drops, pickup — **live-verified**: spawn snail → 7 real-handler attacks → kill → 4 drops → loot → inventory+mesos updated
 - [x] M4: Exemplar scenario — skills, buffs, cooldowns, MP costs (action vocabulary + observation fields)
 - [x] M4: Exemplar scenario — quests (accept, progress, complete) — `set_quest_state` + `quests.started/completed`
-- [x] M4: Exemplar scenario — equipment & inventory (equip/unequip/drop/trade basics) — grant/observe verified; trade deferred (needs 2nd session)
-- [x] M4: Exemplar scenario — cash shop purchase & retrieval — **deferred**: v83 cash shop is a separate server process (see coverage catalog)
+- [x] M4: Exemplar scenario — equipment & inventory (equip/unequip/drop/trade basics) — grant/observe verified; **full two-session trade later live-verified (round 2)**
+- [x] M4: Exemplar scenario — cash shop purchase & retrieval — **live-verified**: `grant_cash` → `EnterCashShop` → `CashBuy` (NX 5000→4000→3000, CS inventory grows) → invalid SN refused; CS-exit reconnect documented as out of scope
 - [x] M5: Write `docs/test-harness-guide.md` for testing agents
 - [x] M5: Create coverage catalog mapped from `docs/feature_list.md` — `docs/test-harness-coverage.md`
 - [x] Final: `mvn clean test` green (2191/2191 on Java 21 — note: the environment's default JDK 27 breaks Mockito, pre-existing); live E2E via MCP HTTP verified; DB verified clean after `session_end`
@@ -164,8 +164,26 @@ inbound packets with full server validation), `AgentPerception` (structured worl
 - Live verification used the docker DB on `localhost:3307` (temporary config edit, reverted)
   and the user's docker-compose server was stopped/restored around the run.
 
+### Round 2 (2025-10-20, after three QA-agent runs — commits `151ba0f75`, `b17315909`)
+
+- **Two server bugs found by QA agents and fixed** (would affect real players):
+  `ItemRequirement` missing-count default (quest completion impossible, e.g. 1021) and
+  `Trade.inviteTrade` NPE on a first invite.
+- **New actions**: NpcTalk/NpcSelect/NpcRespondText/NpcEndDialog (dialog frames decoded from
+  outbound packets into `npcDialog{npcId,type,text}`), QuestStart/QuestComplete (auto-detect
+  scripted vs WZ-only), QuestForfeit, AddBuddy, EnterCashShop, CashBuy, TradeInvite/Accept/
+  PutItem/PutMesos/Confirm. `grant_cash` setup op; `observe{omniscient}`.
+- **Verifier** now state-verifies every observable action (dialog advanced, quest state,
+  trade staging, cash inventory, buddy added).
+- **Live-verified**: quest 1021 full cycle via real dialogs, quest 20012 kill-progress,
+  text/number-input dialogs, forfeit, level-gate refusals, full two-session trade with
+  transfers, cash-shop purchases with NX deduction. 2195/2195 tests green.
+
 ## 9. Open items / deferred
 
 - Deterministic scripted scenarios with hard assertions for CI (tier 2).
-- Non-core features from `feature_list.md` (PQs, expeditions, CPQ, guild PQ, marriage) — catalog them in M5, implement later.
+- Non-core features from `feature_list.md` (PQ scenario scripts, expeditions, CPQ, guild PQ,
+  marriage, storage/Duey/minigame room actions) — cataloged in
+  `docs/test-harness-coverage.md`.
 - Screenshot-free verification of client-side rendering is out of scope (server-side only).
+- Cash-shop *exit* (channel reconnect) — purchases verified; exit = end the session.

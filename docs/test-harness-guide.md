@@ -41,21 +41,36 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 | Tool | Purpose |
 | --- | --- |
 | `session_start` `{jobId?, level?, mapId?, world?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. |
-| `observe` `{sessionId}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops, NPCs, players, inventory, equipment, quests (started/completed), buffered events. |
+| `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
 | `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
-| `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `set_level`, `set_quest_state`, `spawn_drop`, `heal`. |
+| `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`. |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
 | `session_end` `{sessionId}` | Despawn + delete character and account (idempotent). |
 | `session_list` | Live session ids. |
 
 ### Action vocabulary (`act`)
 
-`Say{message}`, `PartySay{message}`, `Whisper{targetName,message}`, `InviteToParty{targetName}`,
-`AcceptPartyInvite{partyId}`, `DenyPartyInvite{inviterName}`, `LeaveParty`, `MoveTo{x,y}`,
-`Follow{targetName}`, `StopFollowing`, `PickupItem{objectId}`, `UseItem{itemId}`, `Respawn`,
-`Attack{targetObjectId}`, `SkillAttack{targetObjectId,skillId}`,
+**Player basics:** `Say{message}`, `PartySay{message}`, `Whisper{targetName,message}`,
+`InviteToParty{targetName}`, `AcceptPartyInvite{partyId}`, `DenyPartyInvite{inviterName}`,
+`LeaveParty`, `MoveTo{x,y}`, `Follow{targetName}`, `StopFollowing`, `PickupItem{objectId}`,
+`UseItem{itemId}`, `Respawn`, `Attack{targetObjectId}`, `SkillAttack{targetObjectId,skillId}`,
 `SkillAttackMany{targetObjectIds[],skillId}`, `RechargeAmmo`, `CastBuff{skillId}`,
 `CastHeal{skillId}`, `Remember{fact}`, `Idle`.
+
+**NPC & quests:** `NpcTalk{npcId}` (opens the dialog — requires the NPC on the agent's map),
+`NpcSelect{selection}` (menus, yes/no 1/0, accept/decline 1/0, number answers),
+`NpcRespondText{text}` (text-input frames only), `NpcEndDialog`,
+`QuestStart{questId,npcId}` / `QuestComplete{questId,npcId}` (auto-detect scripted JS vs
+WZ-only quests and fire the matching real client path; both require the quest NPC nearby),
+`QuestForfeit{questId}`.
+
+**Social & economy:** `AddBuddy{name}` (v83 semantics: unilateral when the target has space),
+`EnterCashShop`, `CashBuy{useNX,snCS}` (useNX: 1=NX credit, 2=maple point, 4=prepaid; fund
+with `setup grant_cash`; the character leaves the map — end the session when done),
+`TradeInvite{targetName}`, `TradeAccept`, `TradePutItem{inventoryType,slot,quantity,targetSlot}`,
+`TradePutMesos{amount}`, `TradeConfirm` (two-session flow; staged state visible via the
+`trade{partnerName,fullTrade,mesos,items[]}` observation; the exchange completes on the second
+confirm).
 
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
@@ -69,11 +84,16 @@ Each `act` result reports two flags:
   handler. This alone does **not** mean the server agreed to it.
 - **`accepted: true/false/null`** — the server actually applied the action, verified by
   comparing game state before/after (drop left the map, mob HP dropped, MP decreased, item
-  quantity decreased, position changed). `null` means acceptance is not cheaply observable
+  quantity decreased, position changed, dialog advanced/closed, quest state changed, trade
+  contents staged, cash inventory grew). `null` means acceptance is not cheaply observable
   (chat/social actions). A silent `accepted: false` is usually the server faithfully refusing
   something a real client would also be refused — e.g. picking up a **quest-bound drop**
-  (`items[]` entries carry a `questId` for exactly this case) while not on that quest, or
-  casting a skill the character hasn't learned.
+  (`items[]` entries carry a `questId` for exactly this case) while not on that quest, casting
+  a skill the character hasn't learned, or responding to a dialog frame of the wrong type
+  (`NpcRespondText` on a `yes_no` frame is refused, like a real client).
+- Dialog frames are decoded from the outbound packets the NPC/quest scripts emit, so
+  `npcDialog{npcId, msgType, type, text}` always reflects the pending frame; when a script
+  disposes (no frame sent), dialog state is cleared via the enable-actions signal.
 
 **Test-harness sessions may loot** (unlike player companions, whose inventory dies with them),
 which is what makes the drop→pickup→inventory flow testable.
@@ -106,18 +126,25 @@ The testing agent judges outcomes from observations — these recipes are the *s
   re-casts (`SkillAttack` returning false until ready), and death → `Respawn` works.
 - **Skills & buffs** — `setup set_level` + provision with job skills; `CastBuff` then check
   `buffSkills` in observation; verify MP cost in `mp`.
-- **Quests & NPC dialogs** — `act {NpcTalk{npcId}}` opens the dialog; `observe` returns
-  `npcDialog{npcId, msgType, type, text}` (type: `say`, `yes_no`, `text_input`, `number_input`,
-  `selection`, `accept_decline`, `style`...). Respond with `NpcSelect{selection}` (menus, yes/no,
-  accept/decline, numbers), `NpcRespondText{text}` (text input) or `NpcEndDialog`. Each response's
-  `accepted` flag tells you whether the dialog advanced. Quest state can also be arranged with
-  `setup set_quest_state`; `quests.started/completed` tracks progress. Quest-bound drops carry a
-  `questId` in `items[]` and refuse pickup (`accepted: false`) unless the character is on that quest.
+- **Quest scripts** — `QuestStart{questId,npcId}` runs the quest's JS script if one exists
+  (`scripts/quest/<id>.js`), else the WZ-driven path; navigate the script's frames with the
+  dialog actions, then `QuestComplete{questId,npcId}` once requirements are met (script or WZ
+  checks decide). `QuestForfeit{questId}` abandons a started quest. The quest NPC must be on
+  the agent's map, and a **~500 ms NPC-click cooldown** (`BLOCK_NPC_RACE_CONDT`) applies
+  between interactions — a real agent's pacing is fine, but tight scripted loops need a sleep.
+- **Party, buddies, whispers, trade (multi-session)** — `TradeInvite{targetName}` → invitee
+  `TradeAccept` → both stage with `TradePutItem`/`TradePutMesos` (staged state visible in
+  `trade{items,mesos}`) → both `TradeConfirm`; the transfer applies on the second confirm.
+  Party invites/whispers/map chat arrive for the other session via `drain_events` (allow ~2 s
+  for propagation). `AddBuddy` is unilateral when the target has buddy space (v83 semantics).
+- **Cash shop** — `setup grant_cash {amount}` → `EnterCashShop` (verify `cashShop.opened` and
+  that the character is off the map) → `CashBuy{useNX:1, snCS}` (valid SNs live in
+  `wz/Etc.wz/Commodity.img`; NX balance and owned items are in `cashShop`) → end the session
+  when done (the CS-exit reconnect path is out of scope).
 - **Equipment & inventory** — `setup grant_item`; verify counts in `inventory` maps; drop rules
   via `setup spawn_drop` + `PickupItem` ownership (FFA vs owned).
-- **Cash shop** — the v83 cash shop is a separate server process; purchase flow is currently
-  **deferred** (see coverage catalog). `grant_item` + `CHECK_CASH`-based verification is the
-  interim path.
+- **Cash shop** — see the scenario above; purchase flow is live-verified (NX deduction, CS
+  inventory, invalid-SN refusal).
 
 ## 6. Guarantees & limitations
 
@@ -131,6 +158,10 @@ The testing agent judges outcomes from observations — these recipes are the *s
 - **Client-only verification is out of scope** — the harness tests server truth. Rendering,
   UI, and animation checks still need a real client (see the agent-players handoff for the
   packet-shape checks already done for agents).
-- NPC *dialog* scripting is not yet driven over MCP (no `NPC_TALK`/`NPC_TALK_MORE` actions and
-  no outbound-packet perception); quest testing via `set_quest_state` + direct quest packets is
-  the interim path. See the coverage catalog for the deferred list.
+- **Cash-shop exit** re-connects the client to the channel server; the harness does not
+  simulate that reconnect — end the session instead (the character is deleted anyway).
+- **NPC click cooldown** — `BLOCK_NPC_RACE_CONDT` (500 ms default) throttles reopening NPC
+  dialogs; `QuestScriptManager` and `NPCTalkHandler` both enforce it.
+
+Coverage status per feature (including deferred items) lives in
+[`test-harness-coverage.md`](test-harness-coverage.md).

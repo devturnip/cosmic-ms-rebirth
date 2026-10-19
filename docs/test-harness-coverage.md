@@ -29,19 +29,28 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 | Trade (two sessions) | ✅ | `TradeInvite`→`TradeAccept`→`TradePutItem`/`TradePutMesos`→`TradeConfirm`; staged state + transfers live-verified |
 | Buddy list | ✅ | `AddBuddy` (v83 semantics: unilateral when target has space) |
 | Party / chat / whispers | ✅ | invite/accept + events via `drain_events` |
-| Trade / storage / Duey | ⛔ | needs partner sessions + more actions |
-| Guild / alliance | ⛔ | needs multi-session + match-checker coordination |
-| Buddy list | ⛔ | needs a second session |
+| Storage / Duey / hired merchants / minigames | ⛔ | PlayerInteraction room variants; protocols mapped but not yet implemented |
 
 ## Feature-list remainder (non-core, batched later)
 
 - 🟡 PQs (HPQ/KPQ/…, expeditions, CPQ): harness sessions are exempt from the companion PQ guard
   (`isEphemeralAgent`), so entry is possible; scenario scripts not yet written.
-- ⛔ Marriage, family, hired merchants/minigames, New Year cards, quests with scripted cutscenes.
+- ⛔ Guild/alliance creation flows (multi-session + match-checker coordination), marriage,
+  family, New Year cards, quests with scripted cutscenes.
 - ❌ Client rendering/animation/UI — permanently out of harness scope (use a real client).
+
+## QA-run findings folded back into the server
+
+- **Item requirements without `count`** defaulted to 0, permanently blocking completion of
+  quests like 1021 (Roger's Apple) even for real players — fixed (default now 1).
+- **`Trade.inviteTrade` NPE** on a character's first trade invite (no `Trade` object yet) —
+  fixed (auto-create); affected real players, not just the harness.
 
 ## Next additions (cheapest first)
 
 1. ~~NpcTalk/NpcSelect actions + outbound-dialog perception~~ — **done** (live-verified).
-2. Second-session support (`session_start` twice) → trade, buddy, guild invitation paths.
-3. Cash-shop session transfer → CS purchase tests.
+2. ~~Second-session support (trade/buddy/party)~~ — **done** (live-verified).
+3. ~~Cash-shop purchases (`grant_cash` + `EnterCashShop` + `CashBuy`)~~ — **done** (live-verified).
+4. Storage/Duey/minigame room actions (PlayerInteraction variants).
+5. Guild/alliance multi-session flows.
+6. PQ scenario scripts on top of the existing entry exemption.
