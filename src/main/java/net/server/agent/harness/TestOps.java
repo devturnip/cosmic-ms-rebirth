@@ -57,14 +57,24 @@ public final class TestOps {
         return map;
     }
 
-    /** Warps the session's character to {@code mapId} (optionally through a named portal). */
-    public static Map<String, Object> teleport(AgentSession session, int mapId, String portalName) {
+    /**
+     * Warps the session's character to {@code mapId} (optionally through a named portal).
+     * When {@code x}/{@code y} are both given, the character is placed at that exact
+     * position on the target map (portal spawn point ignored) — used for PQ rect/area
+     * placements that real movement cannot reach.
+     */
+    public static Map<String, Object> teleport(AgentSession session, int mapId, String portalName, Integer x, Integer y) {
         Character chr = character(session);
         MapleMap target = chr.getClient().getChannelServer().getMapFactory().getMap(mapId);
         if (target == null) {
             throw new IllegalArgumentException("Unknown map id " + mapId);
         }
-        if (portalName == null || portalName.isBlank()) {
+        if ((x == null) != (y == null)) {
+            throw new IllegalArgumentException("teleport x and y must be given together (or both omitted)");
+        }
+        if (x != null && y != null) {
+            chr.changeMap(target, new Point(x, y));
+        } else if (portalName == null || portalName.isBlank()) {
             chr.changeMap(target);
         } else {
             chr.changeMap(mapId, portalName);
@@ -90,13 +100,23 @@ public final class TestOps {
         return out;
     }
 
-    /** Kills a monster by object id. {@code withDrops=true} makes normal drops spawn. */
+    /**
+     * Kills a monster by object id. {@code withDrops=true} makes normal drops spawn.
+     * <p>
+     * A harness kill bypasses the damage pipeline, so with {@code USE_SPAWN_RELEVANT_LOOT}
+     * the mob's {@code takenDamage} set would be empty and the loot filter would spawn
+     * nothing; registering the requesting session as the (lethal) damage source first makes
+     * the drop pipeline treat it as a genuine player kill.
+     */
     public static Map<String, Object> killMob(AgentSession session, int objectId, boolean withDrops) {
         Character chr = character(session);
         MapleMap map = map(chr);
         Monster mob = map.getMonsterByOid(objectId);
         if (mob == null) {
             throw new IllegalArgumentException("No monster with objectId " + objectId + " on map " + map.getId());
+        }
+        if (withDrops && !mob.isAttackedBy(chr)) {
+            mob.applyFakeDamage(chr, 1, true);   // stayAlive=true: HP handled by killMonster
         }
         map.killMonster(mob, chr, withDrops);
         return result("killed objectId %d (mob %d) on map %d, withDrops=%s",

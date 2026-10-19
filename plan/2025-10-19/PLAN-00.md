@@ -199,6 +199,26 @@ inbound packets with full server validation), `AgentPerception` (structured worl
 - MCP tool schemas now use proper types (integer/string/boolean/object) instead of declaring
   every argument as string (fixed the sibling report's schema complaint).
 
+### Round 6 (2025-10-20, full KPQ completion + interaction live probe)
+
+- **Harness fixes**: `setup teleport` gained optional `x`/`y` (exact placement on the target map,
+  for PQ rect stages; half-given pairs rejected); `kill_mob{withDrops}` now registers the
+  requesting session as the kill's damage source (`Monster.applyFakeDamage`) so the
+  `USE_SPAWN_RELEVANT_LOOT` drop pipeline sees a player kill and spawns drops (was silently
+  spawning nothing). Docs corrected: `EnterPortal` takes the portal NAME (`next00`), not the
+  script name (`kpq1`). Full suite 2231/2231 green (Java 21).
+- **Full KPQ completion run (the main deliverable)** — all stages green through real handlers:
+  entry → stage 1 (quiz + coupon farming 9300001 + pass trading) → stages 2-4 (rect combos via
+  `teleport{x,y}` brute-force; NOTE the first leader talk only sets the combo) → stage 5 (10
+  passes from boss 9300002 kills) → bonus (103000805) + `giveEventReward` (lvl 25→34, item
+  rewards). Quiz requires the coupon count to be EXACT — shed extras by trading to the leader.
+  All sessions share the instance map, so drop pickups race; redistribute passes via trade.
+- **Live probe of PlayerInteraction actions (73aaa8dd9)** — omok: create/visit/start/moves →
+  board in `interaction.pieces`, win ends match with scores (50/15); match cards: flips verified
+  via `ownerPoints`/`firstSlot`; hired merchant: create→put→open→visitor buy (meso delta −1000,
+  listing bundles decrement)→withdraw (+1000)→take-back→close. Coverage table flipped to ✅.
+- Cleanup verified: `session_list` empty, zero `Agent-%` rows in `cosmic.characters`/`accounts`.
+
 ## 9. Open items / deferred
 
 - Deterministic scripted scenarios with hard assertions for CI (tier 2).

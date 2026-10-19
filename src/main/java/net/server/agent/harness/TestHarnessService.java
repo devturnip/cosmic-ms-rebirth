@@ -187,7 +187,8 @@ public final class TestHarnessService {
     public Map<String, Object> setup(String op, AgentSession session, Map<String, Object> args) {
         requireEnabled();
         return switch (op == null ? "" : op.strip().toLowerCase()) {
-            case "teleport" -> TestOps.teleport(session, intArg(args, "mapId"), strArg(args, "portal"));
+            case "teleport" -> TestOps.teleport(session, intArg(args, "mapId"), strArg(args, "portal"),
+                    optInt(args, "x"), optInt(args, "y"));
             case "spawn_mob" -> TestOps.spawnMob(session, intArg(args, "mobId"),
                     intArg(args, "x"), intArg(args, "y"));
             case "kill_mob" -> TestOps.killMob(session, intArg(args, "objectId"), boolArg(args, "withDrops", true));
@@ -221,6 +222,11 @@ public final class TestHarnessService {
     private static boolean boolArg(Map<String, Object> args, String key, boolean fallback) {
         Object value = args == null ? null : args.get(key);
         return value instanceof Boolean b ? b : fallback;
+    }
+
+    private static Integer optInt(Map<String, Object> args, String key) {
+        Object value = args == null ? null : args.get(key);
+        return value instanceof Number n ? n.intValue() : null;
     }
 
     private static String strArg(Map<String, Object> args, String key) {

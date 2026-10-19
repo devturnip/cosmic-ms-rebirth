@@ -43,7 +43,7 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 | `session_start` `{jobId?, level?, mapId?, world?, channel?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. Match `channel` to a real client's channel when testing cross-visibility. |
 | `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, interaction (minigame room / hired merchant state), buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
 | `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
-| `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
+| `setup` `{sessionId, op, args}` | Cheat ops: `teleport` `{mapId, portal?, x?, y?}` — when `x`/`y` are both given the character is placed at that exact position on the target map (for PQ rect/area placements real movement cannot reach), `spawn_mob`, `kill_mob` `{withDrops}` (`withDrops` registers the session as the kill's damage source, so drops spawn even under `USE_SPAWN_RELEVANT_LOOT`), `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
 | `session_end` `{sessionId}` | Despawn + delete character and account (idempotent). |
 | `session_list` | Live session ids. |
@@ -64,7 +64,9 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 WZ-only quests and fire the matching real client path; both require the quest NPC nearby),
 `QuestForfeit{questId}`, `EnterPortal{portalName}` (scripted portals via the real
 CHANGE_MAP_SPECIAL packet — required for PQ stage transitions, which `MoveTo` cannot walk
-through).
+through). **`portalName` is the portal's NAME (e.g. `next00`, `st00`), not its script name
+(e.g. `kpq1`)** — script names live in the map WZ's portal `script` property, while the
+handler is routed by portal name.
 
 **Map-transition note:** harness sessions never send the client's `PLAYER_MAP_TRANSFER`, so
 the harness clears the `isChangingMaps` flag after every action and teleport — without this,
@@ -182,13 +184,16 @@ The testing agent judges outcomes from observations — these recipes are the *s
   checks decide). `QuestForfeit{questId}` abandons a started quest. The quest NPC must be on
   the agent's map, and a **~500 ms NPC-click cooldown** (`BLOCK_NPC_RACE_CONDT`) applies
   between interactions — a real agent's pacing is fine, but tight scripted loops need a sleep.
-- **Party quests** — harness sessions are exempt from the companion PQ guard. A Kerning PQ
-  probe verified: party formation, entry via Lakelis (9020000, dialog-less under
-  `USE_OLD_GMS_STYLED_PQ_NPCS`), stage-1 combat/loot, quiz answers, pass trading and stage
-  clear. Scripted stage portals are now traversable via `EnterPortal{portalName}` (the probe
-  also found and fixed a stuck `isChangingMaps` flag that walled portal entries after any map
-  change). Remaining: PQ stage maps don't respawn mobs — supply coupons via labeled
-  `spawn_mob`+kill loops or `grant_item`; a full multi-stage completion run is pending.
+- **Party quests** — harness sessions are exempt from the companion PQ guard. **A full Kerning PQ
+  completion run was executed live (4 sessions, levels 25→34)**: party formation, entry via
+  Lakelis (9020000), stage-1 coupon farming + quiz answers + pass trading, rect stages 2-4
+  (members placed mid-rect via `setup teleport {x,y}`, combos brute-forced by the leader talking
+  to Cloto), stage-5 boss passes (`spawn_mob` 9300002 + `kill_mob{withDrops}`), bonus map +
+  `giveEventReward` prizes. Stage transitions via `EnterPortal{portalName:"next00"}` — the
+  portal NAME, not its script name. Notes: the *first* leader talk on a rect stage only sets the
+  secret combo (welcome message) and is not a check; the stage-1 quiz compares the coupon count
+  **exactly** (shed extras via trade to a member with no quota, e.g. the leader); all sessions
+  share one instance map, so drop pickups can race — distribute passes afterwards via trade.
 - **Storage & Duey** — live-verified: open/store/take-out/fees/mesos and parcel send/claim
   (fee = `Trade.getFee(mesos) + 5000` for message parcels; quick delivery needs ticket
   5330000). Note: the server does not enforce the storage UI being open (packet-forgery-only
