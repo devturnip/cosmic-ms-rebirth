@@ -151,6 +151,17 @@ multi-stage event flows (`scripts/event/WeddingCathedral.js`) — not wrapped in
 actions; drive them scenario-style with `NpcTalk`/`NpcSelect`/`EnterPortal` once a couple is
 engaged, or treat the engagement + `BreakEngagement` as the covered surface.
 
+**World interaction (reactors, catching, drops):** `ReactorHit{reactorObjectId}` (alias
+`objectId`) hits an attack-type reactor via the real DAMAGE_REACTOR packet — this is what
+breaks PQ boxes (e.g. the LPQ pass boxes 2202003) and item-reactors; it verifies via the
+reactor's state advancing or the object being destroyed. `CatchItem{mobObjectId,itemId}`
+uses a catch item on a mob via USE_CATCH_ITEM (the handler enforces the item↔mob pairing
+and HP threshold — e.g. purification marble 2270004 on a Poison Flower 9300175 below 40%
+HP, the Ellin stage-4 flow); accepted iff the mob was killed or the item was consumed.
+`DropItem{inventoryType,slot,quantity}` drops an inventory stack via the real ITEM_MOVE
+(action 0) path — full drop validation applies (GM rules, trade/minigame guards, stack
+size); accepted iff the stack at the slot shrank.
+
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
 same validation a human player would hit.

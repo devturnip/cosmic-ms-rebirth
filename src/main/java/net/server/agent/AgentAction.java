@@ -393,6 +393,36 @@ public sealed interface AgentAction {
     record FamilyAccept(boolean accept, String inviterName) implements AgentAction {
     }
 
+    // ----------------------------------------------------------------
+    // World interaction: reactors / monster catching / item drops
+    // ----------------------------------------------------------------
+
+    /**
+     * Hit an attack-type reactor by its map object id (the real client's DAMAGE_REACTOR
+     * packet, parsed by {@code ReactorHitHandler}). This is what breaks PQ boxes
+     * (e.g. the LPQ pass boxes 2202003) and item-triggered reactors. Accepted iff the
+     * reactor's state advanced or it was destroyed/removed.
+     */
+    record ReactorHit(int reactorObjectId) implements AgentAction {
+    }
+
+    /**
+     * Use a catch item from the USE inventory on a monster by its map object id (the real
+     * USE_CATCH_ITEM packet, parsed by {@code UseCatchItemHandler}). The handler enforces
+     * the item↔mob pairing and HP threshold (e.g. purification marble 2270004 on a
+     * Poison Flower below 40% HP) — a refused catch leaves the mob and inventory intact.
+     */
+    record CatchItem(int mobObjectId, int itemId) implements AgentAction {
+    }
+
+    /**
+     * Drop an item from the given inventory type and slot onto the map (the real client's
+     * ITEM_MOVE packet with drop action, routed through {@code InventoryManipulator.drop}).
+     * Accepted iff the stack at the slot shrank (the handler's full drop validation applies).
+     */
+    record DropItem(String inventoryType, short slot, short quantity) implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

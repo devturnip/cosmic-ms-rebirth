@@ -448,6 +448,57 @@ public class AgentActionDispatcher {
                     });
                 }
             }
+            // ---- world interaction: reactors / catch items / item drops ----
+            case AgentAction.ReactorHit hit -> {
+                Character chr = session.getPlayer();
+                if (chr == null || chr.getMap() == null
+                        || chr.getMap().getReactorByOid(hit.reactorObjectId()) == null) {
+                    log.debug("Agent {} reactor hit: reactor {} not on map",
+                            session.getName(), hit.reactorObjectId());
+                } else {
+                    // DAMAGE_REACTOR: oid, charPos, stance, 4 skipped bytes, skill id.
+                    // Stance 1 avoids the type-2-reactor refusal on stance 0/2 (ReactorHitHandler).
+                    send(session, RecvOpcode.DAMAGE_REACTOR, p -> {
+                        p.writeInt(hit.reactorObjectId());
+                        p.writeInt(0);      // charPos
+                        p.writeShort(1);    // stance
+                        p.writeInt(0);      // skipped block
+                        p.writeInt(0);      // skill id (plain hit)
+                    });
+                }
+            }
+            case AgentAction.CatchItem catchItem -> {
+                Character chr = session.getPlayer();
+                if (chr == null || chr.getMap() == null
+                        || chr.getMap().getMonsterByOid(catchItem.mobObjectId()) == null) {
+                    log.debug("Agent {} catch item: mob {} not on map",
+                            session.getName(), catchItem.mobObjectId());
+                } else {
+                    // USE_CATCH_ITEM: timestamp + short block (skipped), then itemId, mob oid.
+                    send(session, RecvOpcode.USE_CATCH_ITEM, p -> {
+                        p.writeInt(0);
+                        p.writeShort(0);
+                        p.writeInt(catchItem.itemId());
+                        p.writeInt(catchItem.mobObjectId());
+                    });
+                }
+            }
+            case AgentAction.DropItem drop -> {
+                InventoryType type = parseInventoryType(drop.inventoryType());
+                if (type == null) {
+                    log.debug("Agent {} drop item: unknown inventory type '{}'",
+                            session.getName(), drop.inventoryType());
+                } else {
+                    // ITEM_MOVE with action 0 = drop (see ItemMoveHandler → InventoryManipulator.drop).
+                    send(session, RecvOpcode.ITEM_MOVE, p -> {
+                        p.writeInt(0); // timestamp block the handler skips
+                        p.writeByte(type.getType());
+                        p.writeShort(drop.slot());
+                        p.writeShort(0); // action 0 = drop
+                        p.writeShort(drop.quantity());
+                    });
+                }
+            }
             case AgentAction.Idle ignored -> {
             }
         }

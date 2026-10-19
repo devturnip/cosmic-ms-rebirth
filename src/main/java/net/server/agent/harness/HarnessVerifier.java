@@ -2,6 +2,7 @@ package net.server.agent.harness;
 
 import client.Character;
 import client.inventory.InventoryType;
+import client.inventory.Item;
 import net.server.Server;
 import net.server.agent.AgentAction;
 import net.server.agent.AgentActionDispatcher;
@@ -16,8 +17,10 @@ import server.maps.MapItem;
 import server.maps.MiniGame;
 import server.maps.MapObject;
 import server.maps.PlayerShopItem;
+import server.maps.Reactor;
 
 import java.awt.Point;
+import java.util.Locale;
 
 /**
  * Post-dispatch acceptance verification for harness actions.
@@ -42,6 +45,9 @@ import java.awt.Point;
  *     set or reset (engagement registered / severed)</li>
  *     <li>{@code Family*} — a family invite became pending, or the character's family id
  *     changed (joined/absorbed)</li>
+ *     <li>{@code ReactorHit} — the reactor's state advanced or it was destroyed/removed</li>
+ *     <li>{@code CatchItem} — the mob was killed (caught) or the catch item was consumed</li>
+ *     <li>{@code DropItem} — the stack at the inventory slot shrank</li>
  * </ul>
  * Actions that are chat/social ({@code Say}, {@code Whisper}, ...) have no cheap observable
  * effect and report {@code accepted = null} (unknown). A {@code false} always means the server
@@ -223,6 +229,18 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.FamilyAccept) {
             return (long) (chr.getFamily() == null ? -1 : chr.getFamily().getID());
+        }
+        // ---- world interaction (reactors / catch items / drops) ----
+        if (action instanceof AgentAction.ReactorHit hit) {
+            return reactorKey(chr, hit.reactorObjectId());
+        }
+        if (action instanceof AgentAction.CatchItem catchItem) {
+            return new long[]{chr.getMap().getMonsterByOid(catchItem.mobObjectId()) == null ? 0 : 1,
+                    inventoryQuantity(chr, InventoryType.USE, catchItem.itemId())};
+        }
+        if (action instanceof AgentAction.DropItem drop) {
+            Item slotItem = slotItem(chr, drop.inventoryType(), drop.slot());
+            return slotItem == null ? null : new long[]{slotItem.getItemId(), slotItem.getQuantity()};
         }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
@@ -491,6 +509,33 @@ public final class HarnessVerifier {
             long after = chr.getFamily() == null ? -1 : chr.getFamily().getID();
             return after != -1 && after != before; // joined a family (or absorbed one)
         }
+        // ---- world interaction (reactors / catch items / drops) ----
+        if (action instanceof AgentAction.ReactorHit hit) {
+            long[] before = (long[]) pre;
+            if (before[0] == 0) {
+                return false; // reactor was never on the map
+            }
+            long[] after = reactorKey(chr, hit.reactorObjectId());
+            if (after[0] == 0) {
+                return true; // the reactor object left the map entirely (destroyed)
+            }
+            return after[1] != before[1] || after[2] != before[2]; // state advanced / destroyed
+        }
+        if (action instanceof AgentAction.CatchItem catchItem) {
+            long[] before = (long[]) pre;
+            if (before[0] == 0) {
+                return false; // mob was never there
+            }
+            // A successful catch kills the mob (and consumes the item); anything else leaves both intact.
+            return chr.getMap().getMonsterByOid(catchItem.mobObjectId()) == null
+                    || inventoryQuantity(chr, InventoryType.USE, catchItem.itemId()) < before[1];
+        }
+        if (action instanceof AgentAction.DropItem drop) {
+            long[] before = (long[]) pre;
+            Item slotItem = slotItem(chr, drop.inventoryType(), drop.slot());
+            long nowQty = slotItem == null ? 0 : slotItem.getQuantity();
+            return nowQty < before[1]; // the stack at the slot shrank (dropped)
+        }
         return null;
     }
 
@@ -699,14 +744,39 @@ public final class HarnessVerifier {
     }
 
     private static int stackQuantity(Character chr, int itemId) {
+        return inventoryQuantity(chr, InventoryType.USE, itemId);
+    }
+
+    /** Total quantity of {@code itemId} across all stacks of the given inventory (0 when absent). */
+    private static int inventoryQuantity(Character chr, InventoryType type, int itemId) {
         int total = 0;
-        var inv = chr.getInventory(InventoryType.USE);
+        var inv = chr.getInventory(type);
         if (inv != null) {
             for (var item : inv.listById(itemId)) {
                 total += item.getQuantity();
             }
         }
         return total;
+    }
+
+    /** The item at an inventory slot, or null when the slot is empty / the type is unknown. */
+    private static Item slotItem(Character chr, String inventoryType, short slot) {
+        InventoryType type;
+        try {
+            type = inventoryType == null ? null
+                    : InventoryType.valueOf(inventoryType.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        var inv = type == null ? null : chr.getInventory(type);
+        return inv == null ? null : inv.getItem(slot);
+    }
+
+    /** Reactor snapshot key: {@code [present, state, alive]} (present=0 when the oid is unknown). */
+    private static long[] reactorKey(Character chr, int oid) {
+        Reactor reactor = chr.getMap().getReactorByOid(oid);
+        return reactor == null ? new long[]{0}
+                : new long[]{1, reactor.getState(), reactor.isAlive() ? 1 : 0};
     }
 
     /** 1 = quantity decreased (accepted), 0 = unchanged (refused). */

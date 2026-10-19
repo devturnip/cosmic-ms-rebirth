@@ -230,7 +230,10 @@ function clearPQ(eim) {
 
 function isPoisonGolem(mob) {
     var mobid = mob.getId();
-    return (mobid == 9300182);
+    // 9300180 = Poison Golem — the mob reactor 3001000 actually spawns (scripts/reactor/3001000.js).
+    // 9300182 = Super-Charged Poison Golem, a variant no current script spawns. Both must clear
+    // the stage; previously only 9300182 was accepted, which made the PQ uncompletable.
+    return (mobid == 9300180 || mobid == 9300182);
 }
 
 function monsterKilled(mob, eim, hasKiller) {

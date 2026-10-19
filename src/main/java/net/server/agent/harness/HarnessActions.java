@@ -144,6 +144,19 @@ public final class HarnessActions {
             case "BREAKENGAGEMENT" -> new AgentAction.BreakEngagement(intField(node, "itemId"));
             case "FAMILYADD" -> new AgentAction.FamilyAdd(text(node, "name"));
             case "FAMILYACCEPT" -> new AgentAction.FamilyAccept(boolField(node, "accept"), text(node, "inviterName"));
+            case "REACTORHIT" -> {
+                JsonNode oid = node.get("reactorObjectId");
+                if (oid == null || oid.isNull()) {
+                    oid = node.get("objectId"); // alias used by some scenario payloads
+                }
+                if (oid == null || oid.isNull() || !oid.canConvertToInt()) {
+                    throw new IllegalArgumentException("ReactorHit requires integer 'reactorObjectId' (or 'objectId')");
+                }
+                yield new AgentAction.ReactorHit(oid.asInt());
+            }
+            case "CATCHITEM" -> new AgentAction.CatchItem(intField(node, "mobObjectId"), intField(node, "itemId"));
+            case "DROPITEM" -> new AgentAction.DropItem(text(node, "inventoryType"),
+                    (short) intField(node, "slot"), (short) intField(node, "quantity"));
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };
