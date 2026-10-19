@@ -4,8 +4,11 @@ import client.Character;
 import client.inventory.InventoryType;
 import net.server.agent.AgentAction;
 import net.server.agent.AgentSession;
+import server.maps.HiredMerchant;
 import server.maps.MapItem;
+import server.maps.MiniGame;
 import server.maps.MapObject;
+import server.maps.PlayerShopItem;
 
 import java.awt.Point;
 
@@ -23,6 +26,9 @@ import java.awt.Point;
  *     <li>{@code UseItem} — the item's quantity decreased</li>
  *     <li>{@code CastBuff}/{@code CastHeal} — MP decreased (skills always cost MP)</li>
  *     <li>{@code MoveTo} — the position changed (or the agent was already at the target)</li>
+ *     <li>{@code MiniGame*}/{@code Room*}/{@code HiredMerchant*} — room state changed: board
+ *     piece placed, first card slot / points / scores moved, room membership, merchant
+ *     listings, open flag, map-box presence, or mesos moved (buys/withdrawals)</li>
  * </ul>
  * Actions that are chat/social ({@code Say}, {@code Whisper}, ...) have no cheap observable
  * effect and report {@code accepted = null} (unknown). A {@code false} always means the server
@@ -111,6 +117,45 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.EnterPortal) {
             return (long) chr.getMapId(); // entering a portal normally changes the map
+        }
+        // ---- PlayerInteraction rooms (minigames / hired merchants) ----
+        if (action instanceof AgentAction.MiniGameCreate) {
+            return Boolean.valueOf(chr.getMiniGame() != null);
+        }
+        if (action instanceof AgentAction.RoomVisit) {
+            return Boolean.valueOf(inRoom(chr));
+        }
+        if (action instanceof AgentAction.MiniGameStart || action instanceof AgentAction.MiniGameGiveUp
+                || action instanceof AgentAction.MiniGameTieAnswer
+                || action instanceof AgentAction.MiniGameSelectCard) {
+            MiniGame game = chr.getMiniGame();
+            return game == null ? null : miniGameKey(game);
+        }
+        if (action instanceof AgentAction.MiniGameMoveOmok move) {
+            MiniGame game = chr.getMiniGame();
+            if (game == null) {
+                return null;
+            }
+            return new int[]{game.getPieceAt(move.x(), move.y()), game.isMatchInProgress() ? 1 : 0};
+        }
+        if (action instanceof AgentAction.RoomExit) {
+            return Boolean.valueOf(inRoom(chr));
+        }
+        if (action instanceof AgentAction.HiredMerchantCreate) {
+            return Boolean.valueOf(chr.getHiredMerchant() != null);
+        }
+        if (action instanceof AgentAction.HiredMerchantPutItem || action instanceof AgentAction.HiredMerchantTakeItemBack) {
+            return merchantItemsKey(chr.getHiredMerchant());
+        }
+        if (action instanceof AgentAction.HiredMerchantOpen) {
+            HiredMerchant merchant = findOwnedMerchant(chr);
+            return merchant == null ? null : Boolean.valueOf(merchant.isOpen());
+        }
+        if (action instanceof AgentAction.HiredMerchantBuy || action instanceof AgentAction.HiredMerchantWithdrawMesos) {
+            return (long) chr.getMeso(); // both flows move mesos; the delta is the observable
+        }
+        if (action instanceof AgentAction.HiredMerchantClose) {
+            return Boolean.valueOf(findOwnedMerchant(chr) != null);
         }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
@@ -224,6 +269,116 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.EnterPortal) {
             return !pre.equals((long) chr.getMapId()); // the map changed (or the portal was blocked)
+        }
+        // ---- PlayerInteraction rooms (minigames / hired merchants) ----
+        if (action instanceof AgentAction.MiniGameCreate) {
+            return !((Boolean) pre) && chr.getMiniGame() != null;
+        }
+        if (action instanceof AgentAction.RoomVisit) {
+            return !((Boolean) pre) && inRoom(chr);
+        }
+        if (action instanceof AgentAction.MiniGameStart || action instanceof AgentAction.MiniGameGiveUp
+                || action instanceof AgentAction.MiniGameTieAnswer) {
+            MiniGame game = chr.getMiniGame();
+            return game != null && !pre.equals(miniGameKey(game));
+        }
+        if (action instanceof AgentAction.MiniGameMoveOmok move) {
+            MiniGame game = chr.getMiniGame();
+            if (game == null) {
+                return false;
+            }
+            int[] before = (int[]) pre;
+            if (before[0] != 0) {
+                return false; // square already occupied — the server refuses
+            }
+            // A winning move clears the board (match ends), so accept either the placed
+            // piece or the match having finished.
+            return game.getPieceAt(move.x(), move.y()) == move.piece() || !game.isMatchInProgress();
+        }
+        if (action instanceof AgentAction.MiniGameSelectCard select) {
+            MiniGame game = chr.getMiniGame();
+            if (game == null) {
+                return false;
+            }
+            if (!pre.equals(miniGameKey(game))) {
+                return true; // first slot recorded, the flip scored, or the match ended
+            }
+            // A non-scoring second flip only broadcasts — not observable (like chat).
+            return select.turn() == 0 ? null : false;
+        }
+        if (action instanceof AgentAction.RoomExit) {
+            return ((Boolean) pre) && !inRoom(chr);
+        }
+        if (action instanceof AgentAction.HiredMerchantCreate) {
+            HiredMerchant merchant = chr.getHiredMerchant();
+            return !((Boolean) pre) && merchant != null && merchant.isOwner(chr);
+        }
+        if (action instanceof AgentAction.HiredMerchantPutItem || action instanceof AgentAction.HiredMerchantTakeItemBack) {
+            return !pre.equals(merchantItemsKey(chr.getHiredMerchant()));
+        }
+        if (action instanceof AgentAction.HiredMerchantOpen) {
+            HiredMerchant merchant = findOwnedMerchant(chr);
+            if (merchant == null || !merchant.isOpen()) {
+                return false;
+            }
+            return pre == null || !((Boolean) pre); // merchant box appeared / opened on the map
+        }
+        if (action instanceof AgentAction.HiredMerchantBuy || action instanceof AgentAction.HiredMerchantWithdrawMesos) {
+            return !pre.equals((long) chr.getMeso());
+        }
+        if (action instanceof AgentAction.HiredMerchantClose) {
+            return ((Boolean) pre) && findOwnedMerchant(chr) == null;
+        }
+        return null;
+    }
+
+    /** Whether the character is inside any PlayerInteraction room (minigame or hired merchant). */
+    private static boolean inRoom(Character chr) {
+        return chr.getMiniGame() != null || chr.getHiredMerchant() != null;
+    }
+
+    /** Minigame snapshot key: type, piece, match state, scores/points, first card slot, visitor. */
+    private static long miniGameKey(MiniGame game) {
+        long key = game.getGameType().getValue();
+        key = key * 31 + game.getPieceType();
+        key = key * 31 + (game.isMatchInProgress() ? 1 : 0);
+        key = key * 31 + game.getOwnerScore();
+        key = key * 31 + game.getVisitorScore();
+        key = key * 31 + game.getOwnerPoints();
+        key = key * 31 + game.getVisitorPoints();
+        key = key * 31 + game.getFirstSlot();
+        Character visitor = game.getVisitor();
+        return key * 31 + (visitor == null ? 0 : visitor.getId());
+    }
+
+    /** Hired-merchant listing hash: itemId/bundle per slot (0 when there is no merchant). */
+    private static long merchantItemsKey(HiredMerchant merchant) {
+        if (merchant == null) {
+            return 0;
+        }
+        long key = 17;
+        for (PlayerShopItem psi : merchant.getItems()) {
+            key = key * 31 + psi.getItem().getItemId() * 1000L + psi.getBundles();
+        }
+        return key;
+    }
+
+    /**
+     * The hired merchant owned by {@code chr}: either the maintenance-mode reference, or the
+     * public merchant box on the map (the owner's reference is released once the store opens).
+     */
+    private static HiredMerchant findOwnedMerchant(Character chr) {
+        HiredMerchant owned = chr.getHiredMerchant();
+        if (owned != null && owned.isOwner(chr)) {
+            return owned;
+        }
+        if (chr.getMap() == null) {
+            return null;
+        }
+        for (MapObject ob : chr.getMap().getMapObjects()) {
+            if (ob instanceof HiredMerchant merchant && merchant.getOwnerId() == chr.getId()) {
+                return merchant;
+            }
         }
         return null;
     }

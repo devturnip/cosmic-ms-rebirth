@@ -14,7 +14,9 @@ import net.packet.OutPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.life.NPC;
+import server.maps.HiredMerchant;
 import server.maps.MapItem;
+import server.maps.MiniGame;
 import server.maps.MapObject;
 import tools.PacketCreator;
 
@@ -184,6 +186,105 @@ public class AgentActionDispatcher {
                     });
                 }
             }
+            case AgentAction.MiniGameCreate create -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                p.writeByte(0); // CREATE
+                boolean matchCard = create.gameType() != null && create.gameType().strip().equalsIgnoreCase("matchcard");
+                p.writeByte(matchCard ? 2 : 1); // 1 = omok, 2 = match card
+                p.writeString(create.description() == null ? "" : create.description());
+                if (create.password() == null || create.password().isEmpty()) {
+                    p.writeByte(0); // no password
+                } else {
+                    p.writeByte(1);
+                    p.writeString(create.password());
+                }
+                p.writeByte(create.pieceType());
+            });
+            case AgentAction.RoomVisit visit -> roomVisit(session, visit.ownerName(), visit.password());
+            case AgentAction.MiniGameStart ignored -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x3D)); // START
+                }
+            }
+            case AgentAction.MiniGameMoveOmok move -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0x40); // MOVE_OMOK
+                        p.writeInt(move.x());
+                        p.writeInt(move.y());
+                        p.writeByte(move.piece());
+                    });
+                }
+            }
+            case AgentAction.MiniGameSelectCard select -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0x44); // SELECT_CARD
+                        p.writeByte(select.turn());
+                        p.writeByte(select.slot());
+                    });
+                }
+            }
+            case AgentAction.MiniGameGiveUp ignored -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x34)); // GIVE_UP
+                }
+            }
+            case AgentAction.MiniGameTieRequest ignored -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x32)); // REQUEST_TIE
+                }
+            }
+            case AgentAction.MiniGameTieAnswer answer -> {
+                if (hasMiniGame(session)) {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0x33); // ANSWER_TIE
+                        p.writeByte(answer.accept() ? 1 : 0);
+                    });
+                }
+            }
+            case AgentAction.RoomExit ignored ->
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x0A)); // EXIT
+            case AgentAction.HiredMerchantCreate create -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                p.writeByte(0); // CREATE
+                p.writeByte(5); // hired merchant shop room
+                p.writeString(create.description() == null ? "" : create.description());
+                p.writeByte(0); // no password
+                p.writeShort(0); // (room-type padding the handler skips)
+                p.writeInt(create.itemId());
+            });
+            case AgentAction.HiredMerchantPutItem put -> {
+                InventoryType type = parseInventoryType(put.inventoryType());
+                if (type == null) {
+                    log.debug("Agent {} merchant put-item: unknown inventory type '{}'", session.getName(), put.inventoryType());
+                } else {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0x21); // PUT_ITEM
+                        p.writeByte(type.getType());
+                        p.writeShort(put.slot());
+                        p.writeShort(put.bundles());
+                        p.writeShort(put.perBundle());
+                        p.writeInt(put.price());
+                    });
+                }
+            }
+            case AgentAction.HiredMerchantOpen ignored ->
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0x0B); // OPEN_STORE
+                        p.writeByte(1);
+                    });
+            case AgentAction.HiredMerchantBuy buy -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                p.writeByte(0x22); // MERCHANT_BUY
+                p.writeByte(buy.itemIndex());
+                p.writeShort(buy.quantity());
+            });
+            case AgentAction.HiredMerchantWithdrawMesos ignored ->
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x2B)); // MERCHANT_MESO
+            case AgentAction.HiredMerchantTakeItemBack take -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                p.writeByte(0x26); // TAKE_ITEM_BACK
+                p.writeShort(take.slot());
+            });
+            case AgentAction.HiredMerchantClose ignored ->
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x29)); // CLOSE_MERCHANT
             case AgentAction.Idle ignored -> {
             }
         }
@@ -509,6 +610,59 @@ public class AgentActionDispatcher {
         send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
             p.writeByte(2); // INVITE
             p.writeInt(invitee.getId());
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // player-interaction rooms (minigames / hired merchants)
+    // ------------------------------------------------------------------
+
+    private static boolean hasMiniGame(AgentSession session) {
+        Character chr = session.getPlayer();
+        return chr != null && chr.getMiniGame() != null;
+    }
+
+    /**
+     * Visits the room (minigame, player shop or hired merchant) owned by {@code ownerName} on
+     * the agent's map, mirroring the client's room-click packet (VISIT carries the room's
+     * map object id; minigame rooms additionally carry an optional password).
+     */
+    private void roomVisit(AgentSession session, String ownerName, String password) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null || ownerName == null || ownerName.isBlank()) {
+            log.debug("Agent {} room visit: no map or blank owner name", session.getName());
+            return;
+        }
+        MapObject room = null;
+        for (MapObject ob : chr.getMap().getMapObjects()) {
+            if (ob instanceof MiniGame game && game.getOwner() != null
+                    && game.getOwner().getName() != null
+                    && game.getOwner().getName().equalsIgnoreCase(ownerName)) {
+                room = ob;
+                break;
+            }
+            if (ob instanceof HiredMerchant merchant && merchant.getOwner() != null
+                    && merchant.getOwner().equalsIgnoreCase(ownerName)) {
+                room = ob;
+                break;
+            }
+        }
+        if (room == null) {
+            log.debug("Agent {} cannot visit room of '{}': no such room on map {}", session.getName(),
+                    ownerName, chr.getMapId());
+            return;
+        }
+        final MapObject target = room;
+        boolean minigame = target instanceof MiniGame;
+        send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+            p.writeByte(4); // VISIT
+            p.writeInt(target.getObjectId());
+            if (minigame) {
+                p.writeByte(0); // room-type marker the handler skips
+                if (password != null && !password.isEmpty()) {
+                    p.writeString(password);
+                }
+            }
         });
     }
 

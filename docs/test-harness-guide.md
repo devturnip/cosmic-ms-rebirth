@@ -41,7 +41,7 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 | Tool | Purpose |
 | --- | --- |
 | `session_start` `{jobId?, level?, mapId?, world?, channel?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. Match `channel` to a real client's channel when testing cross-visibility. |
-| `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
+| `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, interaction (minigame room / hired merchant state), buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
 | `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
 | `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
@@ -89,6 +89,36 @@ storage slot), `StorageMesos{amount}` (+withdraw / −store), `StorageClose`,
 `DueySend{inventoryType,slot,quantity,mesos,recipient,message?}`, `DueyAction{operation,
 packageId}` (0=refresh, 4=claim, 5=remove). Storage/Duey require level 15+; open the storage
 via `NpcTalk` to a storage NPC (1002005/1012009/1022005/...), Duey via NPC 9010009.
+
+**PlayerInteraction rooms (minigames & hired merchants):**
+`MiniGameCreate{gameType:'omok'|'matchcard',description?,password?,pieceType}` creates a room
+(the creator becomes owner; requires the matching item via `setup grant_item`: an Omok board
+`4080000 + pieceType` for omok, `4080100` for match cards — pieceType also picks the board
+size), `RoomVisit{ownerName,password?}` joins/enters any room on the agent's map by owner
+name (minigame, player shop or hired merchant), `MiniGameStart` (owner),
+`MiniGameMoveOmok{x,y,piece}` (piece 1=owner/2=visitor, coordinates 0..14),
+`MiniGameSelectCard{turn,slot}` (turn 1 = first flip, 0 = second), `MiniGameGiveUp`,
+`MiniGameTieRequest`, `MiniGameTieAnswer{accept}`, `RoomExit` (the generic EXIT — leaves any
+room). Room state is exposed in the observation's `interaction` block (room type, role,
+scores, the full Omok board / match-card points, merchant listings with the `index` used by
+`HiredMerchantBuy`). Two-session omok flow: owner `MiniGameCreate` → visitor `RoomVisit` →
+owner `MiniGameStart` → alternate `MiniGameMoveOmok` (a winning move ends the match and
+clears the board) → `RoomExit`. Verification notes: omok moves verify via board state (a
+winning move verifies via the match having ended), the match-card *first* flip via the
+recorded slot and a scoring second flip via the points — a **non-scoring second flip only
+broadcasts, so its `accepted` is `null`**; `MiniGameTieRequest` is likewise `null`.
+
+**Hired merchants (two-session):** the owner teleports to a free-market room (maps
+910000001+; `setup grant_item {itemId:5030012}` for the merchant item), then
+`HiredMerchantCreate{description,itemId}` (maintenance mode) → `HiredMerchantPutItem{
+inventoryType,slot,bundles,perBundle,price}` → `HiredMerchantOpen` (spawns the merchant box
+on the map; the owner's room reference is released). A visitor `RoomVisit{ownerName}` →
+`HiredMerchantBuy{itemIndex,quantity}` (quantity = bundles; verified via the buyer's meso
+delta). The owner re-enters with `RoomVisit{ownerName:<self>}` (maintenance mode again) and
+can `HiredMerchantWithdrawMesos`, `HiredMerchantTakeItemBack{slot}` or
+`HiredMerchantClose` (returns the items; the box disappears from the map). Not exposed:
+player-shop (permit 514xxxx) rooms and the merchant blacklist/visitor-history sub-menus.
+Ready/unready/skip frames are not wrapped (START/GIVE_UP/TIE suffice to play a match).
 
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
@@ -170,8 +200,16 @@ The testing agent judges outcomes from observations — these recipes are the *s
   when done (the CS-exit reconnect path is out of scope).
 - **Equipment & inventory** — `setup grant_item`; verify counts in `inventory` maps; drop rules
   via `setup spawn_drop` + `PickupItem` ownership (FFA vs owned).
-- **Cash shop** — see the scenario above; purchase flow is live-verified (NX deduction, CS
-  inventory, invalid-SN refusal).
+- **Minigames (Omok / MatchCard)** — both sessions `setup grant_item {itemId:4080000}` (or
+  4080100) on a normal map → owner `MiniGameCreate` → visitor `RoomVisit{ownerName}` → owner
+  `MiniGameStart` → alternate `MiniGameMoveOmok` (board visible in `interaction.pieces`) →
+  `MiniGameGiveUp`/win → `RoomExit`; scores accumulate per match and are visible in
+  `interaction.ownerScore/visitorScore`.
+- **Hired merchant** — owner: `setup teleport {mapId:910000001}` + `setup grant_item
+  {itemId:5030012}` → `HiredMerchantCreate` → `HiredMerchantPutItem` → `HiredMerchantOpen`;
+  visitor (same map/channel): `RoomVisit{ownerName}` → `HiredMerchantBuy` (mesos move, item
+  enters inventory); owner: `RoomVisit{ownerName:<self>}` → `HiredMerchantWithdrawMesos` →
+  `HiredMerchantClose` (box gone from the map, items back in `inventory`).
 
 ## 6. Guarantees & limitations
 

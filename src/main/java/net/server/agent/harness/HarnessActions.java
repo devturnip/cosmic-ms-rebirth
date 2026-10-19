@@ -92,6 +92,29 @@ public final class HarnessActions {
             case "DUEYACTION" -> new AgentAction.DueyAction(intField(node, "operation"),
                     intField(node, "packageId", 0));
             case "ENTERPORTAL" -> new AgentAction.EnterPortal(text(node, "portalName"));
+            case "MINIGAMECREATE" -> new AgentAction.MiniGameCreate(text(node, "gameType"),
+                    text(node, "description"), text(node, "password"), intField(node, "pieceType", 0));
+            case "ROOMVISIT" -> new AgentAction.RoomVisit(text(node, "ownerName"), text(node, "password"));
+            case "MINIGAMESTART" -> new AgentAction.MiniGameStart();
+            case "MINIGAMEMOVEOMOK" -> new AgentAction.MiniGameMoveOmok(intField(node, "x"),
+                    intField(node, "y"), intField(node, "piece"));
+            case "MINIGAMESELECTCARD" -> new AgentAction.MiniGameSelectCard(intField(node, "turn"),
+                    intField(node, "slot"));
+            case "MINIGAMEGIVEUP" -> new AgentAction.MiniGameGiveUp();
+            case "MINIGAMETIEREQUEST" -> new AgentAction.MiniGameTieRequest();
+            case "MINIGAMETIEANSWER" -> new AgentAction.MiniGameTieAnswer(boolField(node, "accept"));
+            case "ROOMEXIT" -> new AgentAction.RoomExit();
+            case "HIREDMERCHANTCREATE" -> new AgentAction.HiredMerchantCreate(text(node, "description"),
+                    intField(node, "itemId"));
+            case "HIREDMERCHANTPUTITEM" -> new AgentAction.HiredMerchantPutItem(text(node, "inventoryType"),
+                    (short) intField(node, "slot"), (short) intField(node, "bundles"),
+                    (short) intField(node, "perBundle"), intField(node, "price"));
+            case "HIREDMERCHANTOPEN" -> new AgentAction.HiredMerchantOpen();
+            case "HIREDMERCHANTBUY" -> new AgentAction.HiredMerchantBuy(intField(node, "itemIndex"),
+                    (short) intField(node, "quantity"));
+            case "HIREDMERCHANTWITHDRAWMESOS" -> new AgentAction.HiredMerchantWithdrawMesos();
+            case "HIREDMERCHANTTAKEITEMBACK" -> new AgentAction.HiredMerchantTakeItemBack(intField(node, "slot"));
+            case "HIREDMERCHANTCLOSE" -> new AgentAction.HiredMerchantClose();
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };
@@ -116,5 +139,10 @@ public final class HarnessActions {
     private static int intField(JsonNode node, String field, int fallback) {
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? fallback : value.asInt();
+    }
+
+    private static boolean boolField(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value != null && value.asBoolean(false);
     }
 }

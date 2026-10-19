@@ -32,7 +32,7 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 | Storage (account) | ✅ | `StorageStore/TakeOut/Mesos/Close` via real STORAGE packets; fees verified; UI-not-enforced laxness flagged upstream |
 | Duey parcels | ✅ | `DueySend/DueyAction`; live-verified A→B with fee + DB row + claim; quick-delivery ticket rule documented |
 | Party quests | 🟡 | KPQ probe: entry, stage-1 combat/quiz/passes/clear ✅; `EnterPortal` traverses scripted stage portals (stuck-transition flag fixed); remaining = no mob respawn on stage maps (mitigate via `spawn_mob`) + full multi-stage run pending |
-| Hired merchants / minigames | ⛔ | PlayerInteraction room variants; protocols mapped but not yet implemented |
+| Hired merchants / minigames | 🟡 | PlayerInteraction rooms implemented: `MiniGameCreate/RoomVisit/Start/MoveOmok/SelectCard/GiveUp/TieRequest/TieAnswer/RoomExit` + full hired-merchant owner/visitor flow (`HiredMerchantCreate/PutItem/Open/Buy/WithdrawMesos/TakeItemBack/Close`); verification via board/listing/meso/room state; `interaction` observation block; unit-tested (packet shapes + verifier), live probe pending; not exposed: player-shop (permit) rooms, ready/skip frames, blacklist/visitor-history |
 
 ## Feature-list remainder (non-core, batched later)
 
@@ -63,6 +63,6 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 3. ~~Cash-shop purchases (`grant_cash` + `EnterCashShop` + `CashBuy`)~~ — **done** (live-verified).
 4. ~~Storage + Duey~~ — **done** (live-verified).
 5. ~~PQ feasibility probe (KPQ)~~ — **done**: entry + stage 1 clear; scripted portals now traversable (`EnterPortal`) and the stuck-transition flag fixed. Remaining: full multi-stage completion (mob respawn mitigated via `spawn_mob`).
-6. Hired merchants / minigame rooms (PlayerInteraction variants).
+6. ~~Hired merchants / minigame rooms (PlayerInteraction variants)~~ — **implemented**: minigame create/visit/start/move/flip/forfeit/tie/exit and the full hired-merchant flow (create → stock → open → visitor buy → withdraw/take-back/close), all through the real `PlayerInteractionHandler` with state-delta verification and an `interaction` observation block; not exposed: player-shop permit rooms, ready/skip frames, merchant blacklist/visitor-history. Live two-session probe pending.
 7. Guild/alliance multi-session flows.
 8. Full PQ completion scenarios once portal + respawn blockers are addressed.

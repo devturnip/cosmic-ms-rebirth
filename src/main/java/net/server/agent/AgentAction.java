@@ -207,6 +207,87 @@ public sealed interface AgentAction {
     record EnterPortal(String portalName) implements AgentAction {
     }
 
+    // ----------------------------------------------------------------
+    // PlayerInteraction rooms (minigames & hired merchants)
+    // ----------------------------------------------------------------
+
+    /**
+     * Create a minigame room (Omok or MatchCard) on the agent's map. Requires the matching
+     * item: Omok board {@code 4080000 + pieceType} (pieceType 0..11), MatchCard 4080100
+     * (pieceType 0..2 selects 4x3/5x4/6x5). The creator becomes the room owner.
+     */
+    record MiniGameCreate(String gameType, String description, String password, int pieceType) implements AgentAction {
+    }
+
+    /**
+     * Visit a room on the agent's map owned by {@code ownerName} — a minigame (Omok /
+     * MatchCard), a player shop or a hired merchant (resolved by scanning map room objects).
+     */
+    record RoomVisit(String ownerName, String password) implements AgentAction {
+    }
+
+    /** Owner: start a match in the agent's minigame room (visitor must already have joined). */
+    record MiniGameStart() implements AgentAction {
+    }
+
+    /** Place an Omok piece at board coordinates (0..14 each axis); {@code piece} is 1 (owner) or 2 (visitor). */
+    record MiniGameMoveOmok(int x, int y, int piece) implements AgentAction {
+    }
+
+    /** MatchCard: flip a card. {@code turn} 1 = first card of the turn, 0 = second card. */
+    record MiniGameSelectCard(int turn, int slot) implements AgentAction {
+    }
+
+    /** Forfeit the current minigame match (opponent wins). */
+    record MiniGameGiveUp() implements AgentAction {
+    }
+
+    /** Propose a tie in the current minigame match (opponent answers with {@link MiniGameTieAnswer}). */
+    record MiniGameTieRequest() implements AgentAction {
+    }
+
+    /** Answer a tie proposal: {@code accept=true} ends the match as a draw, false denies it. */
+    record MiniGameTieAnswer(boolean accept) implements AgentAction {
+    }
+
+    /** Leave the current room (minigame, player shop or hired merchant) via the generic EXIT packet. */
+    record RoomExit() implements AgentAction {
+    }
+
+    /**
+     * Open a hired merchant room in maintenance mode. Requires a hired-merchant item
+     * (503xxxx) in the CASH inventory, a free-market room map and no other store nearby.
+     * Follow with {@link HiredMerchantPutItem} to stock items and {@link HiredMerchantOpen}
+     * to open to visitors.
+     */
+    record HiredMerchantCreate(String description, int itemId) implements AgentAction {
+    }
+
+    /** Owner (maintenance mode): list an item for sale — {@code bundles} × {@code perBundle} units at {@code price} mesos each bundle. */
+    record HiredMerchantPutItem(String inventoryType, short slot, short bundles, short perBundle,
+                                int price) implements AgentAction {
+    }
+
+    /** Owner: open the merchant to visitors (spawns the merchant box on the map). */
+    record HiredMerchantOpen() implements AgentAction {
+    }
+
+    /** Visitor: buy the item at 0-based shop-listing index; {@code quantity} is the number of bundles. */
+    record HiredMerchantBuy(int itemIndex, short quantity) implements AgentAction {
+    }
+
+    /** Owner: withdraw the mesos accumulated from sales (credited on each buyer purchase). */
+    record HiredMerchantWithdrawMesos() implements AgentAction {
+    }
+
+    /** Owner (maintenance mode): take the item back from the shop listing at 0-based {@code slot}. */
+    record HiredMerchantTakeItemBack(int slot) implements AgentAction {
+    }
+
+    /** Owner (maintenance mode — visit your own merchant box first): close the merchant permanently; items return to inventory. */
+    record HiredMerchantClose() implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

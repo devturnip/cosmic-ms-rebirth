@@ -395,6 +395,20 @@ public class MiniGame extends AbstractMapObject {
         return matchestowin;
     }
 
+    /** Piece value at board coordinates (0 = empty, 1/2 = placed) — for test-harness observation. */
+    public int getPieceAt(int x, int y) {
+        return piece[y * 15 + x + 1];
+    }
+
+    /** Cards matched so far in the current match-card game (per side) — for test-harness observation. */
+    public int getOwnerPoints() {
+        return ownerpoints;
+    }
+
+    public int getVisitorPoints() {
+        return visitorpoints;
+    }
+
     public void setLoser(int type) {
         loser = type;
     }

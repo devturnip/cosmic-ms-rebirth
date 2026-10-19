@@ -11,8 +11,11 @@ import net.server.agent.AgentObservation;
 import net.server.agent.AgentPerception;
 import net.server.agent.AgentSession;
 import server.ItemInformationProvider;
+import server.maps.HiredMerchant;
 import server.maps.MapItem;
 import server.maps.MapObject;
+import server.maps.MiniGame;
+import server.maps.PlayerShopItem;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -87,6 +90,7 @@ public final class HarnessObservation {
         out.put("buddies", describeBuddies(chr));
         out.put("cashShop", describeCashShop(chr));
         out.put("trade", describeTrade(chr));
+        out.put("interaction", describeInteraction(chr));
 
         List<Object> events = new ArrayList<>();
         for (AgentEvent event : drainedEvents) {
@@ -193,7 +197,98 @@ public final class HarnessObservation {
         return e;
     }
 
-    /** Open trade state (null when not trading): partner, staged items, mesos, confirm flags. */
+    /**
+     * PlayerInteraction room state (null when in none): the minigame the character owns or
+     * is visiting (type, scores, Omok board / match-card state), or the hired merchant they
+     * own/are visiting (open flag, listings, visitors). An owner who opened the merchant to
+     * the public no longer holds a reference, so the map is scanned for their merchant box.
+     */
+    private static Map<String, Object> describeInteraction(Character chr) {
+        MiniGame game = chr.getMiniGame();
+        if (game != null) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            boolean owner = game.isOwner(chr);
+            e.put("roomType", game.getGameType().name());
+            e.put("role", owner ? "owner" : "visitor");
+            e.put("pieceType", game.getPieceType());
+            e.put("inProgress", game.isMatchInProgress());
+            e.put("ownerScore", game.getOwnerScore());
+            e.put("visitorScore", game.getVisitorScore());
+            if (game.getGameType() == MiniGame.MiniGameType.MATCH_CARD) {
+                e.put("matchesToWin", game.getMatchesToWin());
+                e.put("ownerPoints", game.getOwnerPoints());
+                e.put("visitorPoints", game.getVisitorPoints());
+                e.put("firstSlot", game.getFirstSlot());
+            } else {
+                List<Object> pieces = new ArrayList<>();
+                for (int y = 0; y < 15; y++) {
+                    for (int x = 0; x < 15; x++) {
+                        int piece = game.getPieceAt(x, y);
+                        if (piece != 0) {
+                            Map<String, Object> pe = new LinkedHashMap<>();
+                            pe.put("x", x);
+                            pe.put("y", y);
+                            pe.put("piece", piece);
+                            pieces.add(pe);
+                        }
+                    }
+                }
+                e.put("pieces", pieces);
+            }
+            return e;
+        }
+        HiredMerchant merchant = findMerchant(chr);
+        if (merchant != null) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            boolean owner = merchant.isOwner(chr);
+            e.put("roomType", "HIRED_MERCHANT");
+            e.put("role", owner ? "owner" : "visitor");
+            e.put("ownerName", merchant.getOwner());
+            e.put("description", merchant.getDescription());
+            e.put("open", merchant.isOpen());
+            List<Object> items = new ArrayList<>();
+            List<PlayerShopItem> rawItems = merchant.getItems();
+            for (int i = 0; i < rawItems.size(); i++) {
+                PlayerShopItem psi = rawItems.get(i);
+                Map<String, Object> ie = new LinkedHashMap<>();
+                ie.put("index", i); // matches the MERCHANT_BUY itemIndex (raw listing position)
+                ie.put("itemId", psi.getItem().getItemId());
+                ie.put("quantity", psi.getItem().getQuantity());
+                ie.put("bundles", psi.getBundles());
+                ie.put("price", psi.getPrice());
+                ie.put("exists", psi.isExist());
+                items.add(ie);
+            }
+            e.put("items", items);
+            List<String> visitors = new ArrayList<>();
+            for (Character visitor : merchant.getVisitorCharacters()) {
+                if (visitor != null) {
+                    visitors.add(visitor.getName());
+                }
+            }
+            e.put("visitors", visitors);
+            return e;
+        }
+        return null;
+    }
+
+    /** The merchant the character owns or is visiting (null when none). */
+    private static HiredMerchant findMerchant(Character chr) {
+        HiredMerchant merchant = chr.getHiredMerchant();
+        if (merchant != null) {
+            return merchant;
+        }
+        if (chr.getMap() == null) {
+            return null;
+        }
+        for (MapObject ob : chr.getMap().getMapObjects()) {
+            if (ob instanceof HiredMerchant hm && hm.getOwnerId() == chr.getId()) {
+                return hm;
+            }
+        }
+        return null;
+    }
+
     private static Map<String, Object> describeTrade(Character chr) {
         var trade = chr.getTrade();
         if (trade == null) {
