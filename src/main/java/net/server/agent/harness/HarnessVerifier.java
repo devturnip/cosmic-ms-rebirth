@@ -85,6 +85,25 @@ public final class HarnessVerifier {
         if (action instanceof AgentAction.QuestComplete quest) {
             return new long[]{questStatus(chr, quest.questId()), dialogKey(session)};
         }
+        if (action instanceof AgentAction.QuestForfeit quest) {
+            return questStatus(chr, quest.questId());
+        }
+        if (action instanceof AgentAction.AddBuddy buddy) {
+            return Boolean.valueOf(hasBuddy(chr, buddy.name()));
+        }
+        if (action instanceof AgentAction.EnterCashShop) {
+            return Boolean.valueOf(chr.getCashShop().isOpened());
+        }
+        if (action instanceof AgentAction.CashBuy) {
+            return cashInventorySize(chr);
+        }
+        if (action instanceof AgentAction.TradeInvite || action instanceof AgentAction.TradeAccept
+                || action instanceof AgentAction.TradePutItem || action instanceof AgentAction.TradePutMesos) {
+            return tradeKey(chr);
+        }
+        if (action instanceof AgentAction.TradeConfirm) {
+            return tradeKey(chr);
+        }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
 
@@ -162,7 +181,51 @@ public final class HarnessVerifier {
             long[] before = (long[]) pre;
             return before[0] != questStatus(chr, questIdOf(action)) || before[1] != dialogKey(session);
         }
+        if (action instanceof AgentAction.QuestForfeit quest) {
+            return questStatus(chr, quest.questId()) == 0; // back to NOT_STARTED
+        }
+        if (action instanceof AgentAction.AddBuddy buddy) {
+            return !((Boolean) pre) && hasBuddy(chr, buddy.name());
+        }
+        if (action instanceof AgentAction.EnterCashShop) {
+            return !((Boolean) pre) && chr.getCashShop().isOpened();
+        }
+        if (action instanceof AgentAction.CashBuy) {
+            return cashInventorySize(chr) > (Integer) pre; // a cash item entered the CS inventory
+        }
+        if (action instanceof AgentAction.TradeInvite || action instanceof AgentAction.TradeAccept) {
+            // Accepted iff a trade session now exists with a partner
+            var trade = chr.getTrade();
+            return trade != null && trade.getPartner() != null && !pre.equals(tradeKey(chr));
+        }
+        if (action instanceof AgentAction.TradePutItem || action instanceof AgentAction.TradePutMesos
+                || action instanceof AgentAction.TradeConfirm) {
+            return !pre.equals(tradeKey(chr)); // trade contents changed (items/mesos/stage)
+        }
         return null;
+    }
+
+    private static boolean hasBuddy(Character chr, String name) {
+        return chr.getBuddylist().get(name) != null;
+    }
+
+    private static int cashInventorySize(Character chr) {
+        return chr.getCashShop().getInventory().size();
+    }
+
+    /** Trade snapshot key: 0 = no trade, else hash of partner + staged contents + stage. */
+    private static long tradeKey(Character chr) {
+        var trade = chr.getTrade();
+        if (trade == null) {
+            return 0;
+        }
+        long key = trade.getPartner() != null ? trade.getPartner().getChr().getId() * 31L : 7L;
+        key = key * 31 + trade.getMeso();
+        key = key * 31 + (trade.isFullTrade() ? 1 : 0);
+        for (var item : trade.getItems()) {
+            key = key * 31 + item.getItemId() * 1000L + item.getQuantity();
+        }
+        return key;
     }
 
     private static int questIdOf(AgentAction action) {

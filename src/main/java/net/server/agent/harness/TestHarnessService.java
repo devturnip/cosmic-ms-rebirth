@@ -133,11 +133,16 @@ public final class TestHarnessService {
 
     /** Full structured observation, including any harness events buffered since the last call. */
     public Map<String, Object> observe(int characterId) {
+        return observe(characterId, false);
+    }
+
+    /** Observation with an optional whole-map (OMNISCIENT) range override. */
+    public Map<String, Object> observe(int characterId, boolean omniscient) {
         AgentSession session = session(characterId);
         if (session.getBrain() instanceof HarnessBrain brain) {
-            return HarnessObservation.describe(session, brain.drainEvents());
+            return HarnessObservation.describe(session, brain.drainEvents(), omniscient);
         }
-        return HarnessObservation.describe(session, List.of());
+        return HarnessObservation.describe(session, List.of(), omniscient);
     }
 
     /** Drains only the buffered events (chat, map changes, party invites...). */
@@ -190,6 +195,7 @@ public final class TestHarnessService {
             case "set_quest_state" -> TestOps.setQuestState(session, intArg(args, "questId"), strArg(args, "state"));
             case "spawn_drop" -> TestOps.spawnDrop(session, intArg(args, "itemId"),
                     intArg(args, "quantity", 1), intArg(args, "x"), intArg(args, "y"));
+            case "grant_cash" -> TestOps.grantCash(session, intArg(args, "amount"), intArg(args, "type", 1));
             case "heal" -> TestOps.heal(session);
             default -> throw new IllegalArgumentException("Unknown setup op '" + op + "'");
         };

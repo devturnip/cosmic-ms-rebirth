@@ -36,6 +36,15 @@ public final class HarnessDialogDecoder {
     public static boolean process(AgentSession session, Packet packet) {
         byte[] bytes = packet.getBytes();
         if (bytes == null || bytes.length < 10) {
+            // 7-byte enable-actions frame (STAT_CHANGED + true + empty mask) marks dialog dispose:
+            // scripts send it from dispose() with no dialog frame, so clear any pending dialog.
+            if (bytes != null && bytes.length == 7
+                    && (bytes[0] & 0xFF | (bytes[1] & 0xFF) << 8) == SendOpcode.STAT_CHANGED.getValue()
+                    && bytes[2] == 1
+                    && (bytes[3] | bytes[4] << 8 | bytes[5] << 16 | bytes[6] << 24) == 0) {
+                session.clearNpcDialog();
+                return true;
+            }
             return false;
         }
         final int opcode = (bytes[0] & 0xFF) | ((bytes[1] & 0xFF) << 8);

@@ -30,6 +30,17 @@ public final class HarnessObservation {
 
     /** Full observation for a harness session. */
     public static Map<String, Object> describe(AgentSession session, List<AgentEvent> drainedEvents) {
+        return describe(session, drainedEvents, false);
+    }
+
+    /** Full observation; {@code omniscient} lifts the view-range cap (whole map). */
+    public static Map<String, Object> describe(AgentSession session, List<AgentEvent> drainedEvents,
+                                               boolean omniscient) {
+        java.util.function.Supplier<Map<String, Object>> build = () -> buildDescription(session, drainedEvents);
+        return omniscient ? AgentPerception.withOmniscient(build) : build.get();
+    }
+
+    private static Map<String, Object> buildDescription(AgentSession session, List<AgentEvent> drainedEvents) {
         Character chr = session.getPlayer();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sessionId", session.getCharacterId());
@@ -71,6 +82,9 @@ public final class HarnessObservation {
         out.put("inventory", describeInventory(chr));
         out.put("quests", describeQuests(chr));
         out.put("npcDialog", describeNpcDialog(session));
+        out.put("buddies", describeBuddies(chr));
+        out.put("cashShop", describeCashShop(chr));
+        out.put("trade", describeTrade(chr));
 
         List<Object> events = new ArrayList<>();
         for (AgentEvent event : drainedEvents) {
@@ -118,6 +132,59 @@ public final class HarnessObservation {
         e.put("msgType", session.getNpcDialogMsgType());
         e.put("type", HarnessDialogDecoder.typeName(session.getNpcDialogMsgType()));
         e.put("text", session.getNpcDialogText());
+        return e;
+    }
+
+    /** Buddy list entries (name, online channel). */
+    private static List<Object> describeBuddies(Character chr) {
+        List<Object> out = new ArrayList<>();
+        for (var ble : chr.getBuddylist().getBuddies()) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("name", ble.getName());
+            e.put("characterId", ble.getCharacterId());
+            e.put("online", ble.getChannel() > 0);
+            out.add(e);
+        }
+        return out;
+    }
+
+    /** Cash shop state: open flag, balances and owned cash inventory item ids. */
+    private static Map<String, Object> describeCashShop(Character chr) {
+        Map<String, Object> e = new LinkedHashMap<>();
+        var cs = chr.getCashShop();
+        e.put("opened", cs.isOpened());
+        e.put("nxCredit", cs.getCash(server.CashShop.NX_CREDIT));
+        e.put("maplePoint", cs.getCash(server.CashShop.MAPLE_POINT));
+        e.put("nxPrepaid", cs.getCash(server.CashShop.NX_PREPAID));
+        List<Object> items = new ArrayList<>();
+        for (Item item : cs.getInventory()) {
+            Map<String, Object> ie = new LinkedHashMap<>();
+            ie.put("itemId", item.getItemId());
+            ie.put("quantity", item.getQuantity());
+            items.add(ie);
+        }
+        e.put("items", items);
+        return e;
+    }
+
+    /** Open trade state (null when not trading): partner, staged items, mesos, confirm flags. */
+    private static Map<String, Object> describeTrade(Character chr) {
+        var trade = chr.getTrade();
+        if (trade == null) {
+            return null;
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("partnerName", trade.getPartner() != null ? trade.getPartner().getChr().getName() : null);
+        e.put("fullTrade", trade.isFullTrade());
+        e.put("mesos", trade.getMeso());
+        List<Object> items = new ArrayList<>();
+        for (Item item : trade.getItems()) {
+            Map<String, Object> ie = new LinkedHashMap<>();
+            ie.put("itemId", item.getItemId());
+            ie.put("quantity", item.getQuantity());
+            items.add(ie);
+        }
+        e.put("items", items);
         return e;
     }
 

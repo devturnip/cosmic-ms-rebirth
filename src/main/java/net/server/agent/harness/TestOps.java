@@ -174,6 +174,13 @@ public final class TestOps {
         return result("spawned drop item %d x%d at (%d,%d) on map %d", itemId, qty, x, y, map.getId());
     }
 
+    /** Grants NX/maple points to the character's cash shop. Types: 1=Nx credit, 2=Maple point, 4=Nx prepaid. */
+    public static Map<String, Object> grantCash(AgentSession session, int amount, int type) {
+        Character chr = character(session);
+        chr.getCashShop().gainCash(type, amount);
+        return result("granted %d cash (type %d) to %s", amount, type, chr.getName());
+    }
+
     /** Fully heals the session character (HP/MP to max). */
     public static Map<String, Object> heal(AgentSession session) {
         Character chr = character(session);

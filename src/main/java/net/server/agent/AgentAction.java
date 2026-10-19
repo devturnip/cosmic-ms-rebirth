@@ -142,6 +142,42 @@ public sealed interface AgentAction {
     record QuestComplete(int questId, int npcId) implements AgentAction {
     }
 
+    /** Forfeit a started quest (QUEST_ACTION 3). */
+    record QuestForfeit(int questId) implements AgentAction {
+    }
+
+    /** Add another player to the buddy list (they receive a request; auto-accepted if mutual-free). */
+    record AddBuddy(String name) implements AgentAction {
+    }
+
+    /** Enter the cash shop (the character leaves the channel map until exit/end of session). */
+    record EnterCashShop() implements AgentAction {
+    }
+
+    /** Buy a cash item (real CashOperationHandler validation). {@code useNX}: 0 = cash, 1 = maple points. */
+    record CashBuy(int useNX, int snCS) implements AgentAction {
+    }
+
+    /** Invite another player on the same map to a trade (by character name). */
+    record TradeInvite(String targetName) implements AgentAction {
+    }
+
+    /** Accept a pending trade invite (the invitee's next step after {@code TradeInvite}). */
+    record TradeAccept() implements AgentAction {
+    }
+
+    /** Put an item into the open trade (inventory type name e.g. "USE", slot = inventory slot). */
+    record TradePutItem(String inventoryType, short slot, short quantity, byte targetSlot) implements AgentAction {
+    }
+
+    /** Put mesos into the open trade. */
+    record TradePutMesos(int amount) implements AgentAction {
+    }
+
+    /** Confirm the open trade; the exchange completes when both sides confirmed. */
+    record TradeConfirm() implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

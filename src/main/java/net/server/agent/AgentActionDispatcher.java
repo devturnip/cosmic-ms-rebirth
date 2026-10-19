@@ -1,6 +1,7 @@
 package net.server.agent;
 
 import client.Character;
+import client.inventory.InventoryType;
 import io.netty.buffer.Unpooled;
 import net.opcodes.RecvOpcode;
 import net.packet.ByteBufInPacket;
@@ -89,8 +90,42 @@ public class AgentActionDispatcher {
             case AgentAction.NpcSelect select -> npcRespond(session, select.selection(), null);
             case AgentAction.NpcRespondText respond -> npcRespond(session, null, respond.text());
             case AgentAction.NpcEndDialog ignored -> npcEndDialog(session);
-            case AgentAction.QuestStart start -> questAction(session, start.questId(), start.npcId(), (byte) 4);
-            case AgentAction.QuestComplete complete -> questAction(session, complete.questId(), complete.npcId(), (byte) 5);
+            case AgentAction.QuestStart start -> questAction(session, start.questId(), start.npcId(), false);
+            case AgentAction.QuestComplete complete -> questAction(session, complete.questId(), complete.npcId(), true);
+            case AgentAction.QuestForfeit forfeit -> send(session, RecvOpcode.QUEST_ACTION, p -> {
+                p.writeByte(3); // forfeit
+                p.writeShort(forfeit.questId());
+            });
+            case AgentAction.AddBuddy buddy -> addBuddy(session, buddy.name());
+            case AgentAction.EnterCashShop ignored -> send(session, RecvOpcode.ENTER_CASHSHOP, p -> {
+            });
+            case AgentAction.CashBuy buy -> send(session, RecvOpcode.CASHSHOP_OPERATION, p -> {
+                p.writeByte(0x03); // buy item
+                p.writeByte(0);
+                p.writeInt(buy.useNX());
+                p.writeInt(buy.snCS());
+            });
+            case AgentAction.TradeInvite invite -> tradeInvite(session, invite.targetName());
+            case AgentAction.TradeAccept ignored -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(4)); // VISIT
+            case AgentAction.TradePutItem put -> {
+                InventoryType type = parseInventoryType(put.inventoryType());
+                if (type == null) {
+                    log.debug("Agent {} trade put: unknown inventory type '{}'", session.getName(), put.inventoryType());
+                } else {
+                    send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                        p.writeByte(0xF); // SET_ITEMS
+                        p.writeByte(type.getType());
+                        p.writeShort(put.slot());
+                        p.writeShort(put.quantity());
+                        p.writeByte(put.targetSlot());
+                    });
+                }
+            }
+            case AgentAction.TradePutMesos mesos -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+                p.writeByte(0x10); // SET_MESO
+                p.writeInt(mesos.amount());
+            });
+            case AgentAction.TradeConfirm ignored -> send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x11));
             case AgentAction.Idle ignored -> {
             }
         }
@@ -329,21 +364,24 @@ public class AgentActionDispatcher {
     }
 
     /**
-     * Fires a scripted-quest start/complete (the client's QUEST_ACTION path, actions 4/5 —
-     * these run the quest's JS script, whose dialog frames flow through the normal dialog
-     * actions). Actions 1/2 are the silent WZ-driven variants and are deliberately not used:
-     * they bypass the script's checks, rewards and dialogs.
+     * Fires a quest start/complete via the client's real QUEST_ACTION packets, auto-picking
+     * the variant the quest supports: scripted quests (JS in scripts/quest) use actions 4/5,
+     * which run the script (its dialog frames flow through the normal dialog actions);
+     * WZ-only quests use actions 1/2, which apply the WZ-driven checks/rewards directly.
+     * Actions 1/2 and 4/5 all carry full server validation — nothing is bypassed.
      */
-    private void questAction(AgentSession session, int questId, int npcId, byte action) {
+    private void questAction(AgentSession session, int questId, int npcId, boolean end) {
         Character chr = session.getPlayer();
         if (chr == null || chr.getMap() == null) {
             return;
         }
         if (findNpcOid(chr, npcId) == null) {
             log.debug("Agent {} cannot {} quest {}: npc {} is not on map {}", session.getName(),
-                    action == 4 ? "start" : "complete", questId, npcId, chr.getMapId());
+                    end ? "complete" : "start", questId, npcId, chr.getMapId());
             return;
         }
+        boolean scripted = server.quest.Quest.getInstance(questId).hasScriptRequirement(end);
+        byte action = (byte) (scripted ? (end ? 5 : 4) : (end ? 2 : 1));
         send(session, RecvOpcode.QUEST_ACTION, p -> {
             p.writeByte(action);
             p.writeShort(questId);
@@ -362,6 +400,57 @@ public class AgentActionDispatcher {
             p.writeByte(0); // 0 = end chat
         });
         session.clearNpcDialog();
+    }
+
+    private static InventoryType parseInventoryType(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            return InventoryType.valueOf(name.strip().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // social (buddy / trade)
+    // ------------------------------------------------------------------
+
+    /** Adds a buddy by name (mode 1 of the buddylist handler). */
+    private void addBuddy(AgentSession session, String name) {
+        if (name == null || name.isBlank()) {
+            return;
+        }
+        send(session, RecvOpcode.BUDDYLIST_MODIFY, p -> {
+            p.writeByte(1); // add
+            p.writeString(name);
+            p.writeString("Friends");
+        });
+    }
+
+    /** Invites a player on the agent's map to a trade. */
+    private void tradeInvite(AgentSession session, String targetName) {
+        Character chr = session.getPlayer();
+        if (chr == null || chr.getMap() == null || targetName == null || targetName.isBlank()) {
+            return;
+        }
+        Character target = null;
+        for (Character player : chr.getMap().getAllPlayers()) {
+            if (player.getName().equalsIgnoreCase(targetName)) {
+                target = player;
+                break;
+            }
+        }
+        final Character invitee = target;
+        if (invitee == null) {
+            log.debug("Agent {} cannot trade with '{}': not on map {}", session.getName(), targetName, chr.getMapId());
+            return;
+        }
+        send(session, RecvOpcode.PLAYER_INTERACTION, p -> {
+            p.writeByte(2); // INVITE
+            p.writeInt(invitee.getId());
+        });
     }
 
     private static Integer findNpcOid(Character chr, int npcId) {

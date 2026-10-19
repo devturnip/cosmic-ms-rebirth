@@ -173,7 +173,8 @@ public class Trade {
         return locked.get();
     }
 
-    private int getMeso() {
+    /** Staged mesos for the open trade (visible before completion; used by the harness verifier). */
+    public int getMeso() {
         return meso;
     }
 
@@ -462,6 +463,12 @@ public class Trade {
             return;
         }
 
+        if (c1.getTrade() == null) {
+            // First trade of a session: the inviter has no Trade object yet (created on CREATE
+            // mode 3 or on receiving an invite). Without this guard inviteTrade NPEs at the
+            // isFullTrade() check below and the invite dies silently - found by harness QA.
+            startTrade(c1);
+        }
         if (InviteCoordinator.hasInvite(InviteType.TRADE, c1.getId())) {
             if (hasTradeInviteBack(c1, c2)) {
                 c1.message("You are already managing this player's trade invitation.");

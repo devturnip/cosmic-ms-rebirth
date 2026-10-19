@@ -120,7 +120,24 @@ public final class AgentPerception {
     }
 
     private static double rangeSq() {
-        return AgentConfig.omniscient() ? Double.POSITIVE_INFINITY : AgentConfig.perceptionRangeSq();
+        return rangeSqOverride.get() != null ? rangeSqOverride.get()
+                : (AgentConfig.omniscient() ? Double.POSITIVE_INFINITY : AgentConfig.perceptionRangeSq());
+    }
+
+    /**
+     * Thread-local perception range override; lets the test harness request whole-map
+     * observation (OMNISCIENT) for a single call without touching global config.
+     */
+    private static final ThreadLocal<Double> rangeSqOverride = new ThreadLocal<>();
+
+    /** Runs {@code supplier} with a whole-map perception range (test-harness observe). */
+    public static <T> T withOmniscient(java.util.function.Supplier<T> supplier) {
+        rangeSqOverride.set(Double.POSITIVE_INFINITY);
+        try {
+            return supplier.get();
+        } finally {
+            rangeSqOverride.remove();
+        }
     }
 
     private static List<AgentObservation.ObservedPlayer> collectNearbyPlayers(Character agent, MapleMap map, Point pos) {

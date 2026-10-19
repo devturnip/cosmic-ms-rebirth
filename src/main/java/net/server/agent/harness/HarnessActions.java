@@ -70,6 +70,16 @@ public final class HarnessActions {
             case "NPCENDDIALOG" -> new AgentAction.NpcEndDialog();
             case "QUESTSTART" -> new AgentAction.QuestStart(intField(node, "questId"), intField(node, "npcId"));
             case "QUESTCOMPLETE" -> new AgentAction.QuestComplete(intField(node, "questId"), intField(node, "npcId"));
+            case "QUESTFORFEIT" -> new AgentAction.QuestForfeit(intField(node, "questId"));
+            case "ADDBUDDY" -> new AgentAction.AddBuddy(text(node, "name"));
+            case "ENTERCASHSHOP" -> new AgentAction.EnterCashShop();
+            case "CASHBUY" -> new AgentAction.CashBuy(intField(node, "useNX"), intField(node, "snCS"));
+            case "TRADEINVITE" -> new AgentAction.TradeInvite(text(node, "targetName"));
+            case "TRADEACCEPT" -> new AgentAction.TradeAccept();
+            case "TRADEPUTITEM" -> new AgentAction.TradePutItem(text(node, "inventoryType"),
+                    (short) intField(node, "slot"), (short) intField(node, "quantity"), (byte) intField(node, "targetSlot"));
+            case "TRADEPUTMESOS" -> new AgentAction.TradePutMesos(intField(node, "amount"));
+            case "TRADECONFIRM" -> new AgentAction.TradeConfirm();
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };

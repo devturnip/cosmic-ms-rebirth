@@ -23,8 +23,12 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 | Level / exp / stats | ✅ | `setup set_level`; `exp`, `level` in observation |
 | Mesos | ✅ | drops, `grant_mesos` |
 | Death & respawn | ✅ | `Respawn` action |
-| Cash shop | ⛔ | separate CS server process; needs session transfer support |
+| Cash shop | ✅ | `grant_cash` + `EnterCashShop` + `CashBuy{useNX,snCS}` (real NX deduction + CS inventory); live-verified; exit path = session end |
 | NPC dialog scripting | ✅ | `NpcTalk` opens a dialog; observation exposes `npcDialog{npcId,type,text}`; `NpcSelect`/`NpcRespondText`/`NpcEndDialog` respond — live-verified against Roger (2101) |
+| Quest scripts (start/end/forfeit, kill-progress, text/number input) | ✅ | live-verified: 1021 full cycle, 20012 kill-progress, 21766 forfeit, level-gate + refusal paths |
+| Trade (two sessions) | ✅ | `TradeInvite`→`TradeAccept`→`TradePutItem`/`TradePutMesos`→`TradeConfirm`; staged state + transfers live-verified |
+| Buddy list | ✅ | `AddBuddy` (v83 semantics: unilateral when target has space) |
+| Party / chat / whispers | ✅ | invite/accept + events via `drain_events` |
 | Trade / storage / Duey | ⛔ | needs partner sessions + more actions |
 | Guild / alliance | ⛔ | needs multi-session + match-checker coordination |
 | Buddy list | ⛔ | needs a second session |

@@ -181,8 +181,11 @@ public final class TestHarnessMcpServer {
                         TestHarnessService.getInstance().endSession(intArg(args, "sessionId"))));
                 case "session_list" -> text.put("text", MAPPER.writeValueAsString(
                         TestHarnessService.getInstance().listSessions()));
-                case "observe" -> text.put("text", MAPPER.writeValueAsString(
-                        TestHarnessService.getInstance().observe(intArg(args, "sessionId"))));
+                case "observe" -> {
+                    boolean omni = args != null && args.has("omniscient") && args.get("omniscient").asBoolean();
+                    text.put("text", MAPPER.writeValueAsString(
+                            TestHarnessService.getInstance().observe(intArg(args, "sessionId"), omni)));
+                }
                 case "drain_events" -> text.put("text", MAPPER.writeValueAsString(
                         TestHarnessService.getInstance().drainEvents(intArg(args, "sessionId"))));
                 case "act" -> {
@@ -278,7 +281,7 @@ public final class TestHarnessMcpServer {
                 schema().put("sessionId", "int (required)")));
         tools.add(tool("drain_events", "Drain buffered session events (map chat, party invites, map changes).",
                 schema().put("sessionId", "int (required)")));
-        tools.add(tool("act", "Submit player actions through the REAL packet handlers (server-validated). Blocks until applied; returns per-action {dispatched, accepted}. Actions: Say{message}, PartySay{message}, Whisper{targetName,message}, InviteToParty{targetName}, AcceptPartyInvite{partyId}, DenyPartyInvite{inviterName}, LeaveParty, MoveTo{x,y}, Follow{targetName}, StopFollowing, PickupItem{objectId}, UseItem{itemId}, Respawn, Attack{targetObjectId}, SkillAttack{targetObjectId,skillId}, SkillAttackMany{targetObjectIds[],skillId}, RechargeAmmo, CastBuff{skillId}, CastHeal{skillId}, NpcTalk{npcId}, NpcSelect{selection}, NpcRespondText{text}, NpcEndDialog, QuestStart{questId,npcId}, QuestComplete{questId,npcId}, Remember{fact}, Idle. NPC flow: NpcTalk opens a dialog, then observe npcDialog{type,text} and respond with NpcSelect/NpcRespondText/NpcEndDialog. Scripted quests (e.g. 1021 Roger's Apple, NPC 2000): QuestStart runs the quest script (its dialog frames appear via npcDialog), then QuestComplete when requirements are met; both require the quest NPC on the agent's map.",
+        tools.add(tool("act", "Submit player actions through the REAL packet handlers (server-validated). Blocks until applied; returns per-action {dispatched, accepted}. Actions: Say{message}, PartySay{message}, Whisper{targetName,message}, InviteToParty{targetName}, AcceptPartyInvite{partyId}, DenyPartyInvite{inviterName}, LeaveParty, MoveTo{x,y}, Follow{targetName}, StopFollowing, PickupItem{objectId}, UseItem{itemId}, Respawn, Attack{targetObjectId}, SkillAttack{targetObjectId,skillId}, SkillAttackMany{targetObjectIds[],skillId}, RechargeAmmo, CastBuff{skillId}, CastHeal{skillId}, NpcTalk{npcId}, NpcSelect{selection}, NpcRespondText{text}, NpcEndDialog, QuestStart{questId,npcId}, QuestComplete{questId,npcId}, QuestForfeit{questId}, AddBuddy{name}, EnterCashShop, CashBuy{useNX,snCS}, TradeInvite{targetName}, TradeAccept, TradePutItem{inventoryType,slot,quantity,targetSlot}, TradePutMesos{amount}, TradeConfirm, Remember{fact}, Idle. NPC flow: NpcTalk opens a dialog, then observe npcDialog{type,text} and respond with NpcSelect/NpcRespondText/NpcEndDialog. Quests auto-detect scripted vs WZ-only quests (script dialogs appear via npcDialog; both require the quest NPC nearby). QuestForfeit abandons a started quest. Trade flow between two sessions: TradeInvite{targetName} -> invitee TradeAccept -> both TradePutItem/TradePutMesos -> both TradeConfirm (observe trade{items,mesos} for staged state). CashBuy useNX: 1=NX credit, 2=maple point, 4=prepaid; grant_cash setup op funds NX. After EnterCashShop the character is off the map (end the session when done).",
                 schema().put("sessionId", "int (required)").put("actions", "array (required)")));
         tools.add(tool("setup", "Cheat ops for scenario setup (gated by USE_TEST_HARNESS): teleport{mapId,portal?}, spawn_mob{mobId,x,y}, kill_mob{objectId,withDrops?}, list_mobs, grant_item{itemId,quantity?}, grant_mesos{amount}, set_level{level}, set_quest_state{questId,state}, spawn_drop{itemId,quantity?,x,y}, heal.",
                 schema().put("sessionId", "int (required)").put("op", "string (required)").put("args", "object (op-specific)")));
