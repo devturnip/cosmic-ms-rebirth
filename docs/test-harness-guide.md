@@ -70,7 +70,11 @@ with `setup grant_cash`; the character leaves the map — end the session when d
 `TradeInvite{targetName}`, `TradeAccept`, `TradePutItem{inventoryType,slot,quantity,targetSlot}`,
 `TradePutMesos{amount}`, `TradeConfirm` (two-session flow; staged state visible via the
 `trade{partnerName,fullTrade,mesos,items[]}` observation; the exchange completes on the second
-confirm).
+confirm), `StorageStore{slot,itemId,quantity}`, `StorageTakeOut{inventoryType,slot}` (0-based
+storage slot), `StorageMesos{amount}` (+withdraw / −store), `StorageClose`,
+`DueySend{inventoryType,slot,quantity,mesos,recipient,message?}`, `DueyAction{operation,
+packageId}` (0=refresh, 4=claim, 5=remove). Storage/Duey require level 15+; open the storage
+via `NpcTalk` to a storage NPC (1002005/1012009/1022005/...), Duey via NPC 9010009.
 
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
@@ -92,8 +96,10 @@ Each `act` result reports two flags:
   a skill the character hasn't learned, or responding to a dialog frame of the wrong type
   (`NpcRespondText` on a `yes_no` frame is refused, like a real client).
 - Dialog frames are decoded from the outbound packets the NPC/quest scripts emit, so
-  `npcDialog{npcId, msgType, type, text}` always reflects the pending frame; when a script
-  disposes (no frame sent), dialog state is cleared via the enable-actions signal.
+  `npcDialog{npcId, msgType, type, text, open, disposed}` always reflects the last frame the
+  script sent. Frames **persist through script dispose** (quiz/confirm frames followed by an
+  immediate dispose stay readable, with `open:false`/`disposed:true`) — a response that
+  triggers a dispose verifies as `accepted: true`.
 
 **Test-harness sessions may loot** (unlike player companions, whose inventory dies with them),
 which is what makes the drop→pickup→inventory flow testable.
@@ -132,11 +138,16 @@ The testing agent judges outcomes from observations — these recipes are the *s
   checks decide). `QuestForfeit{questId}` abandons a started quest. The quest NPC must be on
   the agent's map, and a **~500 ms NPC-click cooldown** (`BLOCK_NPC_RACE_CONDT`) applies
   between interactions — a real agent's pacing is fine, but tight scripted loops need a sleep.
-- **Party, buddies, whispers, trade (multi-session)** — `TradeInvite{targetName}` → invitee
-  `TradeAccept` → both stage with `TradePutItem`/`TradePutMesos` (staged state visible in
-  `trade{items,mesos}`) → both `TradeConfirm`; the transfer applies on the second confirm.
-  Party invites/whispers/map chat arrive for the other session via `drain_events` (allow ~2 s
-  for propagation). `AddBuddy` is unilateral when the target has buddy space (v83 semantics).
+- **Party quests** — harness sessions are exempt from the companion PQ guard, and a Kerning PQ
+  probe verified: party formation, entry via Lakelis (9020000, dialog-less under
+  `USE_OLD_GMS_STYLED_PQ_NPCS`), stage-1 combat/loot, quiz answers, pass trading and stage
+  clear. Known limits: scripted stage portals need no `MoveTo`-bypass (add a portal action if
+  needed) and PQ stage maps don't respawn mobs — top up via labeled `grant_item`.
+- **Storage & Duey** — live-verified: open/store/take-out/fees/mesos and parcel send/claim
+  (fee = `Trade.getFee(mesos) + 5000` for message parcels; quick delivery needs ticket
+  5330000). Note: the server does not enforce the storage UI being open (packet-forgery-only
+  laxness, flagged upstream), and observation range may hide distant NPCs — use
+  `observe{omniscient:true}` after teleporting.
 - **Cash shop** — `setup grant_cash {amount}` → `EnterCashShop` (verify `cashShop.opened` and
   that the character is off the map) → `CashBuy{useNX:1, snCS}` (valid SNs live in
   `wz/Etc.wz/Commodity.img`; NX balance and owned items are in `cashShop`) → end the session

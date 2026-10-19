@@ -51,6 +51,8 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 1. ~~NpcTalk/NpcSelect actions + outbound-dialog perception~~ — **done** (live-verified).
 2. ~~Second-session support (trade/buddy/party)~~ — **done** (live-verified).
 3. ~~Cash-shop purchases (`grant_cash` + `EnterCashShop` + `CashBuy`)~~ — **done** (live-verified).
-4. Storage/Duey/minigame room actions (PlayerInteraction variants).
-5. Guild/alliance multi-session flows.
-6. PQ scenario scripts on top of the existing entry exemption.
+4. ~~Storage + Duey~~ — **done** (live-verified).
+5. ~~PQ feasibility probe (KPQ)~~ — **done**: entry + stage 1 clear; remaining blockers = scripted stage portals (add a portal action) and no mob respawn on stage maps.
+6. Hired merchants / minigame rooms (PlayerInteraction variants).
+7. Guild/alliance multi-session flows.
+8. Full PQ completion scenarios once portal + respawn blockers are addressed.
