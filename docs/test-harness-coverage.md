@@ -45,6 +45,11 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
   quests like 1021 (Roger's Apple) even for real players — fixed (default now 1).
 - **`Trade.inviteTrade` NPE** on a character's first trade invite (no `Trade` object yet) —
   fixed (auto-create); affected real players, not just the harness.
+- **External-client visibility**: a sibling-client report claimed harness sessions were
+  "phantoms" (no spawns/chat). Server-side probe (`debug_players`) showed harness sessions are
+  fully registered in the map/channel/world player lists — the real cause was a **channel
+  mismatch** (map instances are per-channel). `session_start` now takes a `channel` param and
+  observations expose it; the report's schema string-vs-integer bug was also fixed.
 
 ## Next additions (cheapest first)
 

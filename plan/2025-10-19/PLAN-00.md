@@ -177,7 +177,17 @@ inbound packets with full server validation), `AgentPerception` (structured worl
   trade staging, cash inventory, buddy added).
 - **Live-verified**: quest 1021 full cycle via real dialogs, quest 20012 kill-progress,
   text/number-input dialogs, forfeit, level-gate refusals, full two-session trade with
-  transfers, cash-shop purchases with NX deduction. 2195/2195 tests green.
+  transfers, cash-shop purchases with NX deduction, storage + Duey. 2195/2195 tests green.
+
+### Round 4 (2025-10-20, heavenclient visibility report)
+
+- External sibling client reported harness sessions as "phantoms" (no spawns/chat). A
+  server-side probe (`debug_players`) disproved missing registration — sessions are in the
+  map/channel/world lists; the real cause is a per-channel map-instance mismatch.
+- `session_start` gained a `channel` param (was hardcoded 1); observations expose `channel`;
+  `debug_players` diagnostic op added.
+- MCP tool schemas now use proper types (integer/string/boolean/object) instead of declaring
+  every argument as string (fixed the sibling report's schema complaint).
 
 ## 9. Open items / deferred
 

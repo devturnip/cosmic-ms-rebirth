@@ -40,10 +40,10 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 
 | Tool | Purpose |
 | --- | --- |
-| `session_start` `{jobId?, level?, mapId?, world?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. |
+| `session_start` `{jobId?, level?, mapId?, world?, channel?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. Match `channel` to a real client's channel when testing cross-visibility. |
 | `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
 | `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
-| `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`. |
+| `setup` `{sessionId, op, args}` | Cheat ops: `teleport`, `spawn_mob`, `kill_mob` `{withDrops}`, `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
 | `session_end` `{sessionId}` | Despawn + delete character and account (idempotent). |
 | `session_list` | Live session ids. |
