@@ -53,6 +53,12 @@ public final class HarnessObservation {
             out.put("error", "session character not loaded");
             return out;
         }
+        // A logged-out character's map/inventory are nulled by a delayed cleanup task; observing
+        // such a disposed character must yield a structured error, never an exception.
+        if (chr.getMap() == null) {
+            out.put("error", "character session disposed; observation unavailable");
+            return out;
+        }
 
         AgentObservation obs = AgentPerception.observe(chr);
         out.put("level", obs.level());

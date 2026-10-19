@@ -53,6 +53,7 @@ import javax.script.ScriptException;
 import java.awt.*;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -67,16 +68,16 @@ import static java.util.concurrent.TimeUnit.MINUTES;
  */
 public class EventInstanceManager {
     private static final Logger log = LoggerFactory.getLogger(EventInstanceManager.class);
-    private final Map<Integer, Character> chars = new HashMap<>();
+    private final Map<Integer, Character> chars = new ConcurrentHashMap<>();
     private int leaderId = -1;
     private final List<Monster> mobs = new LinkedList<>();
-    private final Map<Character, Integer> killCount = new HashMap<>();
+    private final Map<Character, Integer> killCount = new ConcurrentHashMap<>();
     private EventManager em;
     private EventScriptScheduler ess;
     private MapManager mapManager;
     private String name;
     private final Properties props = new Properties();
-    private final Map<String, Object> objectProps = new HashMap<>();
+    private final Map<String, Object> objectProps = new ConcurrentHashMap<>();
     private long timeStarted = 0;
     private long eventTime = 0;
     private Expedition expedition = null;
@@ -103,10 +104,10 @@ public class EventInstanceManager {
     private final List<Integer> onMapClearMeso = new ArrayList<>();
 
     // registers player status on an event (null on this Map structure equals to 0)
-    private final Map<Integer, Integer> playerGrid = new HashMap<>();
+    private final Map<Integer, Integer> playerGrid = new ConcurrentHashMap<>();
 
     // registers all opened gates on the event. Will help late characters to encounter next stages gates already opened
-    private final Map<Integer, Pair<String, Integer>> openedGates = new HashMap<>();
+    private final Map<Integer, Pair<String, Integer>> openedGates = new ConcurrentHashMap<>();
 
     // forces deletion of items not supposed to be held outside of the event, dealt on a player's leaving moment.
     private final Set<Integer> exclusiveItems = new HashSet<>();
@@ -586,13 +587,8 @@ public class EventInstanceManager {
             final int inc = (int) invokeScriptFunction("monsterValue", EventInstanceManager.this, mob.getId());
 
             if (inc != 0) {
-                Integer kc = killCount.get(chr);
-                if (kc == null) {
-                    kc = inc;
-                } else {
-                    kc += inc;
-                }
-                killCount.put(chr, kc);
+                // atomic accumulate: concurrent monsterKilled calls used to race on get/put
+                killCount.merge(chr, inc, Integer::sum);
                 if (expedition != null) {
                     expedition.monsterKilled(chr, mob);
                 }

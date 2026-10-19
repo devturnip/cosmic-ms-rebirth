@@ -31,8 +31,8 @@ import server.quest.Quest;
 
 import javax.script.Invocable;
 import javax.script.ScriptEngine;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author RMZero213
@@ -41,8 +41,8 @@ public class QuestScriptManager extends AbstractScriptManager {
     private static final Logger log = LoggerFactory.getLogger(QuestScriptManager.class);
     private static final QuestScriptManager instance = new QuestScriptManager();
 
-    private final Map<Client, QuestActionManager> qms = new HashMap<>();
-    private final Map<Client, Invocable> scripts = new HashMap<>();
+    private final Map<Client, QuestActionManager> qms = new ConcurrentHashMap<>();
+    private final Map<Client, Invocable> scripts = new ConcurrentHashMap<>();
 
     public static QuestScriptManager getInstance() {
         return instance;

@@ -40,6 +40,30 @@ public final class AgentPerception {
         final Point pos = agent.getPosition();
         final Job job = agent.getJob();
 
+        // A character being disposed (logout / timed map-object cleanup) can have its map and
+        // position nulled out mid-observation; return a degraded-but-valid snapshot instead of
+        // throwing so neither the agent brain loop nor a harness observe ever 500s.
+        if (map == null || pos == null) {
+            return new AgentObservation(
+                    agent.getName(),
+                    agent.getLevel(),
+                    job == null ? 0 : job.getId(),
+                    job == null ? "Unknown" : GameConstants.getJobName(job.getId()),
+                    agent.getMapId(),
+                    "unknown",
+                    "unknown",
+                    agent.getHp(),
+                    agent.getCurrentMaxHp(),
+                    agent.getMp(),
+                    agent.getCurrentMaxMp(),
+                    0,
+                    0,
+                    List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.of(), List.of(), List.of(),
+                    false, 0, false
+            );
+        }
+
         final List<AgentObservation.ObservedPlayer> nearby = collectNearbyPlayers(agent, map, pos);
         final List<AgentObservation.ObservedPlayer> party = collectPartyMembers(agent);
         final List<AgentObservation.ObservedMonster> monsters = collectNearbyMonsters(map, pos);
