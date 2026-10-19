@@ -27,7 +27,7 @@ class TestHarnessGateTest {
         }
         assertThrows(IllegalStateException.class, () -> TestOps.heal(null));
         assertThrows(IllegalStateException.class, () -> TestHarnessService.getInstance().listSessions());
-        assertThrows(IllegalStateException.class, () -> TestHarnessService.getInstance().startSession(0, 1, 0, 0));
+        assertThrows(IllegalStateException.class, () -> TestHarnessService.getInstance().startSession(0, 1, 0, 0, 1));
     }
 
     @Test

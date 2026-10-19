@@ -44,6 +44,7 @@ public final class HarnessObservation {
         Character chr = session.getPlayer();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sessionId", session.getCharacterId());
+        out.put("channel", session.getClient().getChannel());
         out.put("characterName", session.getName());
         if (chr == null) {
             out.put("error", "session character not loaded");

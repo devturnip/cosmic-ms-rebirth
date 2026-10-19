@@ -176,7 +176,7 @@ public final class TestHarnessMcpServer {
                 case "session_start" -> text.put("text", MAPPER.writeValueAsString(
                         TestHarnessService.getInstance().startSession(
                                 intArg(args, "jobId", 0), intArg(args, "level", 1),
-                                intArg(args, "mapId", 0), intArg(args, "world", 0))));
+                                intArg(args, "mapId", 0), intArg(args, "world", 0), intArg(args, "channel", 1))));
                 case "session_end" -> text.put("text", MAPPER.writeValueAsString(
                         TestHarnessService.getInstance().endSession(intArg(args, "sessionId"))));
                 case "session_list" -> text.put("text", MAPPER.writeValueAsString(
@@ -270,20 +270,21 @@ public final class TestHarnessMcpServer {
     private static ObjectNode toolsList() {
         ObjectNode out = MAPPER.createObjectNode();
         ArrayNode tools = out.putArray("tools");
-        tools.add(tool("session_start", "Provision an ephemeral test character and spawn it as a controllable session. Returns the full observation.",
+        tools.add(tool("session_start", "Provision an ephemeral test character and spawn it as a controllable session. Returns the full observation (including sessionId and channel). Match the channel to a real client's channel when testing cross-visibility.",
                 schema()
                         .put("jobId", "int (optional, 0 = Beginner)").put("level", "int (1-200, default 1)")
-                        .put("mapId", "int (optional, 0 = job default)").put("world", "int (optional, default 0)")));
+                        .put("mapId", "int (optional, 0 = job default)").put("world", "int (optional, default 0)")
+                        .put("channel", "int (optional, default 1)")));
         tools.add(tool("session_end", "End a harness session: despawn and delete its character and account.",
                 schema().put("sessionId", "int (required)")));
-        tools.add(tool("session_list", "List live harness session ids.", schema()));
-        tools.add(tool("observe", "Full structured observation of a session (position, hp/mp, monsters, items, npcs, players, inventory, equipment, quests, mesos, events).",
-                schema().put("sessionId", "int (required)")));
+        tools.add(tool("session_list", "List live harness session ids.", schema())) ;
+        tools.add(tool("observe", "Full structured observation of a session (channel, position, hp/mp, monsters, items, npcs, players, inventory, equipment, quests, buddies, trade, cashShop, storage, npcDialog, mesos, events).",
+                schema().put("sessionId", "int (required)").put("omniscient", "boolean (optional: whole-map perception)")));
         tools.add(tool("drain_events", "Drain buffered session events (map chat, party invites, map changes).",
                 schema().put("sessionId", "int (required)")));
         tools.add(tool("act", "Submit player actions through the REAL packet handlers (server-validated). Blocks until applied; returns per-action {dispatched, accepted}. Actions: Say{message}, PartySay{message}, Whisper{targetName,message}, InviteToParty{targetName}, AcceptPartyInvite{partyId}, DenyPartyInvite{inviterName}, LeaveParty, MoveTo{x,y}, Follow{targetName}, StopFollowing, PickupItem{objectId}, UseItem{itemId}, Respawn, Attack{targetObjectId}, SkillAttack{targetObjectId,skillId}, SkillAttackMany{targetObjectIds[],skillId}, RechargeAmmo, CastBuff{skillId}, CastHeal{skillId}, NpcTalk{npcId}, NpcSelect{selection}, NpcRespondText{text}, NpcEndDialog, QuestStart{questId,npcId}, QuestComplete{questId,npcId}, QuestForfeit{questId}, AddBuddy{name}, EnterCashShop, CashBuy{useNX,snCS}, TradeInvite{targetName}, TradeAccept, TradePutItem{inventoryType,slot,quantity,targetSlot}, TradePutMesos{amount}, TradeConfirm, Remember{fact}, Idle. NPC flow: NpcTalk opens a dialog, then observe npcDialog{type,text} and respond with NpcSelect/NpcRespondText/NpcEndDialog. Quests auto-detect scripted vs WZ-only quests (script dialogs appear via npcDialog; both require the quest NPC nearby). QuestForfeit abandons a started quest. Trade flow between two sessions: TradeInvite{targetName} -> invitee TradeAccept -> both TradePutItem/TradePutMesos -> both TradeConfirm (observe trade{items,mesos} for staged state). CashBuy useNX: 1=NX credit, 2=maple point, 4=prepaid; grant_cash setup op funds NX. After EnterCashShop the character is off the map (end the session when done).",
                 schema().put("sessionId", "int (required)").put("actions", "array (required)")));
-        tools.add(tool("setup", "Cheat ops for scenario setup (gated by USE_TEST_HARNESS): teleport{mapId,portal?}, spawn_mob{mobId,x,y}, kill_mob{objectId,withDrops?}, list_mobs, grant_item{itemId,quantity?}, grant_mesos{amount}, set_level{level}, set_quest_state{questId,state}, spawn_drop{itemId,quantity?,x,y}, heal.",
+        tools.add(tool("setup", "Cheat ops for scenario setup (gated by USE_TEST_HARNESS): teleport{mapId,portal?}, spawn_mob{mobId,x,y}, kill_mob{objectId,withDrops?}, list_mobs, grant_item{itemId,quantity?}, grant_mesos{amount}, grant_cash{amount,type?}, set_level{level}, set_quest_state{questId,state}, spawn_drop{itemId,quantity?,x,y}, heal, debug_players{mapId?} (diagnostic: who the server thinks is on the map/channel/world).",
                 schema().put("sessionId", "int (required)").put("op", "string (required)").put("args", "object (op-specific)")));
         return out;
     }
@@ -297,8 +298,25 @@ public final class TestHarnessMcpServer {
         ObjectNode props = schema.putObject("properties");
         hints.fieldNames().forEachRemaining(field -> {
             ObjectNode prop = props.putObject(field);
-            prop.put("type", field.equals("actions") || field.equals("args") ? "array" : "string");
-            prop.put("description", hints.get(field).asText());
+            String hint = hints.get(field).asText();
+            String type = switch (field) {
+                // payloads the harness parses as JSON structures
+                case "actions", "args" -> "array".equals(hint) || hint.startsWith("object") ? "object" : "array";
+                // booleans
+                case "omniscient", "withDrops", "quick" -> "boolean";
+                // everything else the harness reads numerically or as text
+                default -> hint.contains("int") || field.endsWith("Id") || field.equals("sessionId")
+                        || field.equals("level") || field.equals("x") || field.equals("y")
+                        || field.equals("slot") || field.equals("quantity") || field.equals("amount")
+                        || field.equals("world") || field.equals("mapId") || field.equals("jobId")
+                        || field.equals("npcId") || field.equals("questId") || field.equals("mobId")
+                        || field.equals("objectId") || field.equals("skillId") || field.equals("partyId")
+                        || field.equals("mesos") || field.equals("targetSlot") || field.equals("operation")
+                        || field.equals("useNX") || field.equals("snCS") || field.equals("channel")
+                        ? "integer" : "string";
+            };
+            prop.put("type", type);
+            prop.put("description", hint);
         });
         return tool;
     }

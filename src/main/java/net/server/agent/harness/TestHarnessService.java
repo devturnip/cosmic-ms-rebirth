@@ -61,13 +61,15 @@ public final class TestHarnessService {
     /**
      * Provisions an ephemeral character and spawns it as a harness session.
      *
-     * @param jobId  job id, or 0 for a plain Beginner
-     * @param level  1..200
-     * @param mapId  spawn map, or 0 for the job's default (map 0 / beginner map)
-     * @param world  world id (0 on single-world servers)
+     * @param jobId   job id, or 0 for a plain Beginner
+     * @param level   1..200
+     * @param mapId   spawn map, or 0 for the job's default (map 0 / beginner map)
+     * @param world   world id (0 on single-world servers)
+     * @param channel channel id (harness sessions used to be pinned to channel 1; make this
+     *                match the channel a real client is on when testing cross-visibility)
      * @return observation of the freshly spawned session
      */
-    public Map<String, Object> startSession(int jobId, int level, int mapId, int world) {
+    public Map<String, Object> startSession(int jobId, int level, int mapId, int world, int channel) {
         requireEnabled();
         if (world < 0 || Server.getInstance().getWorld(world) == null) {
             throw new IllegalArgumentException("World " + world + " does not exist on this server");
@@ -81,7 +83,8 @@ public final class TestHarnessService {
         if (provisioned == null || !provisioned.isValid()) {
             throw new IllegalStateException("Provisioning failed (DB error, name collision or world unavailable)");
         }
-        AgentSession session = AgentManager.getInstance().spawnHarness(provisioned.name(), world, 1, provisioned);
+        AgentSession session = AgentManager.getInstance().spawnHarness(provisioned.name(), world,
+                channel > 0 ? channel : 1, provisioned);
         if (session == null) {
             // Provisioning succeeded but login failed: clean up the row so nothing leaks.
             provisioner.destroy(provisioned);
@@ -196,6 +199,7 @@ public final class TestHarnessService {
             case "spawn_drop" -> TestOps.spawnDrop(session, intArg(args, "itemId"),
                     intArg(args, "quantity", 1), intArg(args, "x"), intArg(args, "y"));
             case "grant_cash" -> TestOps.grantCash(session, intArg(args, "amount"), intArg(args, "type", 1));
+            case "debug_players" -> TestOps.debugPlayers(session, intArg(args, "mapId", 0));
             case "heal" -> TestOps.heal(session);
             default -> throw new IllegalArgumentException("Unknown setup op '" + op + "'");
         };

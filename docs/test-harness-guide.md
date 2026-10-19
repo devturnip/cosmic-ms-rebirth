@@ -64,6 +64,14 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 WZ-only quests and fire the matching real client path; both require the quest NPC nearby),
 `QuestForfeit{questId}`.
 
+**Cross-visibility with real clients:** `session_start` accepts a `channel` (default 1) —
+**match it to the channel the real client is on**. Map instances are per-channel; a harness
+session on channel 1 is invisible to a client on channel 2 (this was the cause of a
+"phantom sessions" report). `setup debug_players {mapId?}` dumps who the *server* thinks is
+on the map / channel / world — the ground truth for visibility disputes. Observations include
+the session's `channel`. (Harness MCP tool schemas previously declared every argument as a
+string; they are now properly typed.)
+
 **Social & economy:** `AddBuddy{name}` (v83 semantics: unilateral when the target has space),
 `EnterCashShop`, `CashBuy{useNX,snCS}` (useNX: 1=NX credit, 2=maple point, 4=prepaid; fund
 with `setup grant_cash`; the character leaves the map — end the session when done),

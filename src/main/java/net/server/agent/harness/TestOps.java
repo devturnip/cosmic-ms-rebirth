@@ -6,11 +6,15 @@ import client.QuestStatus;
 import client.Stat;
 import client.inventory.Item;
 import client.inventory.manipulator.InventoryManipulator;
+import net.server.Server;
 import net.server.agent.AgentSession;
 import server.ItemInformationProvider;
 import server.life.LifeFactory;
 import server.life.Monster;
 import server.maps.MapleMap;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import java.awt.Point;
 import java.util.LinkedHashMap;
@@ -179,6 +183,36 @@ public final class TestOps {
         Character chr = character(session);
         chr.getCashShop().gainCash(type, amount);
         return result("granted %d cash (type %d) to %s", amount, type, chr.getName());
+    }
+
+    /** Diagnostic: who does the SERVER think is online/on the map (channel + world + map lists). */
+    public static Map<String, Object> debugPlayers(AgentSession session, int mapId) {
+        Character chr = character(session);
+        var world = Server.getInstance().getWorld(chr.getWorld());
+        var channel = chr.getClient().getChannelServer();
+        MapleMap map = mapId > 0
+                ? channel.getMapFactory().getMap(mapId)
+                : chr.getMap();
+
+        List<String> worldPlayers = new ArrayList<>();
+        for (Character p : world.getPlayerStorage().getAllCharacters()) {
+            worldPlayers.add(p.getName() + "(ch" + p.getClient().getChannel() + ",map" + p.getMapId() + ")");
+        }
+        List<String> channelPlayers = new ArrayList<>();
+        for (Character p : channel.getPlayerStorage().getAllCharacters()) {
+            channelPlayers.add(p.getName() + "(map" + p.getMapId() + ")");
+        }
+        List<String> mapPlayers = new ArrayList<>();
+        for (Character p : map.getAllPlayers()) {
+            mapPlayers.add(p.getName() + "(id" + p.getId() + ")");
+        }
+        Map<String, Object> out = result("map %d: %d map players, %d channel players, %d world players",
+                map.getId(), mapPlayers.size(), channelPlayers.size(), worldPlayers.size());
+        out.put("mapPlayers", mapPlayers);
+        out.put("channelPlayers", channelPlayers);
+        out.put("worldPlayers", worldPlayers);
+        out.put("channel", chr.getClient().getChannel());
+        return out;
     }
 
     /** Fully heals the session character (HP/MP to max). */
