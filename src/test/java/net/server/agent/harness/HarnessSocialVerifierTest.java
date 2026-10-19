@@ -2,6 +2,7 @@ package net.server.agent.harness;
 
 import client.Character;
 import client.Client;
+import client.FamilyEntry;
 import net.server.Server;
 import net.server.agent.AgentAction;
 import net.server.agent.AgentSession;
@@ -346,6 +347,25 @@ class HarnessSocialVerifierTest {
 
         AgentAction.FamilyAccept deny = new AgentAction.FamilyAccept(false, "Agent-A");
         assertNull(HarnessVerifier.verify(session, deny, -1L), "denials only notify the inviter");
+    }
+
+    @Test
+    void familyObservationSkipsEmptyJuniorSlots() {
+        // FamilyEntry.getJuniors() exposes the raw 2-slot backing array; both slots can be
+        // null. describeFamily used to NPE on the null slots (found in live verification).
+        Character chr = mockCharacter(2, "Agent-B");
+        client.Family family = Mockito.mock(client.Family.class);
+        Mockito.when(family.getID()).thenReturn(3);
+        FamilyEntry entry = Mockito.mock(FamilyEntry.class);
+        Mockito.when(entry.getFamily()).thenReturn(family);
+        Mockito.when(entry.getSenior()).thenReturn(null);
+        Mockito.when(entry.getJuniors()).thenReturn(java.util.Arrays.asList(null, null));
+        Mockito.when(chr.getFamilyEntry()).thenReturn(entry);
+
+        Map<String, Object> desc = HarnessObservation.describeFamily(chr);
+
+        assertFalse(desc.isEmpty());
+        assertTrue(((List<?>) desc.get("juniors")).isEmpty(), "null junior slots must be skipped, not NPE");
     }
 
     /** The server singleton's live guild registry (mocked entries are removed after use). */

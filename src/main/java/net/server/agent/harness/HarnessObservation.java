@@ -434,7 +434,7 @@ public final class HarnessObservation {
     }
 
     /** Family membership (null when none): senior/juniors names and reputation. */
-    private static Map<String, Object> describeFamily(Character chr) {
+    static Map<String, Object> describeFamily(Character chr) {
         var entry = chr.getFamilyEntry();
         if (entry == null) {
             return null;
@@ -444,7 +444,10 @@ public final class HarnessObservation {
         e.put("senior", entry.getSenior() != null ? entry.getSenior().getName() : null);
         List<Object> juniors = new ArrayList<>();
         for (var junior : entry.getJuniors()) {
-            juniors.add(junior.getName());
+            // getJuniors() returns the raw 2-slot backing array; empty slots are null.
+            if (junior != null) {
+                juniors.add(junior.getName());
+            }
         }
         e.put("juniors", juniors);
         e.put("reputation", entry.getReputation());
