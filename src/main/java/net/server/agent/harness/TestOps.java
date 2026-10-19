@@ -69,6 +69,9 @@ public final class TestOps {
         } else {
             chr.changeMap(mapId, portalName);
         }
+        // Harness sessions never send PLAYER_MAP_TRANSFER; without this the stuck
+        // isChangingMaps flag makes every later portal/CC refuse (KPQ round finding).
+        chr.setMapTransitionComplete();
         return result("warped to map %d (%s) at %s", mapId, target.getMapName(), chr.getPosition());
     }
 

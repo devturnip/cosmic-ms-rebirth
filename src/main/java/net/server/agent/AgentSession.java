@@ -462,6 +462,13 @@ public class AgentSession {
                     } catch (Throwable t) {
                         log.warn("Agent {} failed to perform {}", getName(), action, t);
                     }
+                    // Harness sessions never send the client's PLAYER_MAP_TRANSFER, so any map
+                    // change (portal, quest warp, teleport) leaves isChangingMaps stuck true and
+                    // every later portal/CC refuses. Mirror the real client's post-warp state.
+                    Character p = player;
+                    if (p != null) {
+                        p.setMapTransitionComplete();
+                    }
                     Boolean accepted = dispatched ? HarnessVerifier.verify(this, action, pre) : Boolean.FALSE;
                     results.add(HarnessVerifier.Result.of(dispatched, accepted));
                 }

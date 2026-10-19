@@ -110,7 +110,7 @@ public final class HarnessVerifier {
             return chr.getMeso(); // parcels move items/mesos; meso delta is the cheap observable
         }
         if (action instanceof AgentAction.EnterPortal) {
-            return chr.getMapId(); // entering a portal normally changes the map
+            return (long) chr.getMapId(); // entering a portal normally changes the map
         }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
