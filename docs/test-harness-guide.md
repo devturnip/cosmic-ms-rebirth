@@ -62,7 +62,13 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 `NpcRespondText{text}` (text-input frames only), `NpcEndDialog`,
 `QuestStart{questId,npcId}` / `QuestComplete{questId,npcId}` (auto-detect scripted JS vs
 WZ-only quests and fire the matching real client path; both require the quest NPC nearby),
-`QuestForfeit{questId}`.
+`QuestForfeit{questId}`, `EnterPortal{portalName}` (scripted portals via the real
+CHANGE_MAP_SPECIAL packet — required for PQ stage transitions, which `MoveTo` cannot walk
+through).
+
+**Map-transition note:** harness sessions never send the client's `PLAYER_MAP_TRANSFER`, so
+the harness clears the `isChangingMaps` flag after every action and teleport — without this,
+any map change would permanently block later portal entries.
 
 **Cross-visibility with real clients:** `session_start` accepts a `channel` (default 1) —
 **match it to the channel the real client is on**. Map instances are per-channel; a harness
@@ -146,11 +152,13 @@ The testing agent judges outcomes from observations — these recipes are the *s
   checks decide). `QuestForfeit{questId}` abandons a started quest. The quest NPC must be on
   the agent's map, and a **~500 ms NPC-click cooldown** (`BLOCK_NPC_RACE_CONDT`) applies
   between interactions — a real agent's pacing is fine, but tight scripted loops need a sleep.
-- **Party quests** — harness sessions are exempt from the companion PQ guard, and a Kerning PQ
+- **Party quests** — harness sessions are exempt from the companion PQ guard. A Kerning PQ
   probe verified: party formation, entry via Lakelis (9020000, dialog-less under
   `USE_OLD_GMS_STYLED_PQ_NPCS`), stage-1 combat/loot, quiz answers, pass trading and stage
-  clear. Known limits: scripted stage portals need no `MoveTo`-bypass (add a portal action if
-  needed) and PQ stage maps don't respawn mobs — top up via labeled `grant_item`.
+  clear. Scripted stage portals are now traversable via `EnterPortal{portalName}` (the probe
+  also found and fixed a stuck `isChangingMaps` flag that walled portal entries after any map
+  change). Remaining: PQ stage maps don't respawn mobs — supply coupons via labeled
+  `spawn_mob`+kill loops or `grant_item`; a full multi-stage completion run is pending.
 - **Storage & Duey** — live-verified: open/store/take-out/fees/mesos and parcel send/claim
   (fee = `Trade.getFee(mesos) + 5000` for message parcels; quick delivery needs ticket
   5330000). Note: the server does not enforce the storage UI being open (packet-forgery-only

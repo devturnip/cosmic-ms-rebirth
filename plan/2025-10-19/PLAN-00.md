@@ -179,6 +179,16 @@ inbound packets with full server validation), `AgentPerception` (structured worl
   text/number-input dialogs, forfeit, level-gate refusals, full two-session trade with
   transfers, cash-shop purchases with NX deduction, storage + Duey. 2195/2195 tests green.
 
+### Round 5 (2025-10-20, KPQ completion attempt)
+
+- EnterPortal{portalName} action added (real CHANGE_MAP_SPECIAL packet) — PQ stage portals
+  are traversable; MoveTo deliberately skips scripted portals.
+- The completion run bisected the true stage-portal blocker: a stuck `isChangingMaps` flag
+  (harness sessions never send PLAYER_MAP_TRANSFER). The harness now clears it after every
+  action and teleport; live-verified on KPQ stage 1 (EnterPortal reaches the portal script).
+- EnterPortal verifier also fixed an Integer-vs-Long autoboxing bug that always reported
+  accepted:true. Full multi-stage completion run still pending (machine move interrupted it).
+
 ### Round 4 (2025-10-20, heavenclient visibility report)
 
 - External sibling client reported harness sessions as "phantoms" (no spawns/chat). A
