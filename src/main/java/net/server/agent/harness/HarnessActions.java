@@ -91,6 +91,7 @@ public final class HarnessActions {
                     intField(node, "mesos"), text(node, "recipient"), text(node, "message"));
             case "DUEYACTION" -> new AgentAction.DueyAction(intField(node, "operation"),
                     intField(node, "packageId", 0));
+            case "ENTERPORTAL" -> new AgentAction.EnterPortal(text(node, "portalName"));
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };

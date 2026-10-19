@@ -172,6 +172,18 @@ public class AgentActionDispatcher {
                     p.writeInt(duey.packageId());
                 }
             });
+            case AgentAction.EnterPortal portal -> {
+                if (portal.portalName() == null || portal.portalName().isBlank()) {
+                    log.debug("Agent {} portal enter: blank portal name", session.getName());
+                } else {
+                    // CHANGE_MAP_SPECIAL: the real client's packet for scripted portals.
+                    send(session, RecvOpcode.CHANGE_MAP_SPECIAL, p -> {
+                        p.writeByte(0);
+                        p.writeString(portal.portalName());
+                        p.writeShort(0);
+                    });
+                }
+            }
             case AgentAction.Idle ignored -> {
             }
         }

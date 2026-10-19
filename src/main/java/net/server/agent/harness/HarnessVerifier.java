@@ -109,6 +109,9 @@ public final class HarnessVerifier {
         if (action instanceof AgentAction.DueySend || action instanceof AgentAction.DueyAction) {
             return chr.getMeso(); // parcels move items/mesos; meso delta is the cheap observable
         }
+        if (action instanceof AgentAction.EnterPortal) {
+            return chr.getMapId(); // entering a portal normally changes the map
+        }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
 
@@ -218,6 +221,9 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.DueySend || action instanceof AgentAction.DueyAction) {
             return !pre.equals((long) chr.getMeso()); // mesos moved (parcel fee/payment)
+        }
+        if (action instanceof AgentAction.EnterPortal) {
+            return !pre.equals((long) chr.getMapId()); // the map changed (or the portal was blocked)
         }
         return null;
     }

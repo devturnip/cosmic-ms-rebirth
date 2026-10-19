@@ -203,6 +203,10 @@ public sealed interface AgentAction {
     record DueyAction(int operation, int packageId) implements AgentAction {
     }
 
+    /** Enter a map portal by name — the only way to traverse scripted portals (e.g. PQ stages). */
+    record EnterPortal(String portalName) implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }
