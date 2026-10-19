@@ -75,7 +75,7 @@ public final class HarnessVerifier {
         if (action instanceof AgentAction.NpcTalk || action instanceof AgentAction.NpcSelect
                 || action instanceof AgentAction.NpcRespondText) {
             return new long[]{session.getNpcDialogFrameSeq(), session.isNpcDialogOpen() ? 1 : 0,
-                    session.isNpcDialogDisposed() ? 1 : 0};
+                    session.isNpcDialogDisposed() ? 1 : 0, session.isStorageOpened() ? 1 : 0};
         }
         if (action instanceof AgentAction.QuestStart quest) {
             return new long[]{questStatus(chr, quest.questId()), dialogKey(session)};
@@ -168,8 +168,10 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.NpcTalk) {
             long[] before = (long[]) pre;
-            // A fresh dialog frame must have arrived (handles re-opened identical dialogs).
-            return session.getNpcDialogFrameSeq() != before[0];
+            // A fresh dialog frame must have arrived (handles re-opened identical dialogs);
+            // storage NPCs open the storage UI instead of a dialog - that counts as accepted too.
+            return session.getNpcDialogFrameSeq() != before[0]
+                    || (session.isStorageOpened() && before[3] == 0);
         }
         if (action instanceof AgentAction.NpcSelect || action instanceof AgentAction.NpcRespondText) {
             long[] before = (long[]) pre;
