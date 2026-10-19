@@ -196,6 +196,7 @@ public final class TestHarnessService {
             case "grant_item" -> TestOps.grantItem(session, intArg(args, "itemId"), intArg(args, "quantity", 1));
             case "grant_mesos" -> TestOps.grantMesos(session, intArg(args, "amount"));
             case "set_level" -> TestOps.setLevel(session, intArg(args, "level"));
+            case "set_gender" -> TestOps.setGender(session, intArg(args, "gender"));
             case "set_quest_state" -> TestOps.setQuestState(session, intArg(args, "questId"), strArg(args, "state"));
             case "spawn_drop" -> TestOps.spawnDrop(session, intArg(args, "itemId"),
                     intArg(args, "quantity", 1), intArg(args, "x"), intArg(args, "y"));

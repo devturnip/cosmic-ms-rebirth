@@ -288,6 +288,111 @@ public sealed interface AgentAction {
     record HiredMerchantClose() implements AgentAction {
     }
 
+    // ----------------------------------------------------------------
+    // Guild / alliance / marriage / family (social systems)
+    // ----------------------------------------------------------------
+
+    /**
+     * Request guild creation with the given name (GUILD_OPERATION 0x02). Requires
+     * {@code CREATE_GUILD_MIN_PARTNERS} eligible co-founders (no guild, no party) on the
+     * leader's map and {@code CREATE_GUILD_COST} mesos; starts a match-checker
+     * confirmation. Each co-founder answers with {@link GuildCreateAnswer}; the guild is
+     * created once every invitee accepted (leader included implicitly).
+     */
+    record GuildCreate(String name) implements AgentAction {
+    }
+
+    /**
+     * Answer a pending guild-creation confirmation (GUILD_OPERATION 0x1E). The last
+     * accepting co-founder triggers the actual guild creation (leader at Guild HQ).
+     */
+    record GuildCreateAnswer(boolean accept) implements AgentAction {
+    }
+
+    /** Invite a player (by name) to the agent's guild (GUILD_OPERATION 0x05). */
+    record GuildInvite(String targetName) implements AgentAction {
+    }
+
+    /** Accept a pending guild invitation from {@code inviterName} (GUILD_OPERATION 0x06). */
+    record GuildAcceptInvite(String inviterName) implements AgentAction {
+    }
+
+    /** Leave the agent's guild (GUILD_OPERATION 0x07; {@code name} must match the agent). */
+    record GuildLeave(String name) implements AgentAction {
+    }
+
+    /** Expel a member (rank 1/2 only) by character id and name (GUILD_OPERATION 0x08). */
+    record GuildExpel(int targetId, String targetName) implements AgentAction {
+    }
+
+    /**
+     * Rename the five guild rank titles (rank 1 only; GUILD_OPERATION 0x0D).
+     * {@code ranks} must contain exactly 5 entries (index 0 = master).
+     */
+    record GuildChangeRankTitle(List<String> ranks) implements AgentAction {
+    }
+
+    /** Change a member's guild rank (GUILD_OPERATION 0x0E; rank 1/2 permission rules apply). */
+    record GuildChangeRank(int targetId, int newRank) implements AgentAction {
+    }
+
+    /** Set the guild notice (GUILD_OPERATION 0x10). */
+    record GuildNotice(String notice) implements AgentAction {
+    }
+
+    /**
+     * Invite another guild (by name) to the agent's alliance (ALLIANCE_OPERATION 0x03).
+     * The target guild's master receives the invitation.
+     */
+    record AllianceInvite(String guildName) implements AgentAction {
+    }
+
+    /**
+     * Accept a pending alliance invitation (ALLIANCE_OPERATION 0x04); the guild master's
+     * guild joins the alliance the inviter belongs to. Alliance creation/disbanding itself is
+     * driven through the Lenario NPC (2010009) with the dialog actions.
+     */
+    record AllianceAcceptInvite(String inviterName) implements AgentAction {
+    }
+
+    /** Remove the agent's guild from its alliance (ALLIANCE_OPERATION 0x02; guild rank 1). */
+    record AllianceLeave() implements AgentAction {
+    }
+
+    /**
+     * Propose engagement to a player on the same map (RING_ACTION 0). Both parties must be
+     * level 50+, of opposite gender, unmarried and ring-free; the proposer must hold an
+     * engagement box item (2240000..2240015) granted via {@code setup grant_item}.
+     */
+    record Engage(String targetName, int itemId) implements AgentAction {
+    }
+
+    /**
+     * Answer a pending engagement proposal (RING_ACTION 2). On accept both characters gain
+     * the empty engagement box in ETC and {@code partnerId} is set for both.
+     */
+    record EngageAnswer(boolean accept, String proposerName) implements AgentAction {
+    }
+
+    /**
+     * Break an engagement or divorce: drop the engagement token / wedding ring item
+     * (RING_ACTION 3). Requires the token (4031357+) or wedding ring (1112803x) in the
+     * inventory; resets {@code partnerId} on both sides.
+     */
+    record BreakEngagement(int itemId) implements AgentAction {
+    }
+
+    /**
+     * Invite a player on the same map (levels within 20, target above 10) into the family
+     * system as a junior (ADD_FAMILY). The invitee answers with {@link FamilyAccept}.
+     */
+    record FamilyAdd(String name) implements AgentAction {
+    }
+
+    /** Answer a pending family invitation (ACCEPT_FAMILY): accept joins the inviter's family. */
+    record FamilyAccept(boolean accept, String inviterName) implements AgentAction {
+    }
+
     /** Do nothing this cycle. */
     record Idle() implements AgentAction {
     }

@@ -39,8 +39,26 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 - 🟡 PQs (HPQ/KPQ/…, expeditions, CPQ): **KPQ completed end-to-end** (entry → stages 1-5 →
   bonus + rewards, 4 harness sessions, real handlers). Stage-map mob respawn still absent
   (mitigated via `spawn_mob`+kill loops); other PQ completion runs remain.
-- ⛔ Guild/alliance creation flows (multi-session + match-checker coordination), marriage,
-  family, New Year cards, quests with scripted cutscenes.
+- ✅ Guild (create/invite/join/leave/expel/ranks/notice/disband) & alliance
+  (create via Lenario NPC/invite/expel/leave): `GuildCreate` + co-founder `GuildCreateAnswer`
+  through the real match-checker confirmation (needs ≥ `CREATE_GUILD_MIN_PARTNERS` sessions on
+  one map — raise `TEST_HARNESS_MAX_SESSIONS`), `GuildInvite`/`GuildAcceptInvite`,
+  `GuildLeave`/`GuildExpel`/`GuildChangeRankTitle`/`GuildChangeRank`/`GuildNotice`, alliance
+  via Lenario (2010009) + `AllianceInvite`/`AllianceAcceptInvite`/`AllianceLeave`; verified
+  via the `guild`/`alliance` observation blocks (names, members, ranks, notice). Not exposed:
+  emblem change (needs Guild HQ + 5M mesos, same handler family), guild-capacity increase,
+  alliance rank/leader management packets.
+- ✅ Marriage engagement & breakup: `Engage{targetName,itemId}` (level 50+, opposite gender via
+  `setup set_gender`, engagement box 2240000+ granted) → `EngageAnswer{accept,proposerName}`
+  (both `partnerId` + ETC boxes verified); `BreakEngagement{itemId}` severs (also divorces
+  with a wedding ring). Full Cathedral/Chapel wedding ceremonies (reservation, invitations,
+  guests, wishlist) remain 🟡 scenario-driven via the existing dialog/portal actions — they are
+  scripted event flows, not single packets.
+- ✅ Family: `FamilyAdd{name}` → `FamilyAccept{accept,inviterName}` (invite coordinator +
+  family-creation handlers; `family` block shows senior/juniors/reputation; requires
+  `USE_FAMILY_SYSTEM` and level rules: target >10, gap ≤ 20). Not exposed: family separation
+  (SEPARATE_FAMILY packets), pedigree UI, family entitlements/summon response.
+- ⛔ New Year cards, quests with scripted cutscenes.
 - ❌ Client rendering/animation/UI — permanently out of harness scope (use a real client).
 
 ## QA-run findings folded back into the server
@@ -63,5 +81,6 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 4. ~~Storage + Duey~~ — **done** (live-verified).
 5. ~~PQ feasibility probe (KPQ)~~ — **done, superseded by a full completion run**: entry → stages 1-5 → bonus + rewards, live. Rect stages placed via `setup teleport {x,y}`; boss passes via `kill_mob{withDrops}` (now registers the kill's damage source so the loot filter spawns drops).
 6. ~~Hired merchants / minigame rooms (PlayerInteraction variants)~~ — **done (live-verified)**: minigame create/visit/start/move/flip/forfeit/tie/exit and the full hired-merchant flow (create → stock → open → visitor buy → withdraw/take-back/close), all through the real `PlayerInteractionHandler` with state-delta verification and an `interaction` observation block; not exposed: player-shop permit rooms, ready/skip frames, merchant blacklist/visitor-history.
-7. Guild/alliance multi-session flows.
-8. Full completion runs for PQs other than KPQ.
+7. ~~Guild/alliance multi-session flows~~ — **done**: guild create/invite/join/leave/expel/rank/notice + alliance invite/join/leave through the real handlers, with `guild`/`alliance` observation blocks (guild *creation* needs ≥ `CREATE_GUILD_MIN_PARTNERS` co-founder sessions; live multi-session run still to do).
+8. ~~Marriage engagement/divorce + family~~ — **done**: `Engage`/`EngageAnswer`/`BreakEngagement` (RING_ACTION paths, partner/marriage-item state) and `FamilyAdd`/`FamilyAccept` (family observation block); full wedding ceremonies remain scenario-driven.
+9. Full completion runs for PQs other than KPQ.

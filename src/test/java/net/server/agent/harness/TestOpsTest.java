@@ -183,4 +183,19 @@ class TestOpsTest {
                 () -> TestOps.killMob(session, 999, true));
         assertEquals("No monster with objectId 999 on map " + MAP_ID, e.getMessage());
     }
+
+    @Test
+    void setGenderAppliesToCharacterAndRejectsInvalidValues() {
+        if (!enabled()) {
+            return;
+        }
+        Character chr = Mockito.mock(Character.class);
+        AgentSession session = sessionOn(chr);
+
+        TestOps.setGender(session, 1);
+        verify(chr).setGender(1);
+
+        assertThrows(IllegalArgumentException.class, () -> TestOps.setGender(session, 2));
+        verify(chr, never()).setGender(2);
+    }
 }

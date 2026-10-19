@@ -285,6 +285,169 @@ public class AgentActionDispatcher {
             });
             case AgentAction.HiredMerchantClose ignored ->
                     send(session, RecvOpcode.PLAYER_INTERACTION, p -> p.writeByte(0x29)); // CLOSE_MERCHANT
+            // ---- guild / alliance / marriage / family (real handlers, full validation) ----
+            case AgentAction.GuildCreate create -> {
+                if (create.name() == null || create.name().isBlank()) {
+                    log.debug("Agent {} guild create: blank name", session.getName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x02); // request guild creation (starts a match-checker confirmation)
+                        p.writeString(create.name());
+                    });
+                }
+            }
+            case AgentAction.GuildCreateAnswer answer ->
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x1E); // answer guild-creation confirmation
+                        p.writeInt(0);     // (unused field the handler skips)
+                        p.writeByte(answer.accept() ? 1 : 0);
+                    });
+            case AgentAction.GuildInvite invite -> {
+                if (invite.targetName() == null || invite.targetName().isBlank()) {
+                    log.debug("Agent {} guild invite: blank target", session.getName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x05); // invite
+                        p.writeString(invite.targetName());
+                    });
+                }
+            }
+            case AgentAction.GuildAcceptInvite accept -> {
+                Character inviter = findPlayerByName(session.getPlayer(), accept.inviterName());
+                int gid = inviter == null ? 0 : inviter.getGuildId();
+                if (gid <= 0) {
+                    // the real client learns the guild id from the invite packet; we resolve it
+                    // from the inviter instead — without it the packet could never be formed.
+                    log.debug("Agent {} guild accept: inviter '{}' unknown or guild-less",
+                            session.getName(), accept.inviterName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x06); // accept invite
+                        p.writeInt(gid);
+                        p.writeInt(session.getCharacterId());
+                    });
+                }
+            }
+            case AgentAction.GuildLeave leave -> {
+                if (leave.name() == null || leave.name().isBlank()) {
+                    log.debug("Agent {} guild leave: blank name", session.getName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x07); // leave
+                        p.writeInt(session.getCharacterId());
+                        p.writeString(leave.name());
+                    });
+                }
+            }
+            case AgentAction.GuildExpel expel ->
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x08); // expel
+                        p.writeInt(expel.targetId());
+                        p.writeString(expel.targetName() == null ? "" : expel.targetName());
+                    });
+            case AgentAction.GuildChangeRankTitle change -> {
+                if (change.ranks() == null || change.ranks().size() != 5) {
+                    log.debug("Agent {} rank titles: exactly 5 strings required", session.getName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x0D); // rank titles
+                        for (String rank : change.ranks()) {
+                            p.writeString(rank == null ? "" : rank);
+                        }
+                    });
+                }
+            }
+            case AgentAction.GuildChangeRank change ->
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x0E); // change member rank
+                        p.writeInt(change.targetId());
+                        p.writeByte(change.newRank());
+                    });
+            case AgentAction.GuildNotice notice -> {
+                if (notice.notice() == null) {
+                    log.debug("Agent {} guild notice: null notice", session.getName());
+                } else {
+                    send(session, RecvOpcode.GUILD_OPERATION, p -> {
+                        p.writeByte(0x10); // notice
+                        p.writeString(notice.notice());
+                    });
+                }
+            }
+            case AgentAction.AllianceInvite invite -> {
+                if (invite.guildName() == null || invite.guildName().isBlank()) {
+                    log.debug("Agent {} alliance invite: blank guild name", session.getName());
+                } else {
+                    send(session, RecvOpcode.ALLIANCE_OPERATION, p -> {
+                        p.writeByte(0x03); // invite guild
+                        p.writeString(invite.guildName());
+                    });
+                }
+            }
+            case AgentAction.AllianceAcceptInvite accept -> {
+                Character inviter = findPlayerByName(session.getPlayer(), accept.inviterName());
+                int allianceId = inviter == null || inviter.getGuild() == null ? 0 : inviter.getGuild().getAllianceId();
+                if (allianceId <= 0) {
+                    log.debug("Agent {} alliance accept: inviter '{}' has no alliance",
+                            session.getName(), accept.inviterName());
+                } else {
+                    send(session, RecvOpcode.ALLIANCE_OPERATION, p -> {
+                        p.writeByte(0x04); // accept invite
+                        p.writeInt(allianceId);
+                    });
+                }
+            }
+            case AgentAction.AllianceLeave ignored ->
+                    send(session, RecvOpcode.ALLIANCE_OPERATION, p -> p.writeByte(0x02)); // leave alliance
+            case AgentAction.Engage engage -> {
+                if (engage.targetName() == null || engage.targetName().isBlank()) {
+                    log.debug("Agent {} engage: blank target", session.getName());
+                } else {
+                    send(session, RecvOpcode.RING_ACTION, p -> {
+                        p.writeByte(0); // send proposal
+                        p.writeString(engage.targetName());
+                        p.writeInt(engage.itemId());
+                    });
+                }
+            }
+            case AgentAction.EngageAnswer answer -> {
+                // The real client echoes the proposer's name + id from the request packet;
+                // resolve the id the same way the server addressed the proposal.
+                Character proposer = findPlayerByName(session.getPlayer(), answer.proposerName());
+                if (proposer == null) {
+                    log.debug("Agent {} engage answer: proposer '{}' unknown", session.getName(), answer.proposerName());
+                } else {
+                    send(session, RecvOpcode.RING_ACTION, p -> {
+                        p.writeByte(2); // accept/deny proposal
+                        p.writeByte(answer.accept() ? 1 : 0);
+                        p.writeString(answer.proposerName());
+                        p.writeInt(proposer.getId());
+                    });
+                }
+            }
+            case AgentAction.BreakEngagement breakUp ->
+                    send(session, RecvOpcode.RING_ACTION, p -> {
+                        p.writeByte(3); // break engagement / divorce (drops the token/ring)
+                        p.writeInt(breakUp.itemId());
+                    });
+            case AgentAction.FamilyAdd add -> {
+                if (add.name() == null || add.name().isBlank()) {
+                    log.debug("Agent {} family add: blank name", session.getName());
+                } else {
+                    send(session, RecvOpcode.ADD_FAMILY, p -> p.writeString(add.name()));
+                }
+            }
+            case AgentAction.FamilyAccept answer -> {
+                Character inviter = findPlayerByName(session.getPlayer(), answer.inviterName());
+                if (inviter == null) {
+                    log.debug("Agent {} family answer: inviter '{}' unknown", session.getName(), answer.inviterName());
+                } else {
+                    send(session, RecvOpcode.ACCEPT_FAMILY, p -> {
+                        p.writeInt(inviter.getId());
+                        p.writeString(""); // (inviter name echo, skipped by the handler)
+                        p.writeByte(answer.accept() ? 1 : 0);
+                    });
+                }
+            }
             case AgentAction.Idle ignored -> {
             }
         }
@@ -360,7 +523,11 @@ public class AgentActionDispatcher {
         }
     }
 
-    private static Character findPlayerByName(Character chr, String name) {
+    /** Resolves a nearby or same-world player by name (also used by the harness verifier). */
+    public static Character findPlayerByName(Character chr, String name) {
+        if (chr == null || name == null || chr.getMap() == null) {
+            return null;
+        }
         for (Character player : chr.getMap().getAllPlayers()) {
             if (player.getName().equalsIgnoreCase(name)) {
                 return player;

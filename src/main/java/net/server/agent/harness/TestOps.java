@@ -161,6 +161,16 @@ public final class TestOps {
         return result("granted %d mesos to %s", amount, chr.getName());
     }
 
+    /** Sets the character's gender (0 = male, 1 = female) — needed to arrange engagement scenarios. */
+    public static Map<String, Object> setGender(AgentSession session, int gender) {
+        Character chr = character(session);
+        if (gender != 0 && gender != 1) {
+            throw new IllegalArgumentException("Gender must be 0 (male) or 1 (female), got " + gender);
+        }
+        chr.setGender(gender);
+        return result("set %s gender to %s", chr.getName(), gender == 1 ? "female" : "male");
+    }
+
     /** Sets the character's level (recalculates HP/MP ceilings; does not grant SP/AP). */
     public static Map<String, Object> setLevel(AgentSession session, int level) {
         Character chr = character(session);

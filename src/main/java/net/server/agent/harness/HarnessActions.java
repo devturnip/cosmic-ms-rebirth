@@ -115,6 +115,35 @@ public final class HarnessActions {
             case "HIREDMERCHANTWITHDRAWMESOS" -> new AgentAction.HiredMerchantWithdrawMesos();
             case "HIREDMERCHANTTAKEITEMBACK" -> new AgentAction.HiredMerchantTakeItemBack(intField(node, "slot"));
             case "HIREDMERCHANTCLOSE" -> new AgentAction.HiredMerchantClose();
+            case "GUILDCREATE" -> new AgentAction.GuildCreate(text(node, "name"));
+            case "GUILDCREATEANSWER" -> new AgentAction.GuildCreateAnswer(boolField(node, "accept"));
+            case "GUILDINVITE" -> new AgentAction.GuildInvite(text(node, "targetName"));
+            case "GUILDACCEPTINVITE" -> new AgentAction.GuildAcceptInvite(text(node, "inviterName"));
+            case "GUILDLEAVE" -> new AgentAction.GuildLeave(text(node, "name"));
+            case "GUILDEXPEL" -> new AgentAction.GuildExpel(intField(node, "targetId"), text(node, "targetName"));
+            case "GUILDCHANGERANKTITLE" -> {
+                JsonNode ranks = node.get("ranks");
+                if (ranks == null || !ranks.isArray()) {
+                    throw new IllegalArgumentException("GuildChangeRankTitle requires 'ranks' array of 5 strings");
+                }
+                List<String> titles = new ArrayList<>();
+                ranks.forEach(t -> titles.add(t.asText()));
+                if (titles.size() != 5) {
+                    throw new IllegalArgumentException("GuildChangeRankTitle requires exactly 5 rank titles");
+                }
+                yield new AgentAction.GuildChangeRankTitle(titles);
+            }
+            case "GUILDCHANGERANK" -> new AgentAction.GuildChangeRank(intField(node, "targetId"),
+                    intField(node, "newRank"));
+            case "GUILDNOTICE" -> new AgentAction.GuildNotice(text(node, "notice"));
+            case "ALLIANCEINVITE" -> new AgentAction.AllianceInvite(text(node, "guildName"));
+            case "ALLIANCEACCEPTINVITE" -> new AgentAction.AllianceAcceptInvite(text(node, "inviterName"));
+            case "ALLIANCELEAVE" -> new AgentAction.AllianceLeave();
+            case "ENGAGE" -> new AgentAction.Engage(text(node, "targetName"), intField(node, "itemId"));
+            case "ENGAGEANSWER" -> new AgentAction.EngageAnswer(boolField(node, "accept"), text(node, "proposerName"));
+            case "BREAKENGAGEMENT" -> new AgentAction.BreakEngagement(intField(node, "itemId"));
+            case "FAMILYADD" -> new AgentAction.FamilyAdd(text(node, "name"));
+            case "FAMILYACCEPT" -> new AgentAction.FamilyAccept(boolField(node, "accept"), text(node, "inviterName"));
             case "IDLE" -> new AgentAction.Idle();
             default -> throw new IllegalArgumentException("Unknown action type '" + type + "'");
         };

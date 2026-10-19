@@ -41,9 +41,9 @@ config keys — then `docker compose up -d maplestory` and point the MCP client 
 | Tool | Purpose |
 | --- | --- |
 | `session_start` `{jobId?, level?, mapId?, world?, channel?}` | Provision an ephemeral server-owned character and log it in through the real bootstrap. Returns the full observation. Match `channel` to a real client's channel when testing cross-visibility. |
-| `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, interaction (minigame room / hired merchant state), buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
+| `observe` `{sessionId, omniscient?}` | Full state: level/job/hp/mp/exp/mesos/position, monsters, drops (with name/questId), NPCs, players, inventory, equipment, quests, buddies, trade, cashShop, npcDialog, interaction (minigame room / hired merchant state), guild, alliance, marriage, family, buffered events. Pass `omniscient: true` to lift the view-range cap (whole map). |
 | `act` `{sessionId, actions[]}` | Submit player actions through the real handlers. Blocks until applied; returns per-action results + fresh observation. |
-| `setup` `{sessionId, op, args}` | Cheat ops: `teleport` `{mapId, portal?, x?, y?}` — when `x`/`y` are both given the character is placed at that exact position on the target map (for PQ rect/area placements real movement cannot reach), `spawn_mob`, `kill_mob` `{withDrops}` (`withDrops` registers the session as the kill's damage source, so drops spawn even under `USE_SPAWN_RELEVANT_LOOT`), `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
+| `setup` `{sessionId, op, args}` | Cheat ops: `teleport` `{mapId, portal?, x?, y?}` — when `x`/`y` are both given the character is placed at that exact position on the target map (for PQ rect/area placements real movement cannot reach), `spawn_mob`, `kill_mob` `{withDrops}` (`withDrops` registers the session as the kill's damage source, so drops spawn even under `USE_SPAWN_RELEVANT_LOOT`), `list_mobs`, `grant_item`, `grant_mesos`, `grant_cash` `{amount, type?}` (1=NX credit, 2=maple point, 4=prepaid), `set_level`, `set_quest_state`, `spawn_drop`, `heal`, `set_gender` `{gender}` (0=male, 1=female — provisions default to male; arrange opposite-gender engagement pairs), `debug_players` `{mapId?}` (diagnostic: server-side map/channel/world player lists — ground truth for visibility disputes). |
 | `drain_events` `{sessionId}` | Map chat, party invites, map changes, whispers received since last call. |
 | `session_end` `{sessionId}` | Despawn + delete character and account (idempotent). |
 | `session_list` | Live session ids. |
@@ -121,6 +121,35 @@ can `HiredMerchantWithdrawMesos`, `HiredMerchantTakeItemBack{slot}` or
 `HiredMerchantClose` (returns the items; the box disappears from the map). Not exposed:
 player-shop (permit 514xxxx) rooms and the merchant blacklist/visitor-history sub-menus.
 Ready/unready/skip frames are not wrapped (START/GIVE_UP/TIE suffice to play a match).
+
+**Guild / alliance / marriage / family (social systems):** `GuildCreate{name}` (GUILD_OPERATION
+create — requires `CREATE_GUILD_MIN_PARTNERS` guild-less, party-free co-founders on the leader's
+map plus `CREATE_GUILD_COST` mesos; opens a match-checker confirmation), `GuildCreateAnswer{
+accept}` (each co-founder answers; the **last** acceptance founds the guild — the leader must be
+at Guild HQ 200000301 and keeps leadership), `GuildInvite{targetName}` → invitee
+`GuildAcceptInvite{inviterName}`, `GuildLeave{name}`, `GuildExpel{targetId,targetName}` (rank
+1/2), `GuildChangeRankTitle{ranks[5]}` (rank 1), `GuildChangeRank{targetId,newRank}`,
+`GuildNotice{notice}`. Guild state (id, name, rank, notice, members with ranks) is exposed in
+the observation's `guild` block. Disbanding is NPC-driven: at Guild HQ, leader talks to Guon
+(2010007) and picks “Disband your Guild” (or leaves via `GuildLeave` — note the leader leaving
+without the NPC leaves a leaderless guild, faithful server behaviour). **Alliance:** creation
+and disbanding run through Lenario (2010009) at Guild HQ with the dialog actions (two guild
+masters partyed, the party leader pays 2M mesos, name via a text-input frame);
+`AllianceInvite{guildName}` → the target guild's master `AllianceAcceptInvite{inviterName}`;
+`AllianceLeave` (guild rank 1). Alliance state is in the `alliance` observation block.
+**Marriage (engagement):** proposer `setup set_level {level:50}` + `setup grant_item
+{itemId:2240000..2240003}` (engagement box), target `setup set_gender {gender:1}` + level 50,
+same map → proposer `Engage{targetName,itemId}` → target `EngageAnswer{accept,proposerName}`
+(on accept both gain the empty engagement box in ETC and `partnerId` is set on both; observe
+`marriage{partnerId,marriageItemId,married}`). `BreakEngagement{itemId}` drops the engagement
+token to sever (the same action divorces a married couple when given a 1112803x wedding ring).
+**Family:** `FamilyAdd{name}` (same map, target level >10, level difference ≤ 20,
+`USE_FAMILY_SYSTEM`) → target `FamilyAccept{accept,inviterName}` — on accept a family is
+created/joined and appears in the `family` block (senior, juniors, reputation) of both sides.
+**Full weddings** (Cathedral/Chapel reservation, invitations, guests, wishlist) are scripted
+multi-stage event flows (`scripts/event/WeddingCathedral.js`) — not wrapped in dedicated
+actions; drive them scenario-style with `NpcTalk`/`NpcSelect`/`EnterPortal` once a couple is
+engaged, or treat the engagement + `BreakEngagement` as the covered surface.
 
 Actions are executed exactly like client packets (`AgentActionDispatcher` → real handlers), so
 invalid actions (wrong ammo, unreachable positions, cooldowns, mute) fail or get dropped by the
@@ -215,6 +244,23 @@ The testing agent judges outcomes from observations — these recipes are the *s
   visitor (same map/channel): `RoomVisit{ownerName}` → `HiredMerchantBuy` (mesos move, item
   enters inventory); owner: `RoomVisit{ownerName:<self>}` → `HiredMerchantWithdrawMesos` →
   `HiredMerchantClose` (box gone from the map, items back in `inventory`).
+- **Guild & alliance (multi-session, ≥7 sessions — raise `TEST_HARNESS_MAX_SESSIONS`)** — all
+  sessions `setup teleport {mapId:200000301}` (Guild HQ), no guilds, no parties: leader (with
+  `setup grant_mesos {amount:1500000}`) `GuildCreate{name:"Cosmonauts"}` → each of the 6
+  co-founders `GuildCreateAnswer{accept:true}` — the last acceptance founds the guild (verify
+  via every session's `guild` block: leader rank 1, co-founders rank 2, mesos deducted). Then
+  leader `GuildInvite{targetName}` → invitee `GuildAcceptInvite{inviterName}` (rank 5 member);
+  `GuildChangeRank`/`GuildChangeRankTitle`/`GuildNotice`/`GuildExpel` verify via the `guild`
+  block. Alliance: two guild leaders party up (one invites, one accepts via the party actions)
+  and drive Lenario (2010009) with the dialog actions, paying 2M mesos; `AllianceInvite` /
+  `AllianceAcceptInvite` / `AllianceLeave` for roster changes (`alliance` block).
+- **Engagement & family (two sessions)** — A (male) and B (`setup set_gender {gender:1}`, both
+  level 50+ via `setup set_level`) on one map: A `setup grant_item {itemId:2240000}` →
+  `Engage{targetName:"B",itemId:2240000}` → B `EngageAnswer{accept:true,proposerName:"A"}` —
+  both `marriage` blocks show `partnerId` set and the ETC engagement boxes appear in
+  `inventory`. Severing: `BreakEngagement{itemId:4031357}` on either side resets `partnerId`.
+  Family: A `FamilyAdd{name:"B"}` → B `FamilyAccept{accept:true,inviterName:"A"}` — both
+  `family` blocks show the senior/junior link; levels must be within 20 and B above level 10.
 
 ## 6. Guarantees & limitations
 

@@ -2,8 +2,15 @@ package net.server.agent.harness;
 
 import client.Character;
 import client.inventory.InventoryType;
+import net.server.Server;
 import net.server.agent.AgentAction;
+import net.server.agent.AgentActionDispatcher;
 import net.server.agent.AgentSession;
+import net.server.coordinator.world.InviteCoordinator;
+import net.server.coordinator.world.InviteCoordinator.InviteType;
+import net.server.guild.Guild;
+import net.server.guild.Guild;
+import net.server.guild.GuildCharacter;
 import server.maps.HiredMerchant;
 import server.maps.MapItem;
 import server.maps.MiniGame;
@@ -29,6 +36,12 @@ import java.awt.Point;
  *     <li>{@code MiniGame*}/{@code Room*}/{@code HiredMerchant*} — room state changed: board
  *     piece placed, first card slot / points / scores moved, room membership, merchant
  *     listings, open flag, map-box presence, or mesos moved (buys/withdrawals)</li>
+ *     <li>{@code Guild*}/{@code Alliance*} — match-checker confirmations, invite-coordinator
+ *     entries, guild membership/ranks/titles/notice or alliance registration changed</li>
+ *     <li>{@code Engage*}/{@code BreakEngagement} — {@code marriageItemId}/{@code partnerId}
+ *     set or reset (engagement registered / severed)</li>
+ *     <li>{@code Family*} — a family invite became pending, or the character's family id
+ *     changed (joined/absorbed)</li>
  * </ul>
  * Actions that are chat/social ({@code Say}, {@code Whisper}, ...) have no cheap observable
  * effect and report {@code accepted = null} (unknown). A {@code false} always means the server
@@ -156,6 +169,60 @@ public final class HarnessVerifier {
         }
         if (action instanceof AgentAction.HiredMerchantClose) {
             return Boolean.valueOf(findOwnedMerchant(chr) != null);
+        }
+        // ---- guild / alliance / marriage / family ----
+        if (action instanceof AgentAction.GuildCreate) {
+            return (long) matchConfirmationLeaderId(chr); // a confirmation should appear for this leader
+        }
+        if (action instanceof AgentAction.GuildCreateAnswer) {
+            return new long[]{matchConfirmationLeaderId(chr), chr.getGuildId()};
+        }
+        if (action instanceof AgentAction.GuildInvite invite) {
+            return pendingGuildInvite(chr, invite.targetName());
+        }
+        if (action instanceof AgentAction.GuildAcceptInvite) {
+            return (long) chr.getGuildId();
+        }
+        if (action instanceof AgentAction.GuildLeave) {
+            return (long) chr.getGuildId();
+        }
+        if (action instanceof AgentAction.GuildExpel expel) {
+            return Boolean.valueOf(guildHasMember(chr, expel.targetId()));
+        }
+        if (action instanceof AgentAction.GuildChangeRankTitle) {
+            return guildRankTitlesKey(chr);
+        }
+        if (action instanceof AgentAction.GuildChangeRank change) {
+            return (long) guildMemberRank(chr, change.targetId());
+        }
+        if (action instanceof AgentAction.GuildNotice) {
+            var guild = chr.getGuild();
+            return guild == null ? null : guild.getNotice();
+        }
+        if (action instanceof AgentAction.AllianceInvite invite) {
+            return pendingAllianceInvite(chr, invite.guildName());
+        }
+        if (action instanceof AgentAction.AllianceAcceptInvite) {
+            return (long) chr.getGuildId() <= 0 ? null : (long) chr.getGuild().getAllianceId();
+        }
+        if (action instanceof AgentAction.AllianceLeave) {
+            return (long) (chr.getGuild() == null ? 0 : chr.getGuild().getAllianceId());
+        }
+        if (action instanceof AgentAction.Engage) {
+            return (long) chr.getMarriageItemId();
+        }
+        if (action instanceof AgentAction.EngageAnswer answer) {
+            Character proposer = net.server.agent.AgentActionDispatcher.findPlayerByName(chr, answer.proposerName());
+            return new long[]{chr.getPartnerId(), proposer == null ? -1 : proposer.getMarriageItemId()};
+        }
+        if (action instanceof AgentAction.BreakEngagement) {
+            return (long) chr.getPartnerId();
+        }
+        if (action instanceof AgentAction.FamilyAdd add) {
+            return pendingFamilyInvite(chr, add.name());
+        }
+        if (action instanceof AgentAction.FamilyAccept) {
+            return (long) (chr.getFamily() == null ? -1 : chr.getFamily().getID());
         }
         return null; // chat/social and bookkeeping actions: acceptance not observable
     }
@@ -329,12 +396,187 @@ public final class HarnessVerifier {
         if (action instanceof AgentAction.HiredMerchantClose) {
             return ((Boolean) pre) && findOwnedMerchant(chr) == null;
         }
+        // ---- guild / alliance / marriage / family ----
+        if (action instanceof AgentAction.GuildCreate) {
+            return !pre.equals((long) matchConfirmationLeaderId(chr)); // a confirmation was created
+        }
+        if (action instanceof AgentAction.GuildCreateAnswer answer) {
+            long[] before = (long[]) pre;
+            long leaderId = matchConfirmationLeaderId(chr);
+            if (before[0] == -1) {
+                return false; // no pending confirmation was ever created for this character
+            }
+            if (answer.accept()) {
+                if (chr.getGuildId() > 0) {
+                    return true; // the guild was founded (all co-founders confirmed)
+                }
+                // accepted but other co-founders have not answered yet: not observable yet
+                return leaderId != -1 ? null : false;
+            }
+            return leaderId == -1 && chr.getGuildId() == 0; // confirmation dismissed without joining
+        }
+        if (action instanceof AgentAction.GuildInvite invite) {
+            Boolean before = (Boolean) pre;
+            if (before == null) {
+                return null; // target was never resolvable — nothing to compare
+            }
+            return !before && Boolean.TRUE.equals(pendingGuildInvite(chr, invite.targetName()));
+        }
+        if (action instanceof AgentAction.GuildAcceptInvite) {
+            return !pre.equals(0L) ? false : chr.getGuildId() > 0; // joined a guild (0 -> gid)
+        }
+        if (action instanceof AgentAction.GuildLeave) {
+            return !pre.equals(0L) && chr.getGuildId() == 0; // back to guild-less
+        }
+        if (action instanceof AgentAction.GuildExpel expel) {
+            return ((Boolean) pre) && !guildHasMember(chr, expel.targetId());
+        }
+        if (action instanceof AgentAction.GuildChangeRankTitle) {
+            return !pre.equals(guildRankTitlesKey(chr)); // rank titles changed
+        }
+        if (action instanceof AgentAction.GuildChangeRank change) {
+            int before = (int) (long) (Long) pre;
+            if (before == -1) {
+                return false; // target was never a guild member
+            }
+            int after = guildMemberRank(chr, change.targetId());
+            return after != -1 && after != before;
+        }
+        if (action instanceof AgentAction.GuildNotice) {
+            var guild = chr.getGuild();
+            return guild != null && !pre.equals(guild.getNotice());
+        }
+        if (action instanceof AgentAction.AllianceInvite invite) {
+            Boolean before = (Boolean) pre;
+            if (before == null) {
+                return null; // target guild was never resolvable
+            }
+            return !before && Boolean.TRUE.equals(pendingAllianceInvite(chr, invite.guildName()));
+        }
+        if (action instanceof AgentAction.AllianceAcceptInvite) {
+            return pre == null ? null : (!pre.equals(0L) ? false : chr.getGuild() != null && chr.getGuild().getAllianceId() > 0);
+        }
+        if (action instanceof AgentAction.AllianceLeave) {
+            return !pre.equals(0L) && (chr.getGuild() == null || chr.getGuild().getAllianceId() == 0);
+        }
+        if (action instanceof AgentAction.Engage) {
+            return !pre.equals(0L) ? false : chr.getMarriageItemId() > 0; // proposal registered (item reserved)
+        }
+        if (action instanceof AgentAction.EngageAnswer answer) {
+            long[] before = (long[]) pre;
+            if (answer.accept()) {
+                if (before[0] > 0) {
+                    return false; // already engaged — the handler refuses
+                }
+                return chr.getPartnerId() > 0; // engaged (both partnerId + ETC box set)
+            }
+            Character proposer = net.server.agent.AgentActionDispatcher.findPlayerByName(chr, answer.proposerName());
+            return proposer != null && before[1] > 0 && proposer.getMarriageItemId() == -1; // proposal withdrawn
+        }
+        if (action instanceof AgentAction.BreakEngagement) {
+            return !pre.equals(0L) && chr.getPartnerId() <= 0; // relationship severed
+        }
+        if (action instanceof AgentAction.FamilyAdd add) {
+            Boolean before = (Boolean) pre;
+            if (before == null) {
+                return null; // target was never resolvable — nothing to compare
+            }
+            return !before && Boolean.TRUE.equals(pendingFamilyInvite(chr, add.name()));
+        }
+        if (action instanceof AgentAction.FamilyAccept answer) {
+            if (!answer.accept()) {
+                return null; // a denial only notifies the inviter — not observable here
+            }
+            long before = (Long) pre;
+            long after = chr.getFamily() == null ? -1 : chr.getFamily().getID();
+            return after != -1 && after != before; // joined a family (or absorbed one)
+        }
         return null;
     }
 
     /** Whether the character is inside any PlayerInteraction room (minigame or hired merchant). */
     private static boolean inRoom(Character chr) {
         return chr.getMiniGame() != null || chr.getHiredMerchant() != null;
+    }
+
+    // ------------------------------------------------------------------
+    // guild / alliance / marriage / family snapshots
+    // ------------------------------------------------------------------
+
+    /** The match-checker confirmation leader for this character, or -1 when none is pending. */
+    private static int matchConfirmationLeaderId(Character chr) {
+        return chr.getWorldServer().getMatchCheckerCoordinator().getMatchConfirmationLeaderid(chr.getId());
+    }
+
+    /** Whether {@code targetName} has a pending guild invite from anyone (null: unresolvable). */
+    private static Boolean pendingGuildInvite(Character chr, String targetName) {
+        Character target = AgentActionDispatcher.findPlayerByName(chr, targetName);
+        return target == null ? null
+                : Boolean.valueOf(InviteCoordinator.hasInvite(InviteType.GUILD, target.getId()));
+    }
+
+    /**
+     * Whether the master of guild {@code guildName} has a pending alliance invite (null:
+     * guild unknown or its master offline — the handler would not have created an invite).
+     */
+    private static Boolean pendingAllianceInvite(Character chr, String guildName) {
+        Guild guild = Server.getInstance().getGuildByName(guildName);
+        if (guild == null) {
+            return null;
+        }
+        GuildCharacter master = guild.getMGC(guild.getLeaderId());
+        if (master == null || master.getCharacter() == null) {
+            return null;
+        }
+        return Boolean.valueOf(InviteCoordinator.hasInvite(InviteType.ALLIANCE, master.getId()));
+    }
+
+    /** Whether {@code targetName} has a pending family invite from anyone (null: unresolvable). */
+    private static Boolean pendingFamilyInvite(Character chr, String targetName) {
+        Character target = AgentActionDispatcher.findPlayerByName(chr, targetName);
+        return target == null ? null
+                : Boolean.valueOf(InviteCoordinator.hasInvite(InviteType.FAMILY, target.getId()));
+    }
+
+    private static boolean guildHasMember(Character chr, int cid) {
+        Guild guild = chr.getGuild();
+        if (guild == null) {
+            return false;
+        }
+        for (GuildCharacter mgc : guild.getMembers()) {
+            if (mgc.getId() == cid) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Guild rank of member {@code cid}, or -1 when the character is guild-less / cid absent. */
+    private static int guildMemberRank(Character chr, int cid) {
+        Guild guild = chr.getGuild();
+        if (guild == null) {
+            return -1;
+        }
+        for (GuildCharacter mgc : guild.getMembers()) {
+            if (mgc.getId() == cid) {
+                return mgc.getGuildRank();
+            }
+        }
+        return -1;
+    }
+
+    /** Hash of the five guild rank titles (0 when guild-less). */
+    private static long guildRankTitlesKey(Character chr) {
+        Guild guild = chr.getGuild();
+        if (guild == null) {
+            return 0;
+        }
+        long key = 17;
+        for (int rank = 1; rank <= 5; rank++) {
+            String title = guild.getRankTitle(rank);
+            key = key * 31 + (title == null ? 0 : title.hashCode());
+        }
+        return key;
     }
 
     /** Minigame snapshot key: type, piece, match state, scores/points, first card slot, visitor. */

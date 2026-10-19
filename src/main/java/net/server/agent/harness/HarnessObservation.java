@@ -10,6 +10,8 @@ import net.server.agent.AgentEvent;
 import net.server.agent.AgentObservation;
 import net.server.agent.AgentPerception;
 import net.server.agent.AgentSession;
+import net.server.guild.Guild;
+import net.server.guild.GuildCharacter;
 import server.ItemInformationProvider;
 import server.maps.HiredMerchant;
 import server.maps.MapItem;
@@ -97,6 +99,10 @@ public final class HarnessObservation {
         out.put("cashShop", describeCashShop(chr));
         out.put("trade", describeTrade(chr));
         out.put("interaction", describeInteraction(chr));
+        out.put("guild", describeGuild(chr));
+        out.put("alliance", describeAlliance(chr));
+        out.put("marriage", describeMarriage(chr));
+        out.put("family", describeFamily(chr));
 
         List<Object> events = new ArrayList<>();
         for (AgentEvent event : drainedEvents) {
@@ -364,6 +370,85 @@ public final class HarnessObservation {
         quests.put("started", started);
         quests.put("completed", completed);
         return quests;
+    }
+
+    /** Guild membership: id, name, the agent's rank, notice and the member roster. */
+    private static Map<String, Object> describeGuild(Character chr) {
+        int guildId = chr.getGuildId();
+        if (guildId <= 0) {
+            return null;
+        }
+        var guild = chr.getGuild();
+        if (guild == null) {
+            return null; // deferred guild load — the id is still authoritative
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("id", guildId);
+        e.put("name", guild.getName());
+        e.put("rank", chr.getGuildRank());
+        e.put("notice", guild.getNotice());
+        e.put("allianceId", guild.getAllianceId());
+        List<Object> members = new ArrayList<>();
+        for (GuildCharacter mgc : guild.getMembers()) {
+            Map<String, Object> me = new LinkedHashMap<>();
+            me.put("id", mgc.getId());
+            me.put("name", mgc.getName());
+            me.put("rank", mgc.getGuildRank());
+            me.put("online", mgc.isOnline());
+            members.add(me);
+        }
+        e.put("members", members);
+        return e;
+    }
+
+    /** The alliance the agent's guild belongs to (null when none). */
+    private static Map<String, Object> describeAlliance(Character chr) {
+        var guild = chr.getGuild();
+        if (guild == null || guild.getAllianceId() <= 0) {
+            return null;
+        }
+        var alliance = chr.getAlliance();
+        if (alliance == null) {
+            return null;
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("id", alliance.getId());
+        e.put("name", alliance.getName());
+        e.put("capacity", alliance.getCapacity());
+        List<Object> guilds = new ArrayList<>();
+        for (Integer gid : alliance.getGuilds()) {
+            Guild g = net.server.Server.getInstance().getGuild(gid);
+            guilds.add(g == null ? gid : g.getName());
+        }
+        e.put("guilds", guilds);
+        return e;
+    }
+
+    /** Engagement/marriage state: partner id, the ring token id and the married flag. */
+    private static Map<String, Object> describeMarriage(Character chr) {
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("partnerId", chr.getPartnerId());
+        e.put("marriageItemId", chr.getMarriageItemId());
+        e.put("married", chr.isMarried());
+        return e;
+    }
+
+    /** Family membership (null when none): senior/juniors names and reputation. */
+    private static Map<String, Object> describeFamily(Character chr) {
+        var entry = chr.getFamilyEntry();
+        if (entry == null) {
+            return null;
+        }
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("familyId", entry.getFamily().getID());
+        e.put("senior", entry.getSenior() != null ? entry.getSenior().getName() : null);
+        List<Object> juniors = new ArrayList<>();
+        for (var junior : entry.getJuniors()) {
+            juniors.add(junior.getName());
+        }
+        e.put("juniors", juniors);
+        e.put("reputation", entry.getReputation());
+        return e;
     }
 
     /** Human-readable job label for logs. */
