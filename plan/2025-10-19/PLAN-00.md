@@ -253,9 +253,9 @@ inbound packets with full server validation), `AgentPerception` (structured worl
 ## 9. Open items / deferred
 
 - Deterministic scripted scenarios with hard assertions for CI (tier 2).
-- LPQ stage 2 data gap: 15 passes required but only 11 box-reactors exist (stage-5 pattern is
-  1 box = 1 pass, counts match) — needs a vanilla-fidelity decision (add 4 boxes in WZ vs
-  lower the requirement). Documented in `docs/test-harness-coverage.md`.
+- ~~LPQ stage 2 data gap~~ — **fixed (b78a53545) + live-verified**: 4 box-reactors added to
+  922010200 (11→15, matching the 1-pass-per-box pattern stage 5 validates); probe confirmed all
+  15 boxes break → 15 passes → hand-in → stage clear.
 - Pathfinding oscillation on 103000802 target (1100,-75) — debug plan in hand-off §4.20.
 - Minor live-found bugs (documented in `docs/test-harness-coverage.md`): expired drops linger
   unpickable on 922010200; guild co-founder rank race; `getCrushRings` CME; stale party invite

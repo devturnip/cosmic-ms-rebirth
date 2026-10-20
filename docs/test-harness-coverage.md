@@ -113,6 +113,15 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
   sorted it in place) while `addCrushRing` could mutate it from cash-shop purchases. Fixed:
   `getCrushRings`/`getFriendshipRings` return sorted snapshots — fixed
   (`CharacterRingsTest`).
+- **LPQ stage-2 data gap (fixed `b78a53545` + live-verified)**: stage 2 required 15 passes
+  but only 11 pass-boxes existed. 4 box-reactors added to
+  `wz/Map.wz/Map/Map9/922010200.img.xml` at validated platform positions (-160,129 /
+  -100,-177 / 100,-489 / 60,-1133), keeping the authentic 15-pass requirement and the
+  1-box-1-pass design stage 5 exhibits. Live probe: 5 sessions entered, all 15 boxes broke on
+  the 4th hit, exactly 15 passes dropped (one per box, incl. all 4 new positions), hand-in
+  accepted, `15stageclear` → stage 3. NOTE: the client (`heavenclient-macos`) carries its own
+  WZ/NX copy — the same 4 reactor entries must be added there for real clients to render the
+  new boxes (server-side logic is complete regardless).
 - **Stale party invite blocked re-invite**: an unanswered `InviteCoordinator` invite made
   subsequent `createInvite` calls for the same invitee + type silently no-op (putIfAbsent)
   until the ~3-min timeout. Fixed: a new invite now replaces the stale pending one while
