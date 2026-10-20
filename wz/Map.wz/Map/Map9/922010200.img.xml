@@ -907,6 +907,38 @@
       <int name="f" value="1"/>
       <string name="name" value=""/>
     </imgdir>
+    <imgdir name="12">
+      <string name="id" value="2202003"/>
+      <int name="x" value="-160"/>
+      <int name="y" value="129"/>
+      <int name="reactorTime" value="-1"/>
+      <int name="f" value="0"/>
+      <string name="name" value=""/>
+    </imgdir>
+    <imgdir name="13">
+      <string name="id" value="2202003"/>
+      <int name="x" value="-100"/>
+      <int name="y" value="-177"/>
+      <int name="reactorTime" value="-1"/>
+      <int name="f" value="0"/>
+      <string name="name" value=""/>
+    </imgdir>
+    <imgdir name="14">
+      <string name="id" value="2202003"/>
+      <int name="x" value="100"/>
+      <int name="y" value="-489"/>
+      <int name="reactorTime" value="-1"/>
+      <int name="f" value="1"/>
+      <string name="name" value=""/>
+    </imgdir>
+    <imgdir name="15">
+      <string name="id" value="2202003"/>
+      <int name="x" value="60"/>
+      <int name="y" value="-1133"/>
+      <int name="reactorTime" value="-1"/>
+      <int name="f" value="0"/>
+      <string name="name" value=""/>
+    </imgdir>
   </imgdir>
   <imgdir name="0">
     <imgdir name="info">
