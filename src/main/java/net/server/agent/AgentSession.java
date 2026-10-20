@@ -78,6 +78,8 @@ public class AgentSession {
     private volatile boolean muted;
     /** Whether the last emitted movement step was a rope/ladder climb (drives pathing classification). */
     private volatile boolean climbingRope;
+    /** Per-session movement manoeuvre state (Tier-2 pathfinding, §4.20); never null in real sessions. */
+    private final AgentMovementState movementState = new AgentMovementState();
     /** Whether a movement step ran in the current behaviour tick (drives idle-stance sync). */
     private volatile boolean movedThisTick;
     /** When paused, the agent skips all decisions and server-driven behaviour until resumed. */
@@ -196,6 +198,15 @@ public class AgentSession {
 
     public void setClimbingRope(boolean climbingRope) {
         this.climbingRope = climbingRope;
+    }
+
+    /**
+     * The per-session movement manoeuvre state (route under execution). Package-private: only
+     * the movement/pathing code touches it. Returns {@code null} from mocked sessions (tests),
+     * which run the stateless legacy routing path.
+     */
+    AgentMovementState movementState() {
+        return movementState;
     }
 
     public boolean isPaused() {

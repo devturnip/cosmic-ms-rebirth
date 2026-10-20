@@ -11,7 +11,7 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 | --- | --- | --- |
 | Login / bootstrap | ✅ | `session_start` uses `PlayerLoginService` path |
 | Character creation | ✅ | provisioned via `CharacterFactoryRecipe` + `insertNewChar` |
-| Movement / maps | ✅ | `MoveTo`, `setup teleport`; portal-walk on flat maps |
+| Movement / maps | ✅ | `MoveTo`, `setup teleport`; portal-walk on flat maps; Tier-2 routing (§4.20 in the agent handoff): `MoveTo` drives real `MOVE_PLAYER` fragments through the cached nav graph + v83 jump physics, so cross-platform targets (gap jumps, ropes) complete without teleports |
 | Chat (map/party/whisper) | ✅ | `Say`/`PartySay`/`Whisper` + `drain_events`; opt-out honored |
 | Party | ✅ | invite/accept/leave + `partyMembers` in observation |
 | Combat (melee/skill) | ✅ | `Attack`/`SkillAttack` via real damage handlers; live-verified |

@@ -125,8 +125,10 @@ class AgentMovementWzRuntimeTest {
                 steps++;
                 if (prevSupport == null) {
                     airborne++;
-                    // The fix: an airborne agent may only fall straight down, never drift or climb.
-                    if (next.x != prev.x || next.y < prev.y) {
+                    // The fix: an unsupported agent may only fall straight down, or snap straight
+                    // up onto a surface it slipped just below (≤ SNAP_UP_PX limbo recovery) —
+                    // never drift sideways or climb.
+                    if (next.x != prev.x || next.y < prev.y - AgentMovement.SNAP_UP_PX) {
                         counterexamples.add(String.format(
                                 "map=%d from=(%d,%d) target=(%d,%d) emitted=(%d,%d) supportedBefore=false supportedAfter=%s",
                                 mapId, prev.x, prev.y, target.x, target.y, next.x, next.y,

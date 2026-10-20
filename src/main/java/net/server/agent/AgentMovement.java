@@ -43,14 +43,24 @@ public final class AgentMovement {
      */
     private static final double WALK_SPEED_PX_PER_SEC = 125.0;
     static final int MAX_STEP = 150;
-    /** Vertical gap beyond which two positions are treated as different platforms. */
-    static final int PLATFORM_TOLERANCE = 80;
+    /**
+     * Vertical gap beyond which two positions are treated as different platforms. Aligned with
+     * the v83 jump apex (77px, see {@link AgentPhysics}) plus landing slop, so a routed jump that
+     * lands on a platform up to one apex higher is never misread as a different platform.
+     */
+    static final int PLATFORM_TOLERANCE = 90;
     /** Vertical gap beyond which two positions are treated as different platforms (squared). */
     static final int PLATFORM_TOLERANCE_SQ = PLATFORM_TOLERANCE * PLATFORM_TOLERANCE;
     /** Horizontal distance at or below which the agent is treated as aligned for a drop. */
     private static final int PLATFORM_ALIGN_TOLERANCE = 20;
     /** How far above its support surface an agent may sit and still count as standing on it. */
     static final int GROUNDED_EPSILON = 8;
+    /**
+     * How far an agent may sit <em>below</em> a surface and still be snapped back up onto it
+     * (gravity recovery): agents that slip 1–30px into a slope used to strand in a
+     * grounded-but-unroutable limbo because nothing was "below" them to fall onto.
+     */
+    static final int SNAP_UP_PX = 30;
     /** Coarse sampling granularity (px) when probing the ground ahead of a walking agent. */
     private static final int WALK_SAMPLE_STEP = 8;
     /** Distance (squared) within which a portal can be entered (~60px). */
@@ -66,7 +76,6 @@ public final class AgentMovement {
         }
         moveToSmart(session, target, maxStep);
     }
-
     /**
      * Ground-aware step. An agent must never leave the ground it can actually stand on:
      * <ul>
@@ -94,6 +103,19 @@ public final class AgentMovement {
             // Keep executing the climb route instead (continue / dismount).
             AgentPathing.routeStep(session, target, maxStep);
             return;
+        }
+        // An active, valid manoeuvre owns the tick: the direct step would otherwise fight the
+        // route's walk-to-takeoff (the two alternate forever around a jump takeoff point, and
+        // the alternating positions reset the stall detector). Mocked sessions (movementState()
+        // == null, i.e. the unit tests) skip this and use the stateless legacy path.
+        AgentMovementState state = session.movementState();
+        if (state != null && state.hasRoute()) {
+            Character chr = session.getPlayer();
+            if (chr != null && chr.getMap() != null
+                    && state.validate(chr.getMap().getId(), target)) {
+                AgentPathing.routeStep(session, target, maxStep);
+                return;
+            }
         }
         if (!directStep(session, target, maxStep)) {
             AgentPathing.routeStep(session, target, maxStep);
@@ -123,16 +145,26 @@ public final class AgentMovement {
         Foothold ground = footholdAt(tree, current);
         boolean grounded = ground != null
                 && current.y >= ground.calculateFooting(current.x) - GROUNDED_EPSILON;
+        if (grounded && current.y > ground.calculateFooting(current.x)) {
+            // Slipped just below the support (the classic 1–30px slope-slip limbo): recover with
+            // a pure vertical snap first — no horizontal step is ever emitted off its surface.
+            moveTo(session, current.x, ground.calculateFooting(current.x), maxStep,
+                    fallStance(chr));
+            return true;
+        }
         if (!grounded) {
             // Airborne: fall straight down onto the first foothold under the current x. Never
             // translate horizontally while unsupported, or the agent appears to walk on air.
-            Foothold below = tree.findBelow(new Point(current.x, current.y + 1));
-            if (below != null && !below.isWall() && below.calculateFooting(current.x) > current.y) {
-                moveTo(session, current.x, below.calculateFooting(current.x), maxStep);
+            // (Agents that slipped 1–30px below a surface are still grounded — see footholdAt —
+            // and their next step re-snaps them onto the true surface, so they never freeze.)
+            Foothold below = nextSurfaceBelow(tree, current);
+            if (below != null) {
+                moveTo(session, current.x, below.calculateFooting(current.x), maxStep,
+                        fallStance(chr));
             }
             // Otherwise there is nothing to land on: hold position rather than drift sideways in
             // the air (which is what made agents look like they were walking on air).
-            return true; // airborne agents hold or fall; routing never runs mid-air
+            return true; // airborne agents fall or hold; routing never runs mid-air
         }
 
         int dx = target.x - current.x;
@@ -165,32 +197,20 @@ public final class AgentMovement {
             return walkOnGround(session, tree, ground, current, target.x, maxStep);
         }
 
-        // The target is on a lower platform: close the horizontal gap on the current foothold so we
-        // drop as close to the target as the platform allows, then descend onto the landing surface.
-        int groundMin = Math.min(ground.getX1(), ground.getX2());
-        int groundMax = Math.max(ground.getX1(), ground.getX2());
-        int approachX = Math.max(groundMin, Math.min(groundMax, target.x));
-        if (Math.abs(approachX - current.x) > PLATFORM_ALIGN_TOLERANCE) {
-            // If nothing can be landed on from the approach column the drop would stall there:
-            // prefer a rope/jump route now instead of walking to a dead column and back.
-            if (tree.findBelow(new Point(approachX, current.y + 1)) == null
-                    && AgentPathing.routeStep(session, target, maxStep)) {
-                return true;
-            }
-            moveAlong(session, ground, current.x, approachX, maxStep);
+        // The target is on a lower platform: walk toward its column across every piece of real
+        // ground (chained segments within tolerance count — clamping the approach to the agent's
+        // own segment made agents fall off chain boundaries that continued at the same height);
+        // only when no walkable ground remains ahead, descend straight down onto the surface
+        // below (the landing snaps on as soon as it is within one step; until then the agent
+        // falls). Every horizontal step still ends on a real support surface.
+        if (walkOnGround(session, tree, ground, current, target.x, maxStep)) {
             return true;
         }
-        if (approachX >= landingMin && approachX <= landingMax) {
-            // The platforms overlap here: step directly onto the landing surface.
-            moveAlong(session, landing, current.x, landingX, maxStep);
-            return true;
-        }
-        // A horizontal gap separates the platforms: fall straight down to the next foothold below.
-        Foothold below = tree.findBelow(new Point(current.x, current.y + 1));
-        if (below == null || below.isWall()) {
+        Foothold below = nextSurfaceBelow(tree, current);
+        if (below == null) {
             return false; // nothing to land on: give the pathfinder a chance (rope/jump route)
         }
-        moveTo(session, current.x, below.calculateFooting(current.x), maxStep);
+        moveTo(session, current.x, below.calculateFooting(current.x), maxStep, fallStance(chr));
         return true;
     }
 
@@ -202,7 +222,7 @@ public final class AgentMovement {
      *
      * @return whether a step was emitted ({@code false} = stalled at an edge/gap)
      */
-    private static boolean walkOnGround(AgentSession session, FootholdTree tree, Foothold ground,
+    static boolean walkOnGround(AgentSession session, FootholdTree tree, Foothold ground,
             Point current, int targetX, int maxStep) {
         int dx = targetX - current.x;
         if (dx == 0) {
@@ -215,11 +235,11 @@ public final class AgentMovement {
         Foothold reachedGround = ground;
         while (reached < limit) {
             int next = Math.min(reached + WALK_SAMPLE_STEP, limit);
-            Foothold probe = standableAt(tree, current.x + dir * next, current.y);
+            Foothold probe = standableAt(tree, ground, current.x + dir * next, current.y);
             if (probe == null) {
                 // Refine to the exact edge between the last good sample and the gap.
                 for (int fine = reached + 1; fine < next; fine++) {
-                    Foothold finer = standableAt(tree, current.x + dir * fine, current.y);
+                    Foothold finer = standableAt(tree, ground, current.x + dir * fine, current.y);
                     if (finer == null) {
                         break;
                     }
@@ -235,18 +255,26 @@ public final class AgentMovement {
             return false; // the very next ground is already missing: stay put
         }
         int destX = current.x + dir * reached;
-        moveTo(session, destX, reachedGround.calculateFooting(destX), maxStep);
+        moveTo(session, destX, reachedGround.calculateFooting(destX), maxStep,
+                dir < 0 ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT);
         return true;
     }
 
     /**
      * The foothold the agent can place its feet on at column {@code x} when its feet are at
-     * {@code referenceY}, or {@code null}. Uses {@link FootholdTree#findBelow(Point)}, which only
-     * returns surfaces at or below {@code referenceY}: a candidate can therefore never be a higher
-     * platform (agents do not jump/climb) and never more than {@link #PLATFORM_TOLERANCE} below the
-     * feet.
+     * {@code referenceY}, or {@code null}. The agent's own support always wins: when it sits a few
+     * pixels below its surface (a slope slip) {@link FootholdTree#findBelow(Point)} cannot see it
+     * (the surface is above the feet there) and a walk would wrongly stall or drop off the slope.
+     * Otherwise uses {@link FootholdTree#findBelow(Point)}, which only returns surfaces at or
+     * below {@code referenceY}: a candidate can therefore never be a higher platform and never
+     * more than {@link #PLATFORM_TOLERANCE} below the feet.
      */
-    private static Foothold standableAt(FootholdTree tree, int x, int referenceY) {
+    private static Foothold standableAt(FootholdTree tree, Foothold ground, int x, int referenceY) {
+        if (ground != null
+                && x >= Math.min(ground.getX1(), ground.getX2())
+                && x <= Math.max(ground.getX1(), ground.getX2())) {
+            return ground;
+        }
         Foothold fh = tree.findBelow(new Point(x, referenceY));
         if (fh == null || fh.isWall()) {
             return null;
@@ -259,7 +287,51 @@ public final class AgentMovement {
         int step = Math.max(1, maxStep);
         int dx = toX - fromX;
         int destX = Math.abs(dx) > step ? fromX + Integer.signum(dx) * step : toX;
-        moveTo(session, destX, foothold.calculateFooting(destX), maxStep);
+        // Walking along real ground is always a walk stance — even when a steep slope makes the
+        // step vertical-dominant (the old auto-stance misread slope walks as rope climbs).
+        moveTo(session, destX, foothold.calculateFooting(destX), maxStep,
+                destX < fromX ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT);
+    }
+
+    /**
+     * The nearest non-wall surface strictly below {@code p}, or {@code null}. {
+     * @code FootholdTree#findBelow} walks a single quadtree quadrant path, so near quadrant
+     * boundaries it can miss footholds that do cover {@code p.x} and return a surface that is
+     * actually <em>above</em> the feet — trusting it blindly once made an agent "fall" 120px
+     * <em>up</em> onto a cloud platform (KPQ 103000802). This validates the result and repairs it
+     * by a full enumeration when it lies.
+     */
+    private static Foothold nextSurfaceBelow(FootholdTree tree, Point p) {
+        Foothold below = tree.findBelow(new Point(p.x, p.y + 1));
+        if (below != null && !below.isWall()
+                && p.x >= Math.min(below.getX1(), below.getX2())
+                && p.x <= Math.max(below.getX1(), below.getX2())
+                && below.calculateFooting(p.x) > p.y) {
+            return below;
+        }
+        Foothold best = null;
+        int bestGap = Integer.MAX_VALUE;
+        for (Foothold fh : tree.getAllFootholds()) {
+            if (fh.isWall() || p.x < Math.min(fh.getX1(), fh.getX2())
+                    || p.x > Math.max(fh.getX1(), fh.getX2())) {
+                continue;
+            }
+            int gap = fh.calculateFooting(p.x) - p.y; // > 0 when the surface is below the feet
+            if (gap > 0 && gap < bestGap) {
+                best = fh;
+                bestGap = gap;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The stance for a gravity fall. A real client keeps its air/jump stance while falling — the
+     * old code reused the climb stance (16) here, which mislabelled falling agents as rope
+     * climbers ({@code AgentSession#isClimbingRope}) and could drop them off a rope column.
+     */
+    static int fallStance(Character chr) {
+        return chr != null && chr.isFacingLeft() ? JUMP_STANCE_LEFT : JUMP_STANCE_RIGHT;
     }
 
     /** The previous per-axis behaviour, used when the map exposes no usable footholds. */
@@ -302,10 +374,10 @@ public final class AgentMovement {
             }
             int gap = fh.calculateFooting(p.x) - p.y;
             // A surface below the feet may be up to PLATFORM_TOLERANCE away (the agent is above it,
-            // e.g. part-way through a sloped step). A surface ABOVE the feet is only a rounding
-            // recovery, so accept it solely within GROUNDED_EPSILON: otherwise an overhead platform
-            // within 80px would be mistaken for ground and the agent would climb sideways onto it.
-            int reach = gap < 0 ? GROUNDED_EPSILON : PLATFORM_TOLERANCE;
+            // e.g. part-way through a sloped step). A surface ABOVE the feet is a limbo recovery,
+            // so accept it solely within SNAP_UP_PX: otherwise an overhead platform within 90px
+            // would be mistaken for ground and the agent would climb sideways onto it.
+            int reach = gap < 0 ? SNAP_UP_PX : PLATFORM_TOLERANCE;
             int distSq = gap * gap;
             if (Math.abs(gap) <= reach && distSq < bestDistSq) {
                 best = fh;
@@ -352,6 +424,18 @@ public final class AgentMovement {
      * rope climbs); pass {@code STANCE_AUTO} to derive the stance from the step direction.
      */
     static void moveTo(AgentSession session, int x, int y, int maxStep, int forcedStance) {
+        moveTo(session, x, y, maxStep, forcedStance, false);
+    }
+
+    /**
+     * Sends a clamped step toward the given position, moving at most {@code maxStep} per axis.
+     * {@code forcedStance} pins the stance byte; pass {@code STANCE_AUTO} to derive the stance
+     * from the step direction. {@code jump} prepends a real relative jump fragment to the packet
+     * (the animation trigger a real client sends for take-off), so clients animate an arc instead
+     * of blinking to the landing point.
+     */
+    static void moveTo(AgentSession session, int x, int y, int maxStep, int forcedStance,
+            boolean jump) {
         Character chr = session.getPlayer();
         if (chr == null) {
             return;
@@ -383,7 +467,8 @@ public final class AgentMovement {
             }
         }
         session.dispatchInbound(RecvOpcode.MOVE_PLAYER,
-                buildMovePacket(clamped.x, clamped.y, stance, fromX, fromY));
+                buildMovePacket(clamped.x, clamped.y, stance, fromX, fromY,
+                        footholdIdAt(chr, clamped), jump));
         // Pathing classification: a climb step means the agent is hanging on a rope; any other
         // step (walk, jump, stand, fall) means it is not — position alone is ambiguous when a
         // rope column overlaps platform surfaces.
@@ -534,13 +619,31 @@ public final class AgentMovement {
         return buildMovePacket(x, y, stance, x, y);
     }
 
+    /** Best-effort fh id of the surface at {@code p} (0 when unsupported) — clients animate against it. */
+    private static int footholdIdAt(Character chr, Point p) {
+        FootholdTree tree = chr.getMap() == null ? null : chr.getMap().getFootholds();
+        if (tree == null) {
+            return 0;
+        }
+        Foothold fh = footholdAt(tree, p);
+        return fh == null ? 0 : fh.getId();
+    }
+
     /**
-     * Builds a single-command absolute movement packet. The fragment duration is the time to cover
-     * the step at {@link #WALK_SPEED_PX_PER_SEC} (capped at one tick), and the velocity
+     * Builds a movement packet: the absolute fragment carrying the step (with the destination
+     * foothold id so clients animate against the right platform), optionally preceded by a real
+     * relative jump fragment when {@code jump} is set — the same shape a real client sends for a
+     * take-off. The fragment duration is the time to cover the step at
+     * {@link #WALK_SPEED_PX_PER_SEC} (capped at one tick), and the velocity
      * ({@code xwobble}/{@code ywobble}, pixels/second) matches it, so the client walks at a normal
      * pace instead of dashing the whole step in a fixed 120 ms.
      */
     static InPacket buildMovePacket(int x, int y, int stance, int fromX, int fromY) {
+        return buildMovePacket(x, y, stance, fromX, fromY, 0, false);
+    }
+
+    static InPacket buildMovePacket(int x, int y, int stance, int fromX, int fromY,
+            int footholdId, boolean jump) {
         int dx = x - fromX;
         int dy = y - fromY;
         double distance = Math.hypot(dx, dy);
@@ -550,15 +653,25 @@ public final class AgentMovement {
         int vy = (int) Math.round(dy * 1000.0 / duration);
         OutPacket out = new ByteBufOutPacket();
         out.skip(9); // timestamp/header bytes; MovePlayerHandler skips these and never echoes them
-        out.writeByte(1); // a single movement command
+        out.writeByte(jump ? 2 : 1); // movement command count
         out.writeByte(0); // 0 = normal/absolute movement
         out.writeShort(x);
         out.writeShort(y);
         out.writeShort(vx); // xwobble (pixels/second)
         out.writeShort(vy); // ywobble (pixels/second)
-        out.writeShort(0); // foothold (ignored by updatePosition for absolute moves)
+        out.writeShort(footholdId);
         out.writeByte(stance);
         out.writeShort(duration);
+        if (jump) {
+            // Relative jump fragment (command 1): the animation trigger a real client sends for a
+            // take-off. No positional delta — the absolute fragment above carries the real step.
+            // It comes last so single-fragment parsers read the absolute step first.
+            out.writeByte(1);
+            out.writeShort(0);
+            out.writeShort(0);
+            out.writeByte(stance);
+            out.writeShort(duration);
+        }
 
         return new ByteBufInPacket(Unpooled.wrappedBuffer(out.getBytes()));
     }

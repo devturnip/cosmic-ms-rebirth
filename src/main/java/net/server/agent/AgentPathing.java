@@ -27,32 +27,34 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>When {@link AgentMovement#moveToSmart}'s direct ground-aware step stalls (platform edge,
  * gap, or a target on a strictly higher platform) it hands the tick to
- * {@link #routeStep}, which searches a small graph over the map's footholds and ropes/ladders
- * and executes <em>one clamped step</em> of the route per behaviour tick. The graph edges are:
+ * {@link #routeStep}, which executes <em>one clamped step</em> of a route per behaviour tick.
+ * Routes come from a per-map <b>cached navigation graph</b> ({@link AgentNavGraph}: stand points
+ * sampled along the footholds, walk/fall/jump/climb edges, A*), with jump arcs validated against
+ * real v83 physics ({@link AgentPhysics}); while a graph is warming — and for rope starts — a
+ * legacy bounded BFS over the footholds + ropes takes over. Edge types:
  * <ul>
- *   <li><b>fall</b> — only ever downward, onto a foothold that horizontally overlaps the takeoff
- *       platform;</li>
- *   <li><b>jump</b> — a short arc that lands on a real foothold: straight up onto an overlapping
- *       platform at most {@link #JUMP_HEIGHT_PX} higher, or across a gap of at most
- *       {@link #JUMP_GAP_PX} (gaining at most {@link #JUMP_LEVEL_TOLERANCE} height);</li>
+ *   <li><b>walk</b> — along a foothold or across welded equal-height segments;</li>
+ *   <li><b>fall</b> — only ever downward, onto a real surface below;</li>
+ *   <li><b>jump</b> — a simulated v83 arc (gravity 2000 px/s², jump velocity 555 px/s) that lands
+ *       on a real foothold and clips no intervening platform;</li>
  *   <li><b>climb</b> — a usable {@code ladderRope} entry from the map's WZ image whose bottom end
  *       is grabbable from a foothold ({@link #canGrab}) and whose other end can be dismounted onto
  *       a foothold ({@link #canDismount}).</li>
  * </ul>
  *
- * <p>Safety invariants (see hand-off §4.6/§4.19): every emitted step is still clamped per axis by
- * {@code AgentMovement.MAX_STEP} and to the map area; a jump is a single scripted arc that lands
- * on a real foothold; a climb only ever happens along a real WZ rope/ladder (the climb stance 16);
- * agents never teleport and never change maps here. The route is recomputed from the agent's
- * current position every tick, so an intercepted fall or a changed situation self-corrects and
- * no per-session route state can go stale.
+ * <p>Safety invariants (see hand-off §4.6/§4.19/§4.20): every emitted step is still clamped per
+ * axis by {@code AgentMovement.MAX_STEP} and to the map area; a jump is a single scripted arc
+ * that lands on a real foothold; a climb only ever happens along a real WZ rope/ladder (the climb
+ * stance 16); agents never teleport and never change maps here. Routes are cached per session
+ * ({@link AgentMovementState}) so a multi-tick manoeuvre is not re-picked every tick, and are
+ * invalidated on a new target, a map change, or a stall.
  *
- * <p><b>Constants.</b> A v83 jump lifts the character roughly one platform of the common 60–90px
- * WZ spacing (~100px apex) and covers about four tiles of horizontal distance during the ~0.5s
- * airtime at walk speed (~120px). Both bounds also stay inside {@code MAX_STEP} (150px) so a jump
- * always fits a single clamped tick. Ropes are grabbable while their end hangs within about a
- * character height above the surface (70px) and dismountable while the target surface sits within
- * a jump height of the rope's far end.
+ * <p><b>Constants.</b> Derived from the server's own WZ physics ({@code Physics.img.xml}):
+ * a v83 jump lifts the character {@code v0²/2g ≈ 77px} (one platform of the common 60–90px WZ
+ * spacing) and covers {@code walkSpeed · 2v0/g ≈ 69px} of flat horizontal distance; drops extend
+ * the reach (see {@link AgentPhysics#jumpRangeForDrop}). Ropes are grabbable while their end hangs
+ * within about a character height above the surface (70px) and dismountable while the target
+ * surface sits within a jump height of the rope's far end.
  *
  * <p><b>Threading.</b> {@code ladderRope} data is loaded lazily per map from Map.wz and cached in
  * a static map. A cold map is warmed on a daemon thread and {@link #ladders} returns an empty
@@ -62,10 +64,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AgentPathing {
     private static final Logger log = LoggerFactory.getLogger(AgentPathing.class);
 
-    /** Max height (px) a jump can mount — one platform of the common 60–90px WZ spacing. */
-    static final int JUMP_HEIGHT_PX = 100;
-    /** Max horizontal gap (px) a running jump clears (~4 tiles of airtime at walk speed). */
-    static final int JUMP_GAP_PX = 120;
+    /** Max height (px) a jump can mount — the v83 jump apex (77px, from Physics.img.xml). */
+    static final int JUMP_HEIGHT_PX = (int) AgentPhysics.JUMP_APEX_PX;
+    /** Max horizontal gap (px) a flat jump clears — one airtime at walk speed (~69px). */
+    static final int JUMP_GAP_PX = (int) AgentPhysics.JUMP_FLAT_RANGE_PX;
     /** Max height gained during a gap jump (a running jump may also rise a little). */
     static final int JUMP_LEVEL_TOLERANCE = 30;
     /** Max height lost during a gap jump; beyond that the agent simply falls instead. */
@@ -104,7 +106,7 @@ public final class AgentPathing {
     }
 
     enum HopType {
-        FALL, JUMP, CLIMB
+        WALK, FALL, JUMP, CLIMB
     }
 
     private static final Map<Integer, List<Ladder>> LADDER_CACHE = new ConcurrentHashMap<>();
@@ -128,6 +130,14 @@ public final class AgentPathing {
     /** Seeds/overrides the ladder cache (used by tests; never blocks). */
     static void putLadders(int mapId, List<Ladder> ladders) {
         LADDER_CACHE.put(mapId, List.copyOf(ladders));
+    }
+
+    /**
+     * Synchronous ladder load for nav-graph warm builds (runs on the daemon warm thread, never
+     * on a tick thread). Shares the ladder cache with {@link #ladders(MapleMap)}.
+     */
+    static List<Ladder> laddersForGraph(int mapId) {
+        return LADDER_CACHE.computeIfAbsent(mapId, AgentPathing::loadLadders);
     }
 
     private static void warmAsync(int mapId) {
@@ -196,9 +206,12 @@ public final class AgentPathing {
 
     /**
      * Executes one clamped step of a route toward {@code target}. Called by
-     * {@code AgentMovement.moveToSmart} when its direct step stalled. Recomputes the route from
-     * the agent's current position every tick (bounded BFS), so no route state can go stale and
-     * an intercepted manoeuvre self-corrects. If no route exists the agent simply stays put.
+     * {@code AgentMovement.moveToSmart} when its direct step stalled. With a per-session
+     * {@link AgentMovementState}, the stored route is <b>continued</b> (walk-to-takeoff → arc →
+     * landing → …) instead of being re-picked every tick; it is invalidated by a moved target, a
+     * map change, or a stall, after which a fresh route is computed — from the cached
+     * {@link AgentNavGraph} when one is available (grounded agents), else the legacy bounded BFS
+     * (also the rope-start path). If no route exists the agent simply stays put.
      *
      * @return whether a route step was executed ({@code false} = no route, the agent holds)
      */
@@ -215,7 +228,7 @@ public final class AgentPathing {
         }
         List<Ladder> ladders = ladders(map);
         List<Foothold> footholds = standableFootholds(tree);
-        if (footholds.isEmpty() || footholds.size() > MAX_PATH_FOOTHOLDS) {
+        if (footholds.isEmpty()) {
             return false;
         }
         // Climbing state is tracked explicitly (AgentSession#isClimbingRope, set by the last
@@ -232,12 +245,115 @@ public final class AgentPathing {
         if (onLadder == null && ground == null) {
             return false; // unsupported: the direct step holds position
         }
-        List<Hop> route = findRoute(footholds, ladders, current, ground, onLadder, target);
+
+        AgentMovementState state = session.movementState();
+        if (state != null) {
+            int mapId = map.getId();
+            // Invalidates on a new target / map change (follow warp, portal, respawn).
+            state.validate(mapId, target);
+            if (state.hasRoute()) {
+                if (state.stalled(current)) {
+                    state.clear(); // wedged: re-route from scratch on the next stall
+                } else {
+                    return executeRouteHop(session, tree, state, current, ground, maxStep);
+                }
+            }
+            List<Hop> route = computeRoute(tree, mapId, ladders, footholds, current, ground,
+                    onLadder, target);
+            if (route.isEmpty()) {
+                return false;
+            }
+            route = compressWalks(route);
+            state.start(route, target, mapId);
+            return executeRouteHop(session, tree, state, current, ground, maxStep);
+        }
+
+        // Stateless (mocked test sessions): the legacy one-step-per-tick behaviour.
+        List<Hop> route = computeRoute(tree, map.getId(), ladders, footholds, current, ground,
+                onLadder, target);
         if (route.isEmpty()) {
             return false;
         }
-        executeHop(session, tree, route.get(0), current, ground, maxStep);
+        executeHop(session, tree, compressWalks(route).get(0), current, ground, maxStep);
         return true;
+    }
+
+    /**
+     * Merges runs of consecutive walk manoeuvres (one per ~15px nav-graph sample) into single
+     * walks, so a tick advances up to {@code MAX_STEP} instead of one sample.
+     */
+    private static List<Hop> compressWalks(List<Hop> route) {
+        if (route.size() < 2) {
+            return route;
+        }
+        List<Hop> out = new ArrayList<>(route.size());
+        int i = 0;
+        while (i < route.size()) {
+            Hop hop = route.get(i);
+            if (hop.type() != HopType.WALK) {
+                out.add(hop);
+                i++;
+                continue;
+            }
+            int j = i;
+            while (j + 1 < route.size() && route.get(j + 1).type() == HopType.WALK) {
+                j++;
+            }
+            Hop last = route.get(j);
+            out.add(new Hop(HopType.WALK, last.to(), hop.viaX(), last.destX(), last.destY(),
+                    null, false));
+            i = j + 1;
+        }
+        return out;
+    }
+
+    /**
+     * Route source: the cached nav graph for grounded agents (real map ids only — mocked test
+     * maps report id 0), else/otherwise the legacy bounded BFS, which is also the rope-start
+     * path (graphs carry no rope nodes) and the fallback while a graph is warming or declined.
+     */
+    private static List<Hop> computeRoute(FootholdTree tree, int mapId, List<Ladder> ladders,
+            List<Foothold> footholds, Point current, Foothold ground, Ladder onLadder,
+            Point target) {
+        if (onLadder == null && mapId > 0) {
+            AgentNavGraph graph = AgentNavGraph.forMap(mapId, tree);
+            if (graph != null && !graph.declined()) {
+                List<Hop> hops = graph.findRoute(current, ground, target);
+                if (hops != null) {
+                    return hops;
+                }
+            }
+        }
+        if (footholds.size() > MAX_PATH_FOOTHOLDS) {
+            return List.of();
+        }
+        return findRoute(footholds, ladders, current, ground, onLadder, target);
+    }
+
+    /** Executes the state's current manoeuvre, skipping/advancing completed ones. */
+    private static boolean executeRouteHop(AgentSession session, FootholdTree tree,
+            AgentMovementState state, Point current, Foothold ground, int maxStep) {
+        while (state.hasRoute() && hopComplete(state.currentHop(), current)) {
+            state.advance();
+        }
+        if (!state.hasRoute()) {
+            state.clear();
+            return false; // route exhausted without a move (agent already at the goal)
+        }
+        Hop hop = state.currentHop();
+        executeHop(session, tree, hop, current, ground, maxStep);
+        if (hopComplete(hop, current)) {
+            state.advance();
+        }
+        return true;
+    }
+
+    /** Whether the agent has arrived at {@code hop}'s destination (manoeuvre complete). */
+    private static boolean hopComplete(Hop hop, Point current) {
+        // Walks are x-complete (the y follows the surface); arcs/falls/climbs must also land.
+        int yTol = hop.type() == HopType.WALK ? Integer.MAX_VALUE : 3;
+        return Math.abs(current.x - hop.destX()) <= 2
+                && Math.abs(current.y - hop.destY()) <= yTol;
     }
 
     /**
@@ -498,6 +614,13 @@ public final class AgentPathing {
     static void executeHop(AgentSession session, FootholdTree tree, Hop hop, Point current,
             Foothold ground, int maxStep) {
         switch (hop.type()) {
+            case WALK -> {
+                // Walk toward the manoeuvre's destination column on whatever support actually
+                // exists under the next step: the agent's own ground while it covers the way,
+                // then welded adjacent segments (surface within tolerance) — never a blind step
+                // clamped into the current segment's range (which made agents stall at welds).
+                AgentMovement.walkOnGround(session, tree, ground, current, hop.destX(), maxStep);
+            }
             case JUMP -> {
                 if (ground != null && Math.abs(current.x - hop.viaX()) > CLIMB_REACH_PX) {
                     // Walk to the takeoff column first; the jump fires on a later tick.
@@ -505,10 +628,12 @@ public final class AgentPathing {
                     return;
                 }
                 // One scripted jump arc that lands on a real foothold (dest is on the edge
-                // foothold by construction, and |dx|, |dy| stay within MAX_STEP).
+                // foothold by construction, and |dx|, |dy| stay within MAX_STEP). A real relative
+                // jump fragment precedes the absolute step so clients animate the arc.
                 AgentMovement.moveTo(session, hop.destX(), hop.destY(), maxStep,
                         hop.destX() < current.x
-                                ? AgentMovement.JUMP_STANCE_LEFT : AgentMovement.JUMP_STANCE_RIGHT);
+                                ? AgentMovement.JUMP_STANCE_LEFT : AgentMovement.JUMP_STANCE_RIGHT,
+                        true);
             }
             case FALL -> {
                 if (ground != null && Math.abs(current.x - hop.viaX()) > 2) {
@@ -516,17 +641,19 @@ public final class AgentPathing {
                     return;
                 }
                 // Straight down to whatever is actually below (findBelow may pick an
-                // intermediate platform; the route recomputes next tick and adapts).
+                // intermediate platform; the route recomputes next tick and adapts). A gravity
+                // fall keeps the air/jump stance — never the climb stance.
                 Foothold below = tree.findBelow(new Point(current.x, current.y + 1));
                 if (below != null && !below.isWall()) {
                     AgentMovement.moveTo(session, current.x, below.calculateFooting(current.x),
-                            maxStep);
+                            maxStep, AgentMovement.fallStance(session.getPlayer()));
                 }
             }
             case CLIMB -> {
                 Ladder ladder = hop.ladder();
                 int climbTo = hop.up() ? ladder.top() : ladder.bottom();
-                if (ground != null && Math.abs(current.x - ladder.x()) > CLIMB_REACH_PX) {
+                if (ground != null && !session.isClimbingRope()
+                        && Math.abs(current.x - ladder.x()) > CLIMB_REACH_PX) {
                     // Walk to the rope column (clamped to the platform edge) before grabbing.
                     int alignedX = Math.max(Math.min(ladder.x(), Math.max(ground.getX1(), ground.getX2())),
                             Math.min(ground.getX1(), ground.getX2()));
@@ -542,10 +669,13 @@ public final class AgentPathing {
                             AgentMovement.CLIMB_STANCE);
                     return;
                 }
-                // Dismount onto the far platform's surface (a small step or a jump off the end).
+                // Dismount onto the far platform's surface: a jump off the end when rising, a
+                // controlled drop (air stance, never climb) when leaving downward.
+                boolean jumpOff = hop.destY() < current.y;
                 AgentMovement.moveTo(session, hop.destX(), hop.destY(), maxStep,
-                        hop.destY() < current.y
-                                ? AgentMovement.JUMP_STANCE_RIGHT : AgentMovement.STANCE_AUTO);
+                        jumpOff ? AgentMovement.JUMP_STANCE_RIGHT
+                                : AgentMovement.fallStance(session.getPlayer()),
+                        jumpOff);
             }
         }
     }

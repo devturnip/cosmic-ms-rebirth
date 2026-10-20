@@ -14,10 +14,10 @@ An agent is a real `Character` logged in through the same bootstrap a human uses
 inbound actions are synthesized packets dispatched through the **real handlers**, and
 whose perception is a mix of explicit event hooks and a range-limited map snapshot.
 
-- **Branch:** `feature/llm-agent-players` (pushed, in sync with origin). **Not merged to
-  `master`** — a PR/merge is the final release step.
-- **HEAD:** `fd0c6a118` (§11.1 closed: foothold/rope pathfinding, test-gap suites, per-weapon
-  animation analysis, M9 PQ guard + audit; full history in §10).
+- **Branch:** `feature/llm-agent-players`. **Not merged to `master`** — a PR/merge is the final
+  release step.
+- **HEAD:** `094c3ff89` (§11.1 closed; Tier-2 pathfinding landed 2026-10-20, §4.20; full history
+  in §10).
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
   pursued; **M9 (party-quest compatibility audit) is closed** — companions are blocked from all
@@ -156,11 +156,14 @@ arrive via lightweight hooks (see §5).
 | `AgentBrainFactory` | Chooses LLM vs scripted; injects persona system prompt. |
 | `AgentObservation` | Immutable perception snapshot (records + nested observed entity records). |
 | `AgentPerception` | Builds `AgentObservation` (BOUNDED range or OMNISCIENT). |
-| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets; `stepToward`; `canWarpTo`/`warpTo` for cross-map follow. |
+| `AgentMovement` | Synthesizes clamped `MOVE_PLAYER` packets (absolute fragment + real jump fragment, destination fh id, v83-derived stances); `stepToward`; snap-to-surface invariant + limbo recovery; `canWarpTo`/`warpTo` for cross-map follow. |
+| `AgentPhysics` | Real v83 movement physics read from `Physics.img.xml` (gravity 2000, jump 555, walk 125, fall 670) + jump-arc simulation with platform-clip rejection. |
+| `AgentNavGraph` | Per-map cached stand-point navigation graph (walk/weld/fall/validated-jump/climb edges, async-warmed like the ladder cache) + A* routing. |
+| `AgentMovementState` | Per-session manoeuvre state (route under execution); invalidated on new target, map change or stall. |
 | `AgentCombat` | Potion self-sustain, respawn, auto-looting, ammo perception/resupply, and melee/magic/ranged basic + skill attacks (packet builders + damage/ammo/job gating + multi-target + multi-line + facing). |
 | `AgentProactivity` | Opt-in proactive behaviors: greet nearby players, party-search matchmaking, patrol (all gated by `LLM_AGENT_PROACTIVE`). |
 | `AgentSkill` | Buff-skill casting (0-target attack packet + `StatEffect` application) and heal-skill casting (`SPECIAL_MOVE` + party heal). |
-| `AgentPathing` | Foothold + rope/ladder pathfinder: WZ `ladderRope` model (lazy, cached, async-warmed), bounded BFS (walk/fall/jump/climb edges), and one-clamped-step-per-tick route execution when the direct step stalls. |
+| `AgentPathing` | Foothold + rope/ladder pathfinder: routes from the cached `AgentNavGraph` (A*) with a legacy bounded-BFS fallback (rope starts, warming, oversized maps), and one-clamped-step-per-tick route execution when the direct step stalls. |
 | `AgentMemory` | Per-agent facts + rolling dialogue (synchronized). |
 | `AgentMemoryStore` | JDBC persistence for `AgentMemory` (`agent_memory` table). |
 | `AgentOptoutStore` | JDBC persistence for player opt-out (`agent_optout` table); loaded into `AgentManager` at start. |
@@ -186,7 +189,8 @@ arrive via lightweight hooks (see §5).
 - `src/test/java/net/server!agent/*` — 23 test classes (85 tests), plus the M9 guard, pathing
   (`AgentMovementPathingTest`, incl. a real-`Map.wz` rope-route falsification) and test-gap
   suites (`AgentCombatAmmoShopTest`, `AgentManagerOptoutGateTest`,
-  `AgentManagerTransferChannelTest`) — 2173 tests total as of 2026-10-19.
+  `AgentManagerTransferChannelTest`) — 2173 tests as of 2026-10-19, 2286 as of 2026-10-20
+  (incl. `AgentPathingTier2Test`, §4.20).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -359,6 +363,79 @@ arrive via lightweight hooks (see §5).
     character through a worldless mock `Client` (`world = -123`); `ProvisionedAgent` now carries
     `world` so the mock client resolves the real `World` before `Party#leaveParty` runs. Without
     it, `@agents dismiss` NPEs (`world` is null) and leaks the character/account.
+31. **Tier-2 movement model (§4.20).** Movement physics are the server's own WZ values
+    (`wz/Map.wz/Physics.img.xml`: `gravityAcc` 2000 px/s², `jumpSpeed` 555 px/s, `walkSpeed`
+    125 px/s, `fallSpeed` 670 px/s — see `AgentPhysics`; apex `v0²/2g ≈ 77px`, flat-jump reach
+    `walkSpeed·2v0/g ≈ 69px`). Everything downstream is derived from these — do not reintroduce
+    magic jump/gap constants. Jump edges in the nav graph are **simulated arcs** that must land on
+    the target surface and clip no intervening platform (rising *through* a platform is allowed —
+    platforms are pass-through from below). Routing uses a per-map cached `AgentNavGraph`
+    (built lazily, async-warmed, declined above 4000 stand points → legacy bounded BFS), and each
+    session caches its route in `AgentMovementState` (invalidated by a moved target, map change,
+    or 4 stalled ticks) so multi-tick manoeuvres are not re-picked every tick. Gravity falls use
+    the air/jump stance — **never** the climb stance 16 — and `AgentMovement.moveAlong`/
+    `walkOnGround` always emit walk stances even on steep slopes. Mocked `AgentSession`s (tests)
+    return `null` from `movementState()` and take the stateless legacy path by design.
+
+### 4.20 Tier-2 pathfinding & movement model (2026-10-20)
+
+The pre-Tier-2 pathfinder re-ran a foothold-level BFS every tick, used magic jump constants
+(`JUMP_HEIGHT_PX=100`, `JUMP_GAP_PX=120`) that did not match real physics, and re-picked its
+manoeuvre every tick — the KPQ round-5/6 symptoms: stalls at platform edges, agents falling on
+gap jumps, and agents stranded 1–30px below sloped surfaces in a grounded-but-unroutable limbo.
+The Tier-2 model:
+
+1. **Physics (`AgentPhysics`).** Constants come from the repo's own `wz/Map.wz/Physics.img.xml`
+   (gravity 2000 px/s², jump 555 px/s, walk 125 px/s, fall 670 px/s). Derived: apex ≈ 77px,
+   flat-jump airtime ≈ 0.555s, flat-jump reach ≈ 69px, and `jumpRangeForDrop` for lower landings
+   (a 150px drop reaches ~94px). `simulateJump` integrates the parabola at 60fps from a snapped
+   stand point and returns the landing point only if the arc descends onto the target foothold's
+   surface inside its x-range without descending through any intervening foothold.
+2. **Grounding.** After every horizontal step, `y` equals the support foothold's
+   `calculateFooting(x)` — the direct step walks only over probed ground and descends straight
+   down (never diagonally, which used to leave the agent off-surface mid-air at a clamped y).
+   `footholdAt` still classifies an agent as grounded when it sits up to `SNAP_UP_PX = 30px`
+   *below* a surface (slope slip), and the next step snaps it straight up onto the true surface —
+   the old 8px window is what stranded agents below slopes. `PLATFORM_TOLERANCE` (90) is aligned
+   with the jump apex so routed jumps are never misread as "different platform".
+3. **Cached nav graph (`AgentNavGraph`).** Nodes are stand points every ~15px along each non-wall
+   foothold (y snapped), edges are walk (incl. welds between contiguous equal-height segments),
+   fall (physics fall time), arc-validated jump, and WZ `ladderRope` climb edges. Built lazily
+   per map id on a daemon thread (mirroring the ladder cache's `warmAsync`), cached statically,
+   and declined (sentinel cached) above `MAX_NODES = 4000` stand points. `routeStep` falls back
+   to the legacy bounded BFS while a graph warms, for rope starts (graphs carry no rope nodes),
+   and for declined maps. A* is time-costed (walk/fall/jump/climb speeds) with an admissible
+   straight-line heuristic. Real-map build cost is ~75ms for a 979-node map, paid once.
+4. **Per-session manoeuvre state (`AgentMovementState`).** A stalled agent stores its route and
+   executes one clamped step per tick, advancing through walk→jump→walk chains without re-picking
+   (the old re-pick race). State is invalidated by a target moved >30px (follow jitter stays
+   within tolerance), a map id change (follow warp/portal), or 4 ticks without positional
+   progress. Public seams are unchanged: `moveToSmart`, `routeStep(session, target, maxStep)`,
+   `hangingOnLadder`, `ladders`, `isClimbingRope` all behave as before; the harness `MoveTo`
+   action and `setup teleport` are unaffected (verified by the full suite).
+5. **Real movement fragments.** Every step is an absolute fragment carrying the destination
+   foothold id (best-effort, 0 when unsupported — the handler ignores it for absolute moves, so a
+   wrong id cannot desync), duration derived from the step at walk speed, and pixel/s velocity.
+   Jump manoeuvres append a real relative jump fragment (command 1, no positional delta) *after*
+   the absolute fragment so clients animate the arc; single-fragment parsers still read the
+   absolute step first.
+
+Falsification: `AgentPathingTier2Test` (limbo recovery on slopes, clip-rejection, physics
+constants, graph cache thread-safety, navigation completeness on KPQ 103000801–803 + Ellin
+930000500 from the spawn portal, and the walk-to-takeoff gap jump the old pathfinder failed) plus
+the pre-existing `AgentMovementFootholdTest` / `AgentMovementWzRuntimeTest` / `AgentMovementPathingTest`.
+
+**Known issue (open):** on KPQ 103000802, driving `MoveTo (1100,-75)` from the -135 cloud chain
+makes the agent cycle between the -135/-15/-75 levels instead of settling: the trace shows a
+120px vertical jump-stance move (e.g. `(1100,-135) → (1100,-15)`) that physics forbids (apex 77)
+and whose source hop was not identified within the time box; `nextSurfaceBelow`'s
+findBelow-coverage validation and the chain-walking lower branch (both added for it) are in place,
+and other targets on the same map — including a full rope/jump climb with a mid-route fall and
+recovery to `(719,-236)` — complete correctly. Follow-up: log the executed hop type/via/dest at
+emission time inside `executeHop` to catch the offending edge. Note also that the server's own
+integer-division `calculateFooting` resolves shallow slopes (`|dy| < |dx|`) as flat at `p1.y`, so
+a "-243" sloped platform's real surface can be y=-186 depending on vertex order — targets must be
+chosen on the server-resolved surface (the graph's nodes already are).
 
 ---
 
@@ -550,12 +627,12 @@ CREATE TABLE IF NOT EXISTS `agent_optout` (
   map-change and party-update.
 
 **Not done (next work)** — see **§11** for file pointers and suggested approaches.
-- **Pathing depth — DONE (2026-10-19, §11.1):** movement is clamped, ground-aware waypoint
-  stepping, and now routed: `AgentPathing` (foothold + WZ `ladderRope` graph search) takes over
-  when the direct step stalls — jump arcs over small gaps/heights, real rope/ladder climbs, and
-  bounded BFS to the target platform. See §4.19 and `AgentMovementPathingTest`. Remaining
-  cosmetics: gravity falls reuse the climb stance (16) and ropes/ladders are treated identically
-  (no one-way semantics). Patrol randomizes X only.
+- **Pathing depth — DONE (2026-10-19, §11.1); Tier 2 — DONE (2026-10-20, §4.20):** movement is
+  clamped, ground-aware waypoint stepping, and routed via a per-map cached navigation graph with
+  real v83 jump physics (`AgentPhysics`/`AgentNavGraph`, A*), per-session manoeuvre state
+  (`AgentMovementState`), real movement fragments (jump fragment + destination fh id), and
+  gravity-fall/slope-walk stance fixes. See §4.20, `AgentPathingTier2Test`. Remaining cosmetics:
+  ropes/ladders are treated identically (no one-way semantics). Patrol randomizes X only.
 - **Combat fidelity:** hold-skill after-delay pacing and the ranged cast stance for
   Hurricane/Rapid Fire-family skills **are implemented**. The per-weapon action byte and
   attack-speed questions were **closed (2026-10-19)**: every class captures/sends the same
@@ -744,7 +821,7 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
 | Item | Where | Notes / suggested approach |
 | --- | --- | --- |
 | **Companion animation** | `AgentMovement`, `AgentCombat`, `AgentSkill` | **Closed (2026-10-19).** Walk `2/3`, stand `4/5`, climb `16`; idle stance on stop; walking pace derived from the step; attack/cast `direction` action byte `22 | facing` with `stance=0`, `speed=6`, `display=0`. All three attack types verified live (magic Fire Arrow, melee Fighter sword, ranged Assassin Lucky Seven). The action byte needs **no per-weapon table**: every captured class sends the same `22|facing` (it is the v83 generic attack-action value — the receiving client picks the per-weapon animation from the attacker's avatar), and `speed=6` matches the real client's own baseline packet. Per-weapon booster-adjusted speed would need WZ attack-delay parsing — accepted as out of scope. Note: `USE_AUTOHIDE_GM` hides GMs on login and hidden clients silently refuse to attack — `!unhide` before any in-client capture session. |
-| **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | Ground-aware stepping exists: probes the ground ahead, walks only on real footholds, stops at platform edges/gaps, falls straight down when airborne, and never ascends through air (regression tests in `AgentMovementFootholdTest`; real-`Map.wz` falsification in `AgentMovementWzRuntimeTest`). Still open: a full foothold graph search so an agent can jump/reach a gap-separated or strictly higher platform (via a portal/rope); a real rope/ladder **model** (the server loads none — climbing is inferred from vertical-dominant steps). Gravity falls currently reuse the climb stance (16). |
+| **Foothold/rope pathing depth** | `AgentMovement`, `FootholdTree` | **Closed (2026-10-19 + Tier 2, 2026-10-20, §4.20).** Ground-aware stepping, a cached per-map nav graph (`AgentNavGraph`: stand points, walk/weld/fall/jump/climb edges, A*) with jump arcs validated against the server's own WZ physics (`AgentPhysics`, `Physics.img.xml`), per-session manoeuvre state, real movement fragments (jump fragment + fh id), limbo recovery below slopes, and gravity-fall/slope-walk stance fixes. Legacy bounded BFS remains as the fallback (rope starts, warming, >4000-node maps). |
 | **M9 — party-quest compatibility audit** | `docs/llm-agent-pq-audit.md`, `EventManager`, `EventInstanceManager`, `NPCConversationManager`, `MonsterCarnival` | **Closed.** The audit found companions break most PQs (auto-registered/stranded/counted, dismissal aborts the run) and recommended blocking them from all scripted event instances. Implemented and verifier-passed: `AgentManager.isEphemeralAgent`, an under-writeLock early-return in `EventInstanceManager.registerPlayer`, an eligibility filter in `EventManager.getEligibleParty`, and full CPQ coverage (`isCPQParty`/`canStartCPQ`/`MonsterCarnival` entry loops). Persistent GM agents remain PQ-eligible by design. See `docs/llm-agent-pq-audit.md`. |
 | **Fidelity/test gaps** | `AgentCombat.buyAmmoFromShop`, the opt-out routing gates (`onMapChat`/`onWhisper`/`onPartyInvite`), `AgentManager.transferChannel` | **Closed (2026-10-19):** `AgentCombatAmmoShopTest` (8 tests: recharge-vs-buy, affordability, scan-on, stock/weapon gating), `AgentManagerOptoutGateTest` (8 tests: chat/whisper/invite suppression), `AgentManagerTransferChannelTest` (10 tests: rollback, moderation capture, refusals, throttle). Provisioning has `DbAgentProvisionerIT`. |
 | **`!agent tell`** | `AgentCommand` | Intentionally dropped (operator-only; marginal value). |
@@ -785,10 +862,10 @@ implemented, reviewed, tested and pushed. If you are picking this up cold:
   `config.yaml`/`wz/` are bind-mounted, but a **Java change needs `docker compose up --build -d`**;
   restarting the server drops the client to the world-select screen and reaps ephemeral
   companions (`@agents find` again after).
-- **Branch state:** `feature/llm-agent-players` is pushed and in sync with origin; worktree
-  clean; **not merged to `master`** yet. All §11.1 items are closed — only the accepted
-  cosmetic remainders in §8 remain (gravity falls reuse the climb stance, ropes/ladders treated
-  identically, >256-foothold maps decline pathing, per-weapon booster-adjusted speed).
+- **Branch state:** `feature/llm-agent-players`; worktree clean; **not merged to `master`**
+  yet. All §11.1 items are closed; Tier-2 pathfinding (§4.20) landed 2026-10-20. Remaining
+  accepted cosmetics: ropes/ladders treated identically (no one-way semantics), per-weapon
+  booster-adjusted speed.
 
 ### 11.3 Definition of done for a change
 

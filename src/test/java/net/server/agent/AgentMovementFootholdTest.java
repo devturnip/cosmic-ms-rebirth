@@ -83,8 +83,22 @@ class AgentMovementFootholdTest {
 
         AgentMovement.moveToSmart(session, new Point(300, 200), AgentMovement.MAX_STEP);
 
-        // Already at the edge: drop toward the landing foothold, clamped to MAX_STEP vertically.
-        assertEquals(new Point(300, AgentMovement.MAX_STEP), captureMove(session));
+        // Already aligned with the drop column: descend straight down (clamped to MAX_STEP),
+        // never diagonally — horizontal steps must stay snapped to a real support surface.
+        assertEquals(new Point(200, AgentMovement.MAX_STEP), captureMove(session));
+    }
+
+    @Test
+    void moveToSmartLandsOnTheDropSurfaceOverSuccessiveTicks() {
+        // Continuation of the drop above: the second tick snaps onto the lower surface (the
+        // old diagonal step left the agent off-surface mid-air at a clamped y).
+        AgentSession first = sessionOn(treeWith(upper(), lower()), 200, 0);
+        AgentMovement.moveToSmart(first, new Point(300, 200), AgentMovement.MAX_STEP);
+
+        AgentSession second = sessionOn(treeWith(upper(), lower()), 200, AgentMovement.MAX_STEP);
+        AgentMovement.moveToSmart(second, new Point(300, 200), AgentMovement.MAX_STEP);
+
+        assertEquals(new Point(200, 200), captureMove(second));
     }
 
     @Test
@@ -123,8 +137,9 @@ class AgentMovementFootholdTest {
 
         AgentMovement.moveToSmart(session, new Point(300, 200), AgentMovement.MAX_STEP);
 
-        // findBelow skips the current foothold (agent is below it), so enumeration must recover it.
-        assertEquals(new Point(200, 0), captureMove(session));
+        // findBelow skips the current foothold (agent is below it), so enumeration must recover it;
+        // the recovery is a pure vertical snap onto the surface before any horizontal step.
+        assertEquals(new Point(100, 0), captureMove(session));
     }
 
     @Test
