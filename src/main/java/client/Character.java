@@ -4820,8 +4820,11 @@ public class Character extends AbstractCharacterObject {
     }
 
     public List<Ring> getCrushRings() {
-        Collections.sort(crushRings);
-        return crushRings;
+        // return a sorted snapshot: the live list can be mutated concurrently
+        // (addCrushRing from cash-shop purchases) while packet writers iterate it
+        List<Ring> snapshot = new ArrayList<>(crushRings);
+        snapshot.sort(null);
+        return snapshot;
     }
 
     public int getCurrentCI() {
@@ -5170,8 +5173,10 @@ public class Character extends AbstractCharacterObject {
     }
 
     public List<Ring> getFriendshipRings() {
-        Collections.sort(friendshipRings);
-        return friendshipRings;
+        // snapshot, see getCrushRings
+        List<Ring> snapshot = new ArrayList<>(friendshipRings);
+        snapshot.sort(null);
+        return snapshot;
     }
 
     public int getGender() {

@@ -93,6 +93,31 @@ Legend: ✅ covered · 🟡 partial (workaround exists) · ⛔ deferred · ❌ n
 - **Ellin stage-4 mob id in NPC text**: the Ellin NPC says “weaken the #o9300174#” but map
   930000400 actually spawns Poison Flower **9300175** (the id the 2270004 marble handler
   pairs with); cosmetic NPC-string inconsistency, no code change.
+- **Expired drops lingered unpickable on LPQ stage 2 (922010200)**: two passes dropped
+  during early sweeps stayed visible and returned `accepted:false` for owner and party
+  members ~10 min later, far past the 3-min `ITEM_EXPIRE_TIME`. Root cause: the drop-expiry
+  reaper (`expireItemsTask`) was only registered from `startItemMonitor()`, reachable only
+  via `addPlayer`'s first-player gate (`chrSize == 1`) — event-instance/harness placement
+  paths and post-self-stop re-entries left drops on a map with no reaper. Fixed: spawning
+  any drop now guarantees the item monitor (and its reaper) is running
+  (`MapleMap#instantiateItemDrop`) — fixed (`MapleMapDropExpiryTest`).
+- **Guild co-founder landed at rank 5** during the 7-session guild founding: the rank was
+  keyed off the leader's party id read at founding time, racing with each accepter's
+  concurrent `Party.joinParty` (agent sessions dispatch on a pool; also misranked accepters
+  beyond the party's 6-member cap). Fixed: since the match confirmation only completes when
+  every member accepted, all founding members now get rank 2 unconditionally
+  (`MatchCheckerGuildCreation`) — fixed (rank logic not unit-testable without a live
+  guild/DB; the change is a deterministic constant).
+- **`ConcurrentModificationException` in `Character.getCrushRings`** (ring-look broadcast
+  during equip-exp gain on mob kill): the getter handed out the live backing list (and
+  sorted it in place) while `addCrushRing` could mutate it from cash-shop purchases. Fixed:
+  `getCrushRings`/`getFriendshipRings` return sorted snapshots — fixed
+  (`CharacterRingsTest`).
+- **Stale party invite blocked re-invite**: an unanswered `InviteCoordinator` invite made
+  subsequent `createInvite` calls for the same invitee + type silently no-op (putIfAbsent)
+  until the ~3-min timeout. Fixed: a new invite now replaces the stale pending one while
+  keeping the single-pending-invite-per-type invariant and the timeout — fixed
+  (`InviteCoordinatorTest`).
 
 ## Next additions (cheapest first)
 

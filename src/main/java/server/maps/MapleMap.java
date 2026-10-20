@@ -891,6 +891,15 @@ public class MapleMap {
     }
 
     private void instantiateItemDrop(MapItem mdrop) {
+        // Guarantee the item monitor (and its drop-expiry reaper) runs for every map kind.
+        // It used to be registered only from addPlayer on the first entering character
+        // (chrSize == 1); paths that populate event-instance maps through other routes (e.g.
+        // harness/event warps, or a monitor that self-stopped while drops remain) left drops
+        // on the map with no reaper, so expired items lingered unpickable forever.
+        if (!hasItemMonitor()) {
+            startItemMonitor();
+        }
+
         if (droppedItemCount.get() >= YamlConfig.config.server.ITEM_LIMIT_ON_MAP) {
             MapObject mapobj;
 

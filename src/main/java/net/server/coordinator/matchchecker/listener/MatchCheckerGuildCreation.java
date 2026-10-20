@@ -126,24 +126,22 @@ public class MatchCheckerGuildCreation implements MatchCheckerListenerRecipe {
                 leader.sendPacket(GuildPackets.showGuildInfo(leader));
                 leader.dropMessage(1, "You have successfully created a Guild.");
 
+                // Every player in this match has answered "accept" (the confirmation only
+                // completes when all entries accept), so all of them are co-founders: rank 2.
+                // The previous check keyed rank off the leader's party id read at founding
+                // time, which races with the concurrent Party.joinParty calls issued by each
+                // accepter's thread (and misranks accepters beyond the party's 6-member cap).
                 for (Character chr : matchPlayers) {
-                    boolean cofounder = chr.getPartyId() == partyid;
-
                     GuildCharacter mgc = chr.getMGC();
                     mgc.setGuildId(gid);
-                    mgc.setGuildRank(cofounder ? 2 : 5);
+                    mgc.setGuildRank(2);
                     mgc.setAllianceRank(5);
 
                     Server.getInstance().addGuildMember(mgc, chr);
 
                     if (chr.isLoggedinWorld()) {
                         chr.sendPacket(GuildPackets.showGuildInfo(chr));
-
-                        if (cofounder) {
-                            chr.dropMessage(1, "You have successfully cofounded a Guild.");
-                        } else {
-                            chr.dropMessage(1, "You have successfully joined the new Guild.");
-                        }
+                        chr.dropMessage(1, "You have successfully cofounded a Guild.");
                     }
 
                     chr.saveGuildStatus(); // update database

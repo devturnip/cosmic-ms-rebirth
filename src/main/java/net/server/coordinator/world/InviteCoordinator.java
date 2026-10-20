@@ -78,14 +78,22 @@ public class InviteCoordinator {
         }
 
         private boolean addRequest(Character from, Object referenceFrom, int targetCid, Object[] params) {
-            Object v = invites.putIfAbsent(targetCid, referenceFrom);
-            if (v != null) {    // there was already an entry
-                return false;
+            // A new invite replaces any stale pending invite for the same invitee + type.
+            // putIfAbsent semantics here made an unanswered invite silently block every
+            // subsequent invite for that invitee until the ~3min timeout evicted it.
+            // The single-pending-invite-per-type invariant is kept: lookups on accept are
+            // done by targetCid on these very tables, and answerInvite validates the
+            // reference, so a superseded sender's accept cleanly yields NOT_FOUND.
+            Object previous = invites.put(targetCid, referenceFrom);
+            if (previous != null) {
+                inviteFrom.replace(targetCid, from);
+                inviteTimeouts.replace(targetCid, 0);
+                inviteParams.replace(targetCid, params);
+            } else {
+                inviteFrom.put(targetCid, from);
+                inviteTimeouts.put(targetCid, 0);
+                inviteParams.put(targetCid, params);
             }
-
-            inviteFrom.put(targetCid, from);
-            inviteTimeouts.put(targetCid, 0);
-            inviteParams.put(targetCid, params);
             return true;
         }
 
