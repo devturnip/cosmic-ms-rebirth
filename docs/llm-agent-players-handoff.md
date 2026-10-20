@@ -16,8 +16,9 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 
 - **Branch:** `feature/llm-agent-players`. **Not merged to `master`** — a PR/merge is the final
   release step.
-- **HEAD:** `094c3ff89` (§11.1 closed; Tier-2 pathfinding landed 2026-10-20, §4.20; full history
-  in §10).
+- **HEAD:** `c972f78fa` (§11.1 closed; Tier-2 pathfinding landed 2026-10-20, §4.20; harness
+  rounds 6–8 live-verified PQ completions (KPQ/HPQ/LPQ/Ellin), interaction/social actions and
+  the guild/marriage/family flows; full history in §10).
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
   pursued; **M9 (party-quest compatibility audit) is closed** — companions are blocked from all
@@ -714,11 +715,10 @@ HIGH/MEDIUM findings were addressed:
   `Inventory#listCopy()` so ammo perception cannot race the action executor.
 
 Known low-risk remainder: `!agent search` and auto-matchmaking enable party-search
-auto-invites (documented); movement is clamped, foothold-aware waypoint stepping, not a full
-foothold/rope pathfinder
-(no rope/ladder model exists server-side); and there is latent cross-thread map mutation on very
-busy maps
-(soak-test target; map collections use read/write locks).
+auto-invites (documented); movement is Tier-2 (§4.20: cached nav graph, WZ-physics jump arcs,
+per-session manoeuvre state) — one documented oscillation case on 103000802 target (1100,-75)
+remains open with a debugging plan in §4.20; and there is latent cross-thread map mutation on
+very busy maps (soak-test target; map collections use read/write locks).
 
 ---
 
@@ -726,6 +726,13 @@ busy maps
 
 | Commit | Summary |
 | --- | --- |
+| `c972f78fa` | feat: tier-2 pathfinding — cached nav graph, WZ jump physics, manoeuvre state, real fragments (§4.20) |
+| `094c3ff89` | fix: skip null junior slots in family observation (live-found NPE) |
+| `06a8d63ab` | feat: ReactorHit/CatchItem/DropItem actions; Ellin clear fix + LPQ stage-3 seeding |
+| `3d1d8840c` | feat: guild/alliance/marriage/family harness actions — real packet flows, state-delta verification |
+| `f156d5cae` | fix: thread-safe script/EIM maps (quiz-state race), observe null-safety, ranking null guard |
+| `7790c5978` | feat: exact-position teleport, kill-with-drops loot fix; full KPQ E2E + live interaction probe |
+| `73aaa8dd9` | feat: PlayerInteraction actions — minigames + hired merchant, with verification |
 | `fd0c6a118` | docs: §11.1 closed — pathing depth, test gaps, per-weapon animation analysis |
 | `6ff7dd980` | test: §11.1 test gaps (ammo shop, opt-out gates, transfer channel) |
 | `f8064f241` | feat: foothold + rope pathfinding (`AgentPathing`) — §11.1 pathing depth |

@@ -219,11 +219,48 @@ inbound packets with full server validation), `AgentPerception` (structured worl
   listing bundles decrement)→withdraw (+1000)→take-back→close. Coverage table flipped to ✅.
 - Cleanup verified: `session_list` empty, zero `Agent-%` rows in `cosmic.characters`/`accounts`.
 
+### Round 7 (2025-10-20, social harness + multi-PQ completion + pathfinding Tier 2)
+
+- **Guild/alliance/marriage/family actions (3d1d8840c)** — 17 new real-packet actions with
+  state-delta verification and `guild`/`alliance`/`marriage`/`family` observation blocks, plus
+  `setup set_gender`. 2258 tests green. Skipped (documented): full wedding ceremony event flows,
+  family separation/pedigree, guild emblem/capacity, alliance rank/leader packets.
+- **PQ probes (HPQ/LPQ/Ellin)** — HPQ full organic pass; LPQ all 9 stages + bonus (stage 8's
+  C(9,5)=126 combo brute-forced); Ellin 6/7 exposing a genuine content bug: reactor 3001000
+  spawns golem **9300180** but `EllinPQ.js#isPoisonGolem` only cleared **9300182** (spawned by
+  nothing) — PQ was uncompletable for real players.
+- **Bug-fix pass (f156d5cae)** — thread-unsafe script/EIM maps (`playerGrid` was the quiz-state
+  corruption), `AgentPerception`/`HarnessObservation` null-safety for disposed characters,
+  `RankingLoginTask` null-timestamp guard. 2240 tests green.
+- **Gap-fill (06a8d63ab)** — `ReactorHit` (DAMAGE_REACTOR 0xCD), `CatchItem` (USE_CATCH_ITEM
+  0x51; Ellin's catch mob is really 9300175 — the NPC string naming 9300174 is cosmetic),
+  `DropItem` (ITEM_MOVE 0x47); Ellin `isPoisonGolem` fixed (accepts 9300180); LPQ stage-3
+  `drop_data` 9300007→4001022 qty 1→4 (8×4=32; vanilla per-rat qty unverifiable, documented).
+  2273 tests green; container rebuilt.
+- **Final live verification (094c3ff89 docs)** — Ellin full organic completion (proves the fix
+  at all three touchpoints); LPQ stages 2/5 organic via ReactorHit (stage 2 data gap found:
+  15 required vs 11 boxes — open decision); 7-session guild creation/disband live; engagement
+  (box 2240000, not 1112803) + family live; `describeFamily` null-junior NPE found and fixed.
+  2274 tests green.
+- **Tier-2 pathfinding (c972f78fa)** — cached per-map nav graph (`AgentNavGraph`) + A*, WZ
+  physics from `Physics.img.xml` (`AgentPhysics`: gravity 2000, jump 555, apex ≈77px — the old
+  100/120 constants allowed impossible jumps), per-session manoeuvre state
+  (`AgentMovementState`), real movement fragments incl. jump fragment + fh id. Live-proved on
+  KPQ stage 3: a routed multi-jump chain with mid-route fall recovery, previously impossible.
+  2286 tests green. Known issue: oscillation on 103000802 target (1100,-75), debug plan in
+  hand-off §4.20.
+
 ## 9. Open items / deferred
 
 - Deterministic scripted scenarios with hard assertions for CI (tier 2).
-- Non-core features from `feature_list.md` (PQ scenario scripts, expeditions, CPQ, guild PQ,
-  marriage, storage/Duey/minigame room actions) — cataloged in
-  `docs/test-harness-coverage.md`.
+- LPQ stage 2 data gap: 15 passes required but only 11 box-reactors exist (stage-5 pattern is
+  1 box = 1 pass, counts match) — needs a vanilla-fidelity decision (add 4 boxes in WZ vs
+  lower the requirement). Documented in `docs/test-harness-coverage.md`.
+- Pathfinding oscillation on 103000802 target (1100,-75) — debug plan in hand-off §4.20.
+- Minor live-found bugs (documented in `docs/test-harness-coverage.md`): expired drops linger
+  unpickable on 922010200; guild co-founder rank race; `getCrushRings` CME; stale party invite
+  blocks re-invite until timeout.
+- Non-core features from `feature_list.md` (expeditions, CPQ, guild PQ, wedding ceremonies,
+  family separation/pedigree) — cataloged in `docs/test-harness-coverage.md`.
 - Screenshot-free verification of client-side rendering is out of scope (server-side only).
 - Cash-shop *exit* (channel reconnect) — purchases verified; exit = end the session.
