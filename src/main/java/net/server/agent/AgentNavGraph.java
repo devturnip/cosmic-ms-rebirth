@@ -450,7 +450,7 @@ final class AgentNavGraph {
             return null;
         }
         int from = startNodeId(start, startFh);
-        int to = goalNodeId(goal);
+        int to = goalNodeId(goal, startFh);
         if (from < 0 || to < 0) {
             return null;
         }
@@ -525,8 +525,13 @@ final class AgentNavGraph {
     /**
      * The node the route aims at: on the foothold under {@code goal.x} whose surface is closest
      * to {@code goal.y} (mid-air goals are never chased — mirrors the legacy goal selection).
+     * When two surfaces tie (a mid-air goal exactly between levels, e.g. 103000802's
+     * (1100,-75) between the -135 cloud and the quirk-resolved -15 connector), the surface the
+     * agent already stands on wins: re-routing to an equidistant other level while the direct
+     * step reads the same target as "lower platform" is what made the agent ping-pong between
+     * the levels (§4.20).
      */
-    private int goalNodeId(Point goal) {
+    private int goalNodeId(Point goal, Foothold startFh) {
         Foothold bestFh = null;
         int bestDist = Integer.MAX_VALUE;
         for (Node node : nodes) {
@@ -535,7 +540,7 @@ final class AgentNavGraph {
                 continue;
             }
             int dist = Math.abs(node.fh().calculateFooting(goal.x) - goal.y);
-            if (dist < bestDist) {
+            if (dist < bestDist || (dist == bestDist && node.fh() == startFh)) {
                 bestDist = dist;
                 bestFh = node.fh();
             }

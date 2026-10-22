@@ -2,6 +2,8 @@ package net.server.agent;
 
 import client.Character;
 import io.netty.buffer.Unpooled;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import server.maps.Foothold;
 import server.maps.FootholdTree;
 import server.maps.Portal;
@@ -24,6 +26,8 @@ import java.awt.Rectangle;
  * teleport the agent across the map.
  */
 public final class AgentMovement {
+    private static final Logger log = LoggerFactory.getLogger(AgentMovement.class);
+
     private static final int WALK_STANCE_RIGHT = 2;
     private static final int WALK_STANCE_LEFT = 3;
     /** Idle/stand stances (see {@code StatEffect}): even = facing right, odd = facing left. */
@@ -210,7 +214,19 @@ public final class AgentMovement {
         if (below == null) {
             return false; // nothing to land on: give the pathfinder a chance (rope/jump route)
         }
-        moveTo(session, current.x, below.calculateFooting(current.x), maxStep, fallStance(chr));
+        int dropY = below.calculateFooting(current.x);
+        // Never drop PAST the target: when the surface below lies at or beyond the target's own
+        // y, descending lands the agent no closer to the target than standing still (the target
+        // is mid-air over this column — e.g. 103000802's connector slope (1080,-15)→(1170,-75),
+        // which the server's integer-division calculateFooting resolves as a flat -15 platform,
+        // tying the -135 cloud and the phantom -15 surface exactly 60px from a (1100,-75)
+        // target). Honouring that drop made the direct step fight the router's "already there"
+        // verdict and cycle the agent between the levels forever. The router owns deliberate
+        // repositioning; the direct step only descends when it strictly closes the distance.
+        if (Math.abs(dropY - target.y) >= Math.abs(current.y - target.y)) {
+            return false;
+        }
+        moveTo(session, current.x, dropY, maxStep, fallStance(chr));
         return true;
     }
 
@@ -465,6 +481,18 @@ public final class AgentMovement {
             } else {
                 stance = clamped.x < fromX ? WALK_STANCE_LEFT : WALK_STANCE_RIGHT;
             }
+        }
+        // Defensive physics guard (hand-off §4.20): a jump-stance step that LIFTS the agent more
+        // than the v83 jump apex is impossible — no real arc reaches it. Clamp the lift so a
+        // stale or malformed hop can never move the agent impossibly; the agent is left briefly
+        // airborne and recovers by falling onto real ground on the next tick. Slope walks
+        // (walk stances) and rope climbs (climb stance) are legitimate lifts and are exempt.
+        int maxLift = (int) AgentPhysics.JUMP_APEX_PX + 1;
+        if ((stance == JUMP_STANCE_LEFT || stance == JUMP_STANCE_RIGHT)
+                && fromY - clamped.y > maxLift) {
+            log.debug("Agent jump-stance lift {}px from ({},{}) exceeds the v83 apex ({}px): clamped",
+                    fromY - clamped.y, fromX, fromY, maxLift);
+            clamped.y = fromY - maxLift;
         }
         session.dispatchInbound(RecvOpcode.MOVE_PLAYER,
                 buildMovePacket(clamped.x, clamped.y, stance, fromX, fromY,

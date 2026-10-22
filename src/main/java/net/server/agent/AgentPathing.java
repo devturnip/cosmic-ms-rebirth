@@ -364,7 +364,7 @@ public final class AgentPathing {
     static List<Hop> findRoute(List<Foothold> footholds, List<Ladder> ladders, Point current,
             Foothold ground, Ladder onLadder, Point target) {
         int n = footholds.size();
-        int goal = goalFoothold(footholds, target);
+        int goal = goalFoothold(footholds, target, ground);
         if (goal < 0) {
             return List.of(); // no platform under the target: never chase positions mid-air
         }
@@ -577,8 +577,13 @@ public final class AgentPathing {
         return ladderAt(ladders(map), current) != null;
     }
 
-    /** The foothold under {@code target.x} whose surface is closest to {@code target.y}. */
-    private static int goalFoothold(List<Foothold> footholds, Point target) {
+    /**
+     * The foothold under {@code target.x} whose surface is closest to {@code target.y}. When two
+     * surfaces tie (a mid-air target exactly between levels), the agent's own support wins —
+     * routing to an equidistant other level while the direct step reads the same target as
+     * "lower platform" ping-pongs (§4.20, 103000802).
+     */
+    private static int goalFoothold(List<Foothold> footholds, Point target, Foothold own) {
         int best = -1;
         int bestDist = Integer.MAX_VALUE;
         for (int i = 0; i < footholds.size(); i++) {
@@ -589,7 +594,7 @@ public final class AgentPathing {
                 continue;
             }
             int dist = Math.abs(fh.calculateFooting(target.x) - target.y);
-            if (dist < bestDist) {
+            if (dist < bestDist || (dist == bestDist && fh == own)) {
                 best = i;
                 bestDist = dist;
             }

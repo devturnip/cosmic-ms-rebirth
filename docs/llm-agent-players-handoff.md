@@ -428,14 +428,32 @@ constants, graph cache thread-safety, navigation completeness on KPQ 103000801�
 930000500 from the spawn portal, and the walk-to-takeoff gap jump the old pathfinder failed) plus
 the pre-existing `AgentMovementFootholdTest` / `AgentMovementWzRuntimeTest` / `AgentMovementPathingTest`.
 
-**Known issue (open):** on KPQ 103000802, driving `MoveTo (1100,-75)` from the -135 cloud chain
-makes the agent cycle between the -135/-15/-75 levels instead of settling: the trace shows a
-120px vertical jump-stance move (e.g. `(1100,-135) → (1100,-15)`) that physics forbids (apex 77)
-and whose source hop was not identified within the time box; `nextSurfaceBelow`'s
-findBelow-coverage validation and the chain-walking lower branch (both added for it) are in place,
-and other targets on the same map — including a full rope/jump climb with a mid-route fall and
-recovery to `(719,-236)` — complete correctly. Follow-up: log the executed hop type/via/dest at
-emission time inside `executeHop` to catch the offending edge. Note also that the server's own
+**Known issue (RESOLVED 2026-10-22):** the 103000802 oscillation on `MoveTo (1100,-75)` from the
+-135 cloud chain is fixed. Root cause: the map's connector slope fh 50 `(1080,-15)→(1170,-75)`
+resolves through the server's integer-division `calculateFooting` as a **flat platform at y=-15**
+spanning x=1080..1170, so the target `(1100,-75)` is mid-air: the real -135 cloud (fh 9) and the
+quirk-resolved -15 surface tie at exactly 60px from it. Goal selection broke the tie to fh 9 ("the
+agent is already there"), while the direct step read the same target as "on a lower platform" and
+dropped the agent 120px straight down onto the phantom -15 surface (the "120px jump-stance move" —
+falls reuse the jump/air stance); from -15 the only route back was the long left-hand climb, which
+returned the agent to (1100,-135), where the drop repeated — an endless cycle. Three guards now
+enforce the §4.20 invariant (no hop beyond what `AgentPhysics` allows):
+
+1. `AgentMovement.directStep` never drops straight down onto a surface at or beyond the target's
+   own y (a drop must strictly close vertical distance to the target); deliberate repositioning is
+   the router's job. This removes the guilty emission.
+2. `AgentMovement.moveTo` defensively clamps any jump-stance step that would lift the agent more
+   than the v83 apex (walk stances on slopes and climb-stance rope steps are legitimate lifts and
+   are exempt) — a bad edge can never move the agent impossibly; debug-logged when it fires.
+3. Goal selection (`AgentNavGraph.goalNodeId`, legacy `AgentPathing.goalFoothold`) breaks exact
+   distance ties toward the surface the agent already stands on, so the router and the direct step
+   can no longer disagree about where "there" is.
+
+Falsified by `AgentPathingTier2Test.midAirTargetAboveAQuirkResolvedSlopeSettlesWithoutOscillation`
+(200-tick drive terminates grounded on the -135 cloud, no lift beyond the apex — fails with 180
+oscillating steps without the fix) and
+`ropeClimbFallRecoveryTargetStillCompletesOn103000802` (the full traverse to `(719,-236)` still
+completes; live-verified: 13 MoveTo ticks, every hop ≤60px). Note also that the server's own
 integer-division `calculateFooting` resolves shallow slopes (`|dy| < |dx|`) as flat at `p1.y`, so
 a "-243" sloped platform's real surface can be y=-186 depending on vertex order — targets must be
 chosen on the server-resolved surface (the graph's nodes already are).
@@ -718,8 +736,8 @@ HIGH/MEDIUM findings were addressed:
 
 Known low-risk remainder: `!agent search` and auto-matchmaking enable party-search
 auto-invites (documented); movement is Tier-2 (§4.20: cached nav graph, WZ-physics jump arcs,
-per-session manoeuvre state) — one documented oscillation case on 103000802 target (1100,-75)
-remains open with a debugging plan in §4.20; and there is latent cross-thread map mutation on
+per-session manoeuvre state) — the 103000802 oscillation was root-caused and fixed (see §4.20,
+2026-10-22); and there is latent cross-thread map mutation on
 very busy maps (soak-test target; map collections use read/write locks).
 
 ---

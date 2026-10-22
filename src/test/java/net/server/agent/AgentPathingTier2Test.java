@@ -68,6 +68,130 @@ class AgentPathingTier2Test {
     }
 
     // -----------------------------------------------------------------------------------------
+    // (f) §4.20 known issue: oscillation on 103000802 target (1100,-75)
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void midAirTargetAboveAQuirkResolvedSlopeSettlesWithoutOscillation() throws Exception {
+        // The §4.20 known issue: MoveTo (1100,-75) on KPQ 103000802 from the -135 cloud chain
+        // cycled the agent between the -135/-15/-75 levels forever, via repeated 120px
+        // jump-stance (fall-stance) moves (1100,-135) → (1100,-15). The connector slope
+        // fh 50 (1080,-15)→(1170,-75) resolves through the server's integer-division
+        // calculateFooting as a FLAT platform at y=-15 spanning x=1080..1170, so (1100,-75) is
+        // mid-air: the real -135 cloud (fh 9) and the quirk-resolved -15 surface tie at exactly
+        // 60px from the target. The direct step must not drop the agent onto the phantom surface
+        // past the target (the router already considers the agent arrived), and no emitted hop
+        // may exceed what v83 physics allows (apex ≈77px).
+        assumeWz();
+        int mapId = 103000802;
+        FootholdTree tree = loadFootholds(mapId);
+        assumeTree(tree);
+        AgentNavGraph graph = AgentNavGraph.build(tree, parseLadders(mapId));
+        assertNotNull(graph);
+        AgentNavGraph.putGraph(mapId, graph);
+        AgentPathing.putLadders(mapId, parseLadders(mapId));
+
+        int[] position = {1095, -135}; // the -135 cloud chain (fh 9: x 1047..1113)
+        List<Integer> stances = new ArrayList<>();
+        AgentSession session = statefulSession(tree, mapId, position, stances);
+
+        DriveResult result = driveUntilQuiet(session, position, new Point(1100, -75), 200, 50);
+
+        assertTrue(result.quietTicks() >= 0,
+                "the agent must stop emitting steps (no oscillation), final=" + position
+                        + " steps=" + result.steps());
+        assertTrue(result.steps() <= 10,
+                "settlement must be quick (the -135 cloud is already the tied goal), steps="
+                        + result.steps());
+        // Settled grounded on a real server-resolved surface at the target column.
+        assertEquals(1100, position[0], "the agent must hold the target column");
+        Foothold support = supportingFoothold(tree, new Point(position[0], position[1]));
+        assertNotNull(support, "the agent must end grounded, got " + position[0] + "," + position[1]);
+        assertEquals(-135, position[1],
+                "the agent must settle on the tied nearest surface (the -135 cloud), got "
+                        + position[1]);
+        // No emitted step may lift the agent beyond the v83 jump apex.
+        assertNoImpossibleLift(result, -135, stances);
+    }
+
+    @Test
+    void ropeClimbFallRecoveryTargetStillCompletesOn103000802() throws Exception {
+        // The other documented-correct target on the same map: the rope/jump climb down to
+        // (719,-236) with mid-route fall recovery must still complete.
+        assumeWz();
+        int mapId = 103000802;
+        FootholdTree tree = loadFootholds(mapId);
+        assumeTree(tree);
+        AgentNavGraph graph = AgentNavGraph.build(tree, parseLadders(mapId));
+        assertNotNull(graph);
+        AgentNavGraph.putGraph(mapId, graph);
+        AgentPathing.putLadders(mapId, parseLadders(mapId));
+
+        Point spawn = spawnPoint(mapId, tree);
+        assertNotNull(spawn);
+        int[] position = {spawn.x, spawn.y};
+        List<Integer> stances = new ArrayList<>();
+        AgentSession session = statefulSession(tree, mapId, position, stances);
+
+        DriveResult result = driveUntilQuiet(session, position, new Point(719, -236), 400, 50);
+
+        assertEquals(719, position[0], "the agent must reach the target column");
+        assertEquals(-236, position[1], "the agent must reach the server-resolved target surface");
+        assertNotNull(supportingFoothold(tree, new Point(position[0], position[1])),
+                "the agent must end grounded, got " + position[0] + "," + position[1]);
+        assertTrue(result.quietTicks() >= 0, "the agent must terminate, final=" + position);
+        assertNoImpossibleLift(result, spawn.y, stances);
+    }
+
+    /** Drive outcome: the emitted steps, the quiet-tick count (-1 = never settled), total steps. */
+    private record DriveResult(List<Point> path, int quietTicks, int steps) {
+    }
+
+    /**
+     * Drives up to {@code maxTicks} MoveTo ticks, stopping once {@code quietTicks} consecutive
+     * ticks emitted no step (settled).
+     */
+    private static DriveResult driveUntilQuiet(AgentSession session, int[] position, Point target,
+            int maxTicks, int quietTicks) {
+        List<Point> path = new ArrayList<>();
+        Point[] emitted = emittedBox(session);
+        int quiet = 0;
+        for (int i = 0; i < maxTicks && quiet < quietTicks; i++) {
+            int px = position[0];
+            int py = position[1];
+            emitted[0] = null;
+            AgentMovement.moveToSmart(session, target, MAX_STEP);
+            Point next = emitted[0];
+            if (next != null) {
+                assertTrue(Math.abs(next.x - px) <= MAX_STEP && Math.abs(next.y - py) <= MAX_STEP,
+                        "step exceeded MAX_STEP: " + next + " from " + new Point(px, py));
+                position[0] = next.x;
+                position[1] = next.y;
+                path.add(new Point(next.x, next.y));
+                quiet = 0;
+            } else {
+                quiet++;
+            }
+        }
+        return new DriveResult(path, quiet >= quietTicks ? quiet : -1, path.size());
+    }
+
+    /** No emitted step may lift the agent more than the v83 jump apex (climb steps exempt). */
+    private static void assertNoImpossibleLift(DriveResult drive, int startY, List<Integer> stances) {
+        int prevY = startY;
+        List<Point> path = drive.path();
+        for (int i = 0; i < path.size(); i++) {
+            Point p = path.get(i);
+            int lift = prevY - p.y; // > 0 when the step rose
+            boolean climb = stances.size() > i && stances.get(i) == AgentMovement.CLIMB_STANCE;
+            assertTrue(climb || lift <= (int) AgentPhysics.JUMP_APEX_PX + 1,
+                    "emitted a lift of " + lift + "px (apex "
+                            + (int) AgentPhysics.JUMP_APEX_PX + ") at step " + i + " -> " + p);
+            prevY = p.y;
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // (a) Limbo recovery on slopes
     // -----------------------------------------------------------------------------------------
 
