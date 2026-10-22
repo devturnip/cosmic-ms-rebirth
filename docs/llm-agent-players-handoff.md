@@ -16,9 +16,10 @@ whose perception is a mix of explicit event hooks and a range-limited map snapsh
 
 - **Branch:** `feature/llm-agent-players`. **Not merged to `master`** — a PR/merge is the final
   release step.
-- **HEAD:** `c972f78fa` (§11.1 closed; Tier-2 pathfinding landed 2026-10-20, §4.20; harness
-  rounds 6–8 live-verified PQ completions (KPQ/HPQ/LPQ/Ellin), interaction/social actions and
-  the guild/marriage/family flows; full history in §10).
+- **HEAD:** `b92093ece` (§11.1 closed; Tier-2 pathfinding landed 2026-10-20, §4.20; harness
+  rounds 6–9: PQ completions (KPQ/HPQ/LPQ/Ellin), interaction/social actions,
+  guild/marriage/family flows, minor-bug batch (b7aaa532a) and the LPQ stage-2 WZ fix
+  (b78a53545, live-verified); full history in §10).
 - **Status:** engine M0–M4 + player opt-out + player-facing **ephemeral companions** M5–M7 are
   shipped and independently verified. M8 (idle despawn / uptime caps) is intentionally not
   pursued; **M9 (party-quest compatibility audit) is closed** — companions are blocked from all
@@ -190,8 +191,9 @@ arrive via lightweight hooks (see §5).
 - `src/test/java/net/server!agent/*` — 23 test classes (85 tests), plus the M9 guard, pathing
   (`AgentMovementPathingTest`, incl. a real-`Map.wz` rope-route falsification) and test-gap
   suites (`AgentCombatAmmoShopTest`, `AgentManagerOptoutGateTest`,
-  `AgentManagerTransferChannelTest`) — 2173 tests as of 2026-10-19, 2286 as of 2026-10-20
-  (incl. `AgentPathingTier2Test`, §4.20).
+  `AgentManagerTransferChannelTest`) — 2173 tests as of 2026-10-19, 2296 as of 2026-10-20
+  (incl. `AgentPathingTier2Test`, §4.20, and the MapleMapDropExpiry/CharacterRings/
+  InviteCoordinator regression suites).
 - `docs/llm-agent-players-plan.md`, this file.
 
 ### Modified (small, surgical)
@@ -726,6 +728,9 @@ very busy maps (soak-test target; map collections use read/write locks).
 
 | Commit | Summary |
 | --- | --- |
+| `b92093ece` | docs: LPQ stage-2 fix live-verified — 15 boxes, 15 passes, stage clear |
+| `b78a53545` | fix(data): add 4 box-reactors to LPQ stage 2 (922010200) — stage was organically uncompletable |
+| `b7aaa532a` | fix: drop-expiry reaping, guild founder rank race, rings CME, stale invite replacement |
 | `c972f78fa` | feat: tier-2 pathfinding — cached nav graph, WZ jump physics, manoeuvre state, real fragments (§4.20) |
 | `094c3ff89` | fix: skip null junior slots in family observation (live-found NPE) |
 | `06a8d63ab` | feat: ReactorHit/CatchItem/DropItem actions; Ellin clear fix + LPQ stage-3 seeding |

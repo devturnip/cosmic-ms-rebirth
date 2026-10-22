@@ -249,6 +249,15 @@ inbound packets with full server validation), `AgentPerception` (structured worl
   KPQ stage 3: a routed multi-jump chain with mid-route fall recovery, previously impossible.
   2286 tests green. Known issue: oscillation on 103000802 target (1100,-75), debug plan in
   hand-off §4.20.
+- **Minor-bug batch (b7aaa532a)** — four live-found fixes: drop-expiry reaper now guaranteed
+  whenever a drop exists (was gated behind `addPlayer`'s first-player gate); guild founding
+  rank race (all founding members unconditional rank 2); `getCrushRings`/`getFriendshipRings`
+  return sorted snapshots (CME); stale party invites now replaced instead of putIfAbsent.
+  10 new regression tests, 2296 green.
+- **LPQ stage-2 data fix (b78a53545) + live verification (b92093ece docs)** — 4 box-reactors
+  added to 922010200 (11→15, authentic 1-box-1-pass pattern); 5-session probe: all 15 boxes
+  broke → 15 passes → hand-in → `15stageclear` → stage 3. Open decision closed; client-side
+  WZ mirror still pending (flagged in coverage doc).
 
 ## 9. Open items / deferred
 
